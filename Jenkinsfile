@@ -1,0 +1,52 @@
+pipeline {
+    agent any
+    options {
+        buildDiscarder(logRotator(numToKeepStr: "10", artifactNumToKeepStr: "1"))
+    }
+    stages {
+        stage("Test") {
+            steps {
+                script {
+                    docker.image("rust:1-trixie").inside("--user=root") {
+                        sh "cargo test -p fsync-core"
+                    }
+                }
+            }
+        }
+        stage("Build") {
+            steps {
+                script {
+                    docker.image("rust:1-trixie").inside("--user=root") {
+                        sh "apt-get update && apt-get install -y libgtk-3-dev libayatana-appindicator3-dev"
+                        sh "cargo build --release -p fsync-linux"
+                    }
+                    docker.image("rust:1-trixie").inside("--user=root") {
+                        sh "apt-get update && apt-get install -y gcc-mingw-w64-x86-64"
+                        sh "rustup target add x86_64-pc-windows-gnu"
+                        sh "cargo build --release --target x86_64-pc-windows-gnu -p fsync-windows"
+                    }
+                    docker.image("rust:1-trixie").inside("--user=root") {
+                        sh "apt-get update && apt-get install -y openjdk-21-jdk-headless unzip"
+                        sh "mkdir -p /opt/android-sdk/cmdline-tools && curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/tools.zip && unzip -q /tmp/tools.zip -d /opt/android-sdk/cmdline-tools && mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest"
+                        sh "yes | /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null"
+                        sh "/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018'"
+                        sh "rustup target add aarch64-linux-android x86_64-linux-android && cargo install cargo-ndk"
+                        sh "cd crates/fsync-android/android && ANDROID_HOME=/opt/android-sdk ./gradlew assembleDebug"
+                    }
+                }
+            }
+        }
+        stage("Release") {
+            steps {
+                sh "scp target/release/fsync-linux jenkins@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/fsync-linux-x86_64"
+                sh "scp target/x86_64-pc-windows-gnu/release/fsync-windows.exe jenkins@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/fsync-windows-x86_64.exe"
+                sh "scp crates/fsync-android/android/app/build/outputs/apk/debug/app-debug.apk jenkins@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/fsync-android.apk"
+            }
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
