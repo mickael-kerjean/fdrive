@@ -1,80 +1,25 @@
-# Filestash Windows Cloud Sync Provider (C++)
+# What is fsync?
 
-Native C++ implementation using Windows Cloud Files API - no driver installation required.
+This is the native drive client using [Filestash](https://www.filestash.app) as a backend.
 
-## Quick Start
-
-### Requirements
-- Windows 10 version 1809+
-- Visual Studio 2019+ with C++ Desktop Development workload
-- vcpkg (for dependencies)
-
-### Build
-
-**Option 1: Automatic (recommended)**
-```bash
-build.bat
-```
-
-**Option 2: Manual**
-```bash
-# Install dependency
-vcpkg install nlohmann-json:x64-windows
-
-# Configure (CMake auto-detects Visual Studio)
-mkdir build && cd build
-cmake .. -A x64 -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake
-
-# Build
-cmake --build . --config Release
-```
-
-**Option 3: Explicit VS version**
-```bash
-# For Visual Studio 2026 (version 18)
-cmake .. -G "Visual Studio 18 2026" -A x64 -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake
-
-# For Visual Studio 2022 (version 17)
-cmake .. -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake
-```
-
-Binary will be at: `build\Release\FilestashSync.exe`
-
-### Troubleshooting
-
-**CMake can't find Visual Studio:**
-- Run from "Developer Command Prompt for VS" (search in Start menu)
-- Or run: `"C:\Program Files\Microsoft Visual Studio\2026\Community\Common7\Tools\VsDevCmd.bat"`
-
-**VCPKG_ROOT not set:**
-```bash
-set VCPKG_ROOT=C:\path\to\vcpkg
-```
-
-### Run
-
-```bash
-FilestashSync.exe --url https://filestash.example.com --token YOUR_TOKEN C:\Users\Name\Filestash
-```
-
-**Important:** The sync root directory must be empty.
-
-## What Works
-
-- ✅ List directories
-- ✅ Read files (on-demand download)
-- ✅ File Explorer integration (appears in navigation pane)
-- ✅ Download progress indicators
-- ❌ File upload (not implemented)
-- ❌ Rename/delete sync (not implemented)
-- ❌ Bidirectional sync (not implemented)
+![screenshot](.assets/screenshot.png)
 
 ## Architecture
 
-- **main.cpp**: CLI entry point
-- **FilestashClient.cpp**: HTTP client (WinHTTP)
-- **CloudSyncProvider.cpp**: Cloud Files API integration (cfapi.h)
+Ports and adapters. The core owns all policy, everything that decides *what moves where* lives there, once. Each platform crate adapts one filesystem technology to it.
 
-## Why C++ instead of C#?
+| crate | technology |
+|---|---|
+| `fsync-core` | `Engine` (ledger, conflict rules, upload scheduler), the `LocalTree` port, the Filestash HTTP sdk |
+| `fsync-linux` | FUSE, GTK |
+| `fsync-windows` | Win32, CfAPI, ReadDirectoryChangesW, IShellWindows |
+| `fsync-mac` | FileProvider |
+| `fsync-ios` | FileProvider |
+| `fsync-android` | Storage Access Framework (Kotlin wire, UniFFI) |
 
-C++ uses `#include <cfapi.h>` directly - no need to manually declare 300+ lines of enums/structs/P/Invoke signatures like in C#.
+Two adapter families:
+
+- **we are the filesystem** (linux, android, ios): online-first, listings answered live, content cached on open, edits pushed back by the core's scheduler; nothing durable beyond that cache.
+- **the system owns the replica** (windows, mac): placeholders materialize on demand; the only durable local state is the spool of unpushed edits.
+
+The model in one line: the filesystems are the state, the ledger is the memory of where local and remote last agreed, dirty is the debt owed upward, and conflicts are detected by comparing the server against that memory. Dirty wins locally; deletes and renames are verdicts (server first, a failure vetoes); a conflicting upload diverts to a "(conflicted copy)"; an unreadable ledger quarantines the cache instead of pruning it.
