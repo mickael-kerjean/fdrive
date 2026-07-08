@@ -1,12 +1,25 @@
 # What is fsync?
 
-This is the native drive client using [Filestash](https://www.filestash.app) as a backend.
+Filestash Sync brings the Dropbox experience to any storage backend, from S3 and SFTP to NFS, SMB, FTP, SMB, IPFS and beyond.
 
-![screenshot](.assets/screenshot.png)
+<p align="center">
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-sync-windows.png" alt="windows screenshot" />
+    <em>Windows screenshot</em>
+</p>
+
+<p align="center">
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-sync-android.png" alt="android screenshot" />
+    <em>Android screenshot</em>
+</p>
+
+<p align="center">
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-sync-linux.png" alt="linux screenshot">
+    <em>Linux screenshot</em>
+</p>
 
 ## Architecture
 
-Ports and adapters. The core owns all policy, everything that decides *what moves where* lives there, once. Each platform crate adapts one filesystem technology to it.
+We use the hexagonal architecture / ports and adapters pattern. The core owns all policy, everything that decides *what moves where* lives there, once. Each platform adapts its own UI and filesystem technology to it.
 
 | crate | technology |
 |---|---|
