@@ -1,4 +1,4 @@
-﻿# End-to-end tests for fsync-windows against a live Filestash server.
+﻿# End-to-end tests for fdrive-windows against a live Filestash server.
 #
 #
 
@@ -12,7 +12,7 @@ $ProgressPreference = "SilentlyContinue"
 
 $Base = "http://192.168.68.105:8334"
 $Root = "$env:USERPROFILE\Filestash"
-$LogFile = "$env:LOCALAPPDATA\Filestash\fsync.log"
+$LogFile = "$env:LOCALAPPDATA\Filestash\fdrive.log"
 $E2E = "e2e"
 $LocalE2E = Join-Path $Root "folderA\$E2E"
 $SrvE2E = "/folderA/$E2E"
@@ -25,7 +25,7 @@ $script:Shell = New-Object -ComObject Shell.Application
 function Enc([string]$s) { [uri]::EscapeDataString($s) }
 
 function Srv-Auth {
-    $jar = "$env:TEMP\fsync-e2e-cookies.txt"
+    $jar = "$env:TEMP\fdrive-e2e-cookies.txt"
     curl.exe -s -c $jar -X POST -H "X-Requested-With: SDKHttpRequest" `
         -d "user=test&password=test" "$Base/api/session/auth/?label=virtualfs" | Out-Null
     $line = Get-Content $jar | Select-String "`tauth`t"
@@ -43,7 +43,7 @@ function Srv-Call([string]$Method, [string]$Url, [string]$BodyFile) {
 }
 
 function Srv-Save([string]$Path, [string]$Content) {
-    $tmp = "$env:TEMP\fsync-e2e-body.bin"
+    $tmp = "$env:TEMP\fdrive-e2e-body.bin"
     [IO.File]::WriteAllText($tmp, $Content, (New-Object Text.UTF8Encoding $false))
     $r = Srv-Call "POST" "/api/files/cat?path=$(Enc $Path)" $tmp
     if ($r -notmatch '"status": "ok"') { throw "save $Path`: $r" }
@@ -202,7 +202,7 @@ function Test([string]$Name, [scriptblock]$Body) {
         $failure = $_.Exception.Message
     }
     $errors = @(Log-Since $mark | Where-Object { $_ -match "level=ERROR|panic" })
-    $alive = [bool](Get-Process fsync-windows -ErrorAction SilentlyContinue)
+    $alive = [bool](Get-Process fdrive-windows -ErrorAction SilentlyContinue)
     if (-not $alive) { $failure = "CLIENT PROCESS DIED: $failure" }
     if ($errors.Count -gt 0 -and -not $failure) { $failure = "log errors: $($errors -join ' | ')" }
     if ($failure) {
@@ -230,8 +230,8 @@ function Summary {
 
 
 Srv-Auth
-if (-not (Get-Process fsync-windows -ErrorAction SilentlyContinue)) {
-    throw "fsync-windows is not running"
+if (-not (Get-Process fdrive-windows -ErrorAction SilentlyContinue)) {
+    throw "fdrive-windows is not running"
 }
 Close-Views
 Srv-Rm "$SrvE2E/"
@@ -463,7 +463,7 @@ Test "unicode-names" {
 }
 
 Test "big-file-roundtrip" {
-    $big = "$env:TEMP\fsync-e2e-big.bin"
+    $big = "$env:TEMP\fdrive-e2e-big.bin"
     $bytes = New-Object byte[] (5MB)
     (New-Object Random 42).NextBytes($bytes)
     [IO.File]::WriteAllBytes($big, $bytes)
