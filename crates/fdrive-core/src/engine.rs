@@ -136,19 +136,25 @@ impl<T: LocalTree> Engine<T> {
     }
 
     pub fn overlay(&self, dir: &RelPath, mut listing: Vec<FileInfo>) -> Vec<FileInfo> {
-        let ledger = self.ledger();
-        for path in ledger.dirty.iter() {
-            if ledger.local_only(path) && path.parent_or_root() == *dir {
-                let name = path.name();
-                if !listing.iter().any(|e| e.name == name) {
-                    if let Ok(md) = fs::metadata(self.tree.backing(path)) {
-                        listing.push(FileInfo {
-                            name: name.to_string(),
-                            kind: crate::sdk::FileType::File,
-                            size: Some(md.len()),
-                            mtime: md.modified().ok(),
-                        });
-                    }
+        let extras: Vec<RelPath> = {
+            let ledger = self.ledger();
+            ledger
+                .dirty
+                .iter()
+                .filter(|p| ledger.local_only(p) && p.parent_or_root() == *dir)
+                .cloned()
+                .collect()
+        };
+        for path in extras {
+            let name = path.name();
+            if !listing.iter().any(|e| e.name == name) {
+                if let Ok(md) = fs::metadata(self.tree.backing(&path)) {
+                    listing.push(FileInfo {
+                        name: name.to_string(),
+                        kind: crate::sdk::FileType::File,
+                        size: Some(md.len()),
+                        mtime: md.modified().ok(),
+                    });
                 }
             }
         }
