@@ -1,0 +1,4 @@
+Generated/
+Fdrive.xcframework/
+*.xcodeproj/
+build/
