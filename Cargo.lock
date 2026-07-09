@@ -826,6 +826,104 @@ dependencies = [
 ]
 
 [[package]]
+name = "fdrive-android"
+version = "0.1.0"
+dependencies = [
+ "fdrive-core",
+ "httpmock",
+ "log",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "uniffi",
+]
+
+[[package]]
+name = "fdrive-core"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-util",
+ "httpdate",
+ "httpmock",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "toml 1.1.2+spec-1.1.0",
+ "url",
+]
+
+[[package]]
+name = "fdrive-ios"
+version = "0.1.0"
+dependencies = [
+ "fdrive-core",
+ "httpmock",
+ "log",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "uniffi",
+]
+
+[[package]]
+name = "fdrive-linux"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "fdrive-core",
+ "fuser",
+ "futures-util",
+ "glib",
+ "gtk",
+ "httpmock",
+ "libayatana-appindicator",
+ "libc",
+ "log",
+ "regex",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "fdrive-mac"
+version = "0.1.0"
+dependencies = [
+ "fdrive-core",
+ "futures-util",
+ "libc",
+ "tokio",
+]
+
+[[package]]
+name = "fdrive-windows"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "embed-resource",
+ "env_logger",
+ "fdrive-core",
+ "futures-util",
+ "log",
+ "resvg",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 1.1.2+spec-1.1.0",
+ "url",
+ "windows",
+ "windows-registry",
+]
+
+[[package]]
 name = "field-offset"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -885,104 +983,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88a41f105fe1d5b6b34b2055e3dc59bb79b46b48b2040b9e6c7b4b5de097aa41"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "fsync-android"
-version = "0.1.0"
-dependencies = [
- "fsync-core",
- "httpmock",
- "log",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "uniffi",
-]
-
-[[package]]
-name = "fsync-core"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "futures-core",
- "futures-util",
- "httpdate",
- "httpmock",
- "log",
- "reqwest",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "toml 1.1.2+spec-1.1.0",
- "url",
-]
-
-[[package]]
-name = "fsync-ios"
-version = "0.1.0"
-dependencies = [
- "fsync-core",
- "httpmock",
- "log",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "uniffi",
-]
-
-[[package]]
-name = "fsync-linux"
-version = "0.1.0"
-dependencies = [
- "clap",
- "env_logger",
- "fsync-core",
- "fuser",
- "futures-util",
- "glib",
- "gtk",
- "httpmock",
- "libayatana-appindicator",
- "libc",
- "log",
- "regex",
- "serde",
- "serde_json",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "fsync-mac"
-version = "0.1.0"
-dependencies = [
- "fsync-core",
- "futures-util",
- "libc",
- "tokio",
-]
-
-[[package]]
-name = "fsync-windows"
-version = "0.1.0"
-dependencies = [
- "clap",
- "embed-resource",
- "env_logger",
- "fsync-core",
- "futures-util",
- "log",
- "resvg",
- "serde",
- "serde_json",
- "tokio",
- "toml 1.1.2+spec-1.1.0",
- "url",
- "windows",
- "windows-registry",
 ]
 
 [[package]]

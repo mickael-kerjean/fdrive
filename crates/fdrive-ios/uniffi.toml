@@ -1,0 +1,4 @@
+[bindings.swift]
+module_name = "Fdrive"
+ffi_module_name = "fdriveFFI"
+cdylib_name = "fdrive_ios"
