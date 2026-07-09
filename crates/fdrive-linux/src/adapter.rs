@@ -146,6 +146,23 @@ impl Adapter {
         (at.elapsed() < META_TTL).then(|| listing.clone())
     }
 
+    fn entry(&self, path: &RelPath) -> io::Result<Option<FileInfo>> {
+        let parent = path.parent_or_root();
+        {
+            let meta = self.engine.tree().meta.lock().unwrap();
+            if let Some((at, listing)) = meta.get(&parent) {
+                if at.elapsed() < META_TTL {
+                    return Ok(listing.iter().find(|e| e.name == path.name()).cloned());
+                }
+            }
+        }
+        match self.ls(&parent) {
+            Ok(listing) => Ok(listing.iter().find(|e| e.name == path.name()).cloned()),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
+
     pub fn attr(&self, path: &RelPath) -> io::Result<Option<(bool, u64, SystemTime)>> {
         if path.is_root() {
             return Ok(Some((true, 0, SystemTime::UNIX_EPOCH)));
@@ -157,12 +174,7 @@ impl Adapter {
                 md.modified().unwrap_or(SystemTime::UNIX_EPOCH),
             )));
         }
-        let listing = match self.ls(&path.parent_or_root()) {
-            Ok(listing) => listing,
-            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(err) => return Err(err),
-        };
-        Ok(listing.iter().find(|e| e.name == path.name()).map(|e| {
+        Ok(self.entry(path)?.map(|e| {
             (
                 e.kind == FileType::Directory,
                 e.size.unwrap_or(0),
@@ -186,10 +198,8 @@ impl Adapter {
     }
 
     fn content_current(&self, path: &RelPath) -> bool {
-        if let Ok(listing) = self.ls(&path.parent_or_root()) {
-            if let Some(entry) = listing.iter().find(|e| e.name == path.name()) {
-                return self.engine.content_current(path, Observation::of(entry));
-            }
+        if let Ok(Some(entry)) = self.entry(path) {
+            return self.engine.content_current(path, Observation::of(&entry));
         }
         false
     }
