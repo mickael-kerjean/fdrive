@@ -12,13 +12,46 @@ use fuser::{
 use crate::adapter::Adapter;
 use fdrive_core::path::RelPath;
 
-const TTL: Duration = Duration::from_secs(60);
+const TTL_OK: Duration = Duration::from_secs(60);
+const TTL_NOK: Duration = Duration::from_secs(5);
 const ROOT: u64 = 1;
 
 struct InodeTable {
     paths: HashMap<u64, RelPath>,
     inos: HashMap<RelPath, u64>,
+    lookups: HashMap<u64, u64>,
     next_ino: u64,
+}
+
+impl InodeTable {
+    fn ino(&mut self, path: &RelPath) -> u64 {
+        if let Some(ino) = self.inos.get(path) {
+            return *ino;
+        }
+        let ino = self.next_ino;
+        self.next_ino += 1;
+        self.inos.insert(path.clone(), ino);
+        self.paths.insert(ino, path.clone());
+        ino
+    }
+
+    fn bump(&mut self, ino: u64) {
+        if ino != ROOT {
+            *self.lookups.entry(ino).or_insert(0) += 1;
+        }
+    }
+
+    fn forget(&mut self, ino: u64, n: u64) {
+        if let Some(count) = self.lookups.get_mut(&ino) {
+            *count = count.saturating_sub(n);
+            if *count == 0 {
+                self.lookups.remove(&ino);
+                if let Some(path) = self.paths.remove(&ino) {
+                    self.inos.remove(&path);
+                }
+            }
+        }
+    }
 }
 
 pub struct MountFs {
@@ -36,6 +69,8 @@ struct Wire {
 impl Filesystem for MountFs {
     fn init(&mut self, _req: &Request, config: &mut fuser::KernelConfig) -> std::io::Result<()> {
         let _ = config.add_capabilities(fuser::InitFlags::FUSE_ATOMIC_O_TRUNC);
+        let _ = config.add_capabilities(fuser::InitFlags::FUSE_WRITEBACK_CACHE);
+        let _ = config.set_max_write(1 << 20);
         Ok(())
     }
 
@@ -44,9 +79,16 @@ impl Filesystem for MountFs {
             return reply.error(Errno::ENOENT);
         };
         self.go(move |wire| match wire.attr(&path) {
-            Some(attr) => reply.entry(&TTL, &attr, Generation(0)),
-            None => reply.error(Errno::ENOENT),
+            Some(attr) => {
+                wire.bump(attr.ino.0);
+                reply.entry(&TTL_OK, &attr, Generation(0));
+            }
+            None => reply.entry(&TTL_NOK, &wire.make_attr(0, false, 0, SystemTime::UNIX_EPOCH), Generation(0)),
         });
+    }
+
+    fn forget(&self, _req: &Request, ino: INodeNo, nlookup: u64) {
+        self.wire.forget(ino.0, nlookup);
     }
 
     fn getattr(&self, _req: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
@@ -54,7 +96,7 @@ impl Filesystem for MountFs {
             return reply.error(Errno::ENOENT);
         };
         self.go(move |wire| match wire.attr(&path) {
-            Some(attr) => reply.attr(&TTL, &attr),
+            Some(attr) => reply.attr(&TTL_OK, &attr),
             None => reply.error(Errno::ENOENT),
         });
     }
@@ -89,7 +131,7 @@ impl Filesystem for MountFs {
                 }
             }
             match wire.attr(&path) {
-                Some(attr) => reply.attr(&TTL, &attr),
+                Some(attr) => reply.attr(&TTL_OK, &attr),
                 None => reply.error(Errno::ENOENT),
             }
         });
@@ -154,7 +196,10 @@ impl Filesystem for MountFs {
                 return reply.error(Errno::from(err));
             }
             match wire.attr(&path) {
-                Some(attr) => reply.entry(&TTL, &attr, Generation(0)),
+                Some(attr) => {
+                    wire.bump(attr.ino.0);
+                    reply.entry(&TTL_OK, &attr, Generation(0));
+                }
                 None => reply.error(Errno::EIO),
             }
         });
@@ -178,16 +223,16 @@ impl Filesystem for MountFs {
             if let Err(err) = wire.adapter.create(&path) {
                 return reply.error(Errno::from(err));
             }
-            match wire.attr(&path) {
-                Some(attr) => reply.created(
-                    &TTL,
-                    &attr,
-                    Generation(0),
-                    FileHandle(0),
-                    FopenFlags::empty(),
-                ),
-                None => reply.error(Errno::EIO),
-            }
+            let attr = wire.make_attr(wire.ino(&path), false, 0, SystemTime::now());
+            wire.bump(attr.ino.0);
+            let fh = wire.adapter.opened(&path);
+            reply.created(
+                &TTL_OK,
+                &attr,
+                Generation(0),
+                FileHandle(fh),
+                FopenFlags::empty(),
+            );
         });
     }
 
@@ -203,7 +248,7 @@ impl Filesystem for MountFs {
                 wire.adapter.hydrate_start(&path)
             };
             match result {
-                Ok(()) => reply.opened(FileHandle(0), FopenFlags::empty()),
+                Ok(()) => reply.opened(FileHandle(wire.adapter.opened(&path)), FopenFlags::empty()),
                 Err(err) => reply.error(Errno::from(err)),
             }
         });
@@ -213,7 +258,7 @@ impl Filesystem for MountFs {
         &self,
         _req: &Request,
         ino: INodeNo,
-        _fh: FileHandle,
+        fh: FileHandle,
         offset: u64,
         size: u32,
         _flags: OpenFlags,
@@ -223,7 +268,7 @@ impl Filesystem for MountFs {
         let Some(path) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
-        self.go(move |wire| match wire.adapter.read(&path, offset, size) {
+        self.go(move |wire| match wire.adapter.read(fh.0, &path, offset, size) {
             Ok(data) => reply.data(&data),
             Err(err) => reply.error(Errno::from(err)),
         });
@@ -234,7 +279,7 @@ impl Filesystem for MountFs {
         &self,
         _req: &Request,
         ino: INodeNo,
-        _fh: FileHandle,
+        fh: FileHandle,
         offset: u64,
         data: &[u8],
         _write_flags: WriteFlags,
@@ -246,7 +291,7 @@ impl Filesystem for MountFs {
             return reply.error(Errno::ENOENT);
         };
         let data = data.to_vec();
-        self.go(move |wire| match wire.adapter.write(&path, offset, &data) {
+        self.go(move |wire| match wire.adapter.write(fh.0, &path, offset, &data) {
             Ok(written) => reply.written(written),
             Err(err) => reply.error(Errno::from(err)),
         });
@@ -330,16 +375,14 @@ impl Filesystem for MountFs {
     fn release(
         &self,
         _req: &Request,
-        ino: INodeNo,
-        _fh: FileHandle,
+        _ino: INodeNo,
+        fh: FileHandle,
         _flags: OpenFlags,
         _lock_owner: Option<LockOwner>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        if let Some(path) = self.wire.path(ino.0) {
-            self.wire.adapter.released(&path);
-        }
+        self.wire.adapter.closed(fh.0);
         reply.ok();
     }
 
@@ -409,6 +452,7 @@ impl MountFs {
                 inodes: Mutex::new(InodeTable {
                     paths: HashMap::from([(ROOT, root.clone())]),
                     inos: HashMap::from([(root, ROOT)]),
+                    lookups: HashMap::new(),
                     next_ino: 2,
                 }),
                 uid: unsafe { libc::getuid() },
@@ -425,15 +469,15 @@ impl MountFs {
 
 impl Wire {
     fn ino(&self, path: &RelPath) -> u64 {
-        let mut inodes = self.inodes.lock().unwrap();
-        if let Some(ino) = inodes.inos.get(path) {
-            return *ino;
-        }
-        let ino = inodes.next_ino;
-        inodes.next_ino += 1;
-        inodes.inos.insert(path.clone(), ino);
-        inodes.paths.insert(ino, path.clone());
-        ino
+        self.inodes.lock().unwrap().ino(path)
+    }
+
+    fn bump(&self, ino: u64) {
+        self.inodes.lock().unwrap().bump(ino);
+    }
+
+    fn forget(&self, ino: u64, n: u64) {
+        self.inodes.lock().unwrap().forget(ino, n);
     }
 
     fn path(&self, ino: u64) -> Option<RelPath> {
@@ -448,20 +492,23 @@ impl Wire {
 
     fn attr(&self, path: &RelPath) -> Option<FileAttr> {
         let (is_dir, size, mtime) = self.adapter.attr(path).ok()??;
-        let kind = if is_dir {
-            FileType::Directory
-        } else {
-            FileType::RegularFile
-        };
-        Some(FileAttr {
-            ino: INodeNo(self.ino(path)),
+        Some(self.make_attr(self.ino(path), is_dir, size, mtime))
+    }
+
+    fn make_attr(&self, ino: u64, is_dir: bool, size: u64, mtime: SystemTime) -> FileAttr {
+        FileAttr {
+            ino: INodeNo(ino),
             size,
             blocks: size.div_ceil(512),
             atime: mtime,
             mtime,
             ctime: mtime,
             crtime: mtime,
-            kind,
+            kind: if is_dir {
+                FileType::Directory
+            } else {
+                FileType::RegularFile
+            },
             perm: if is_dir { 0o755 } else { 0o644 },
             nlink: 1,
             uid: self.uid,
@@ -469,7 +516,7 @@ impl Wire {
             rdev: 0,
             blksize: 4096,
             flags: 0,
-        })
+        }
     }
 
     fn remap(&self, from: &RelPath, to: &RelPath) {
@@ -496,5 +543,48 @@ fn xattr_reply(reply: ReplyXattr, data: &[u8], size: u32) {
         reply.data(data);
     } else {
         reply.error(Errno::ERANGE);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn table() -> InodeTable {
+        InodeTable {
+            paths: HashMap::from([(ROOT, RelPath::root())]),
+            inos: HashMap::from([(RelPath::root(), ROOT)]),
+            lookups: HashMap::new(),
+            next_ino: 2,
+        }
+    }
+
+    #[test]
+    fn an_inode_is_freed_once_the_kernel_forgets_every_lookup() {
+        let mut t = table();
+        let path = RelPath::new("a/b");
+        let ino = t.ino(&path);
+        t.bump(ino);
+        t.bump(ino);
+        assert_eq!(t.paths.get(&ino), Some(&path));
+
+        t.forget(ino, 1);
+        assert_eq!(t.paths.get(&ino), Some(&path), "still referenced once");
+
+        t.forget(ino, 1);
+        assert!(!t.paths.contains_key(&ino), "dropped after the last forget");
+        assert!(!t.inos.contains_key(&path));
+        assert!(!t.lookups.contains_key(&ino));
+    }
+
+    #[test]
+    fn forgetting_an_unlooked_or_root_inode_is_a_noop() {
+        let mut t = table();
+        let ino = t.ino(&RelPath::new("listed-only")); // readdir-style, never bumped
+        t.forget(ino, 1);
+        assert!(t.paths.contains_key(&ino), "no lookup count, nothing to forget");
+        t.bump(ROOT);
+        t.forget(ROOT, 1);
+        assert_eq!(t.paths.get(&ROOT), Some(&RelPath::root()), "root is never freed");
     }
 }

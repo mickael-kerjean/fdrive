@@ -221,12 +221,13 @@ impl<T: LocalTree> Engine<T> {
         }
     }
 
+    pub fn needs_baseline(&self, path: &RelPath) -> bool {
+        let ledger = self.ledger();
+        !ledger.observations.contains_key(path) && !ledger.dirty.contains(path)
+    }
+
     pub async fn overwriting(&self, path: &RelPath) {
-        let unobserved = {
-            let ledger = self.ledger();
-            !ledger.observations.contains_key(path) && !ledger.dirty.contains(path)
-        };
-        if unobserved {
+        if self.needs_baseline(path) {
             if let Ok(info) = self.sdk.stat(&path.as_file()).await {
                 self.ledger().observe(path, Observation::of(&info));
             }
@@ -338,7 +339,7 @@ impl<T: LocalTree> Engine<T> {
             .cloned()
             .collect();
         for path in moved {
-            self.arm(&path);
+            self.now(&path);
         }
         Ok(())
     }
