@@ -91,8 +91,9 @@ impl Ledger {
 
     fn exec(&self, sql: &str, params: impl rusqlite::Params) {
         if let Some(db) = &self.db {
-            if let Err(err) = db.execute(sql, params) {
-                log::error!("ledger: {err}");
+            match db.prepare_cached(sql).and_then(|mut stmt| stmt.execute(params)) {
+                Ok(_) => {}
+                Err(err) => log::error!("ledger: {err}"),
             }
         }
     }

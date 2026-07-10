@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self};
+use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -13,6 +15,11 @@ use fdrive_core::sdk::{self, FileInfo, FileType, Sdk};
 use tokio::sync::watch;
 
 use crate::xattr::XattrDb;
+
+struct Handle {
+    path: RelPath,
+    file: Option<Arc<fs::File>>,
+}
 
 const META_TTL: Duration = Duration::from_secs(5);
 
@@ -57,6 +64,8 @@ impl LocalTree for CacheTree {
 pub struct Adapter {
     engine: Arc<Engine<CacheTree>>,
     xattrs: XattrDb,
+    handles: Mutex<HashMap<u64, Handle>>,
+    next_fh: AtomicU64,
 }
 
 impl Adapter {
@@ -71,14 +80,12 @@ impl Adapter {
         let adapter = Self {
             engine: Engine::spawn(sdk, rt, tree),
             xattrs: XattrDb::open(data_dir.join("xattr.json")),
+            handles: Mutex::new(HashMap::new()),
+            next_fh: AtomicU64::new(1),
         };
         adapter.prune()?;
         adapter.engine.recover();
         Ok(adapter)
-    }
-
-    pub fn released(&self, path: &RelPath) {
-        self.engine.released(path);
     }
 
     pub async fn flush(&self, timeout: Duration) {
@@ -184,55 +191,90 @@ impl Adapter {
     }
 
     pub fn hydrate(&self, path: &RelPath) -> io::Result<()> {
-        if self.content_current(path) {
+        let current = self.remote(path);
+        if current.is_some_and(|current| self.engine.content_current(path, current)) {
             return Ok(());
         }
-        self.engine.rt().block_on(self.engine.hydrate(path))
+        self.engine.rt().block_on(self.engine.hydrate(path, current))
     }
 
     pub fn hydrate_start(&self, path: &RelPath) -> io::Result<()> {
-        if self.content_current(path) {
+        let current = self.remote(path);
+        if current.is_some_and(|current| self.engine.content_current(path, current)) {
             return Ok(());
         }
-        self.engine.rt().block_on(self.engine.hydrate_start(path))
+        self.engine
+            .rt()
+            .block_on(self.engine.hydrate_start(path, current))
     }
 
-    fn content_current(&self, path: &RelPath) -> bool {
-        if let Ok(Some(entry)) = self.entry(path) {
-            return self.engine.content_current(path, Observation::of(&entry));
+    fn remote(&self, path: &RelPath) -> Option<Observation> {
+        self.entry(path).ok().flatten().map(|e| Observation::of(&e))
+    }
+
+    pub fn opened(&self, path: &RelPath) -> u64 {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(self.backing(path))
+            .ok()
+            .map(Arc::new);
+        let fh = self.next_fh.fetch_add(1, Ordering::Relaxed);
+        self.handles.lock().unwrap().insert(
+            fh,
+            Handle {
+                path: path.clone(),
+                file,
+            },
+        );
+        fh
+    }
+
+    pub fn closed(&self, fh: u64) {
+        if let Some(handle) = self.handles.lock().unwrap().remove(&fh) {
+            self.engine.released(&handle.path);
         }
-        false
     }
 
-    pub fn read(&self, path: &RelPath, offset: u64, size: u32) -> io::Result<Vec<u8>> {
+    fn handle_file(&self, fh: u64) -> Option<Arc<fs::File>> {
+        self.handles.lock().unwrap().get(&fh)?.file.clone()
+    }
+
+    pub fn read(&self, fh: u64, path: &RelPath, offset: u64, size: u32) -> io::Result<Vec<u8>> {
         if let Some(download) = self.engine.download(path) {
             return self.engine.rt().block_on(download.read(offset, size));
         }
-        let mut file = fs::File::open(self.backing(path))?;
-        file.seek(SeekFrom::Start(offset))?;
-        let mut buf = Vec::with_capacity(size as usize);
-        file.take(size as u64).read_to_end(&mut buf)?;
+        let mut buf = vec![0u8; size as usize];
+        let filled = match self.handle_file(fh) {
+            Some(file) => fill_at(&file, &mut buf, offset)?,
+            None => fill_at(&fs::File::open(self.backing(path))?, &mut buf, offset)?,
+        };
+        buf.truncate(filled);
         Ok(buf)
     }
 
-    pub fn write(&self, path: &RelPath, offset: u64, data: &[u8]) -> io::Result<u32> {
-        let file_path = self.backing(path);
-        ensure_parent(&file_path)?;
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&file_path)?;
-        file.seek(SeekFrom::Start(offset))?;
-        file.write_all(data)?;
+    pub fn write(&self, fh: u64, path: &RelPath, offset: u64, data: &[u8]) -> io::Result<u32> {
         self.engine.modified(path);
+        match self.handle_file(fh) {
+            Some(file) => file.write_all_at(data, offset)?,
+            None => {
+                let file_path = self.backing(path);
+                ensure_parent(&file_path)?;
+                fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(false)
+                    .open(&file_path)?
+                    .write_all_at(data, offset)?;
+            }
+        }
         Ok(data.len() as u32)
     }
 
     pub fn truncate(&self, path: &RelPath, size: u64) -> io::Result<()> {
         if size > 0 {
             self.hydrate(path)?;
-        } else {
+        } else if self.engine.needs_baseline(path) {
             self.engine.rt().block_on(self.engine.overwriting(path));
         }
         let file_path = self.backing(path);
@@ -242,17 +284,16 @@ impl Adapter {
             .create(true)
             .truncate(false)
             .open(&file_path)?;
-        file.set_len(size)?;
         self.engine.modified(path);
+        file.set_len(size)?;
         Ok(())
     }
 
     pub fn create(&self, path: &RelPath) -> io::Result<()> {
         let file_path = self.backing(path);
         ensure_parent(&file_path)?;
-        fs::File::create(&file_path)?;
         self.engine.created(path);
-        self.invalidate(&path.parent_or_root());
+        fs::File::create(&file_path)?;
         Ok(())
     }
 
@@ -316,6 +357,17 @@ fn ensure_parent(path: &Path) -> io::Result<()> {
         Some(parent) => fs::create_dir_all(parent),
         None => Ok(()),
     }
+}
+
+fn fill_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        match file.read_at(&mut buf[filled..], offset + filled as u64)? {
+            0 => break,
+            n => filled += n,
+        }
+    }
+    Ok(filled)
 }
 
 fn remove_path(path: &Path) -> io::Result<()> {

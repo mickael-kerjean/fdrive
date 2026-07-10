@@ -131,14 +131,17 @@ impl Handle {
     }
 
     fn hydrate(&self, path: &RelPath) -> io::Result<()> {
+        let mut current = None;
         if let Ok(listing) = self.ls(&path.parent_or_root()) {
             if let Some(entry) = listing.iter().find(|e| e.name == path.name()) {
-                if self.engine.content_current(path, Observation::of(entry)) {
+                let observation = Observation::of(entry);
+                if self.engine.content_current(path, observation) {
                     return Ok(());
                 }
+                current = Some(observation);
             }
         }
-        self.rt.block_on(self.engine.hydrate(path))
+        self.rt.block_on(self.engine.hydrate(path, current))
     }
 
     fn read(&self, path: &RelPath, offset: u64, size: usize) -> io::Result<Vec<u8>> {

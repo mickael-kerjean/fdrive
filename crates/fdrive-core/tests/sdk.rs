@@ -173,7 +173,7 @@ async fn cat_streams_content() {
         then.status(200).body("hello world");
     });
 
-    let stream = authed_client(&server)
+    let (_, stream) = authed_client(&server)
         .await
         .cat("/hello.txt")
         .await
@@ -196,7 +196,7 @@ async fn save_posts_body() {
 
     authed_client(&server)
         .await
-        .save("/new.txt", byte_stream("content"))
+        .save("/new.txt", byte_stream("content"), None)
         .await
         .unwrap();
     mock.assert();

@@ -145,7 +145,7 @@ async fn run_session(
                 if session.guard.is_finished() {
                     log::info!("unmounted externally, ending session");
                     unmounted = true;
-                    break SessionEnd::Logout;
+                    break SessionEnd::Quit;
                 }
             }
         }
