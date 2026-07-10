@@ -92,8 +92,8 @@ fn pread(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
 }
 
 impl<T: LocalTree> Engine<T> {
-    pub async fn hydrate(&self, path: &RelPath) -> io::Result<()> {
-        self.hydrate_start(path).await?;
+    pub async fn hydrate(&self, path: &RelPath, current: Option<Observation>) -> io::Result<()> {
+        self.hydrate_start(path, current).await?;
         let download = self.downloads.lock().unwrap().get(path).cloned();
         match download {
             Some(download) => download.done().await,
@@ -101,10 +101,10 @@ impl<T: LocalTree> Engine<T> {
         }
     }
 
-    pub async fn hydrate_start(&self, path: &RelPath) -> io::Result<()> {
+    pub async fn hydrate_start(&self, path: &RelPath, current: Option<Observation>) -> io::Result<()> {
         let gate = super::gate(&self.hydrating, path);
         let _gate = gate.lock().await;
-        self.fetch_start(path).await
+        self.fetch_start(path, current).await
     }
 
     pub fn download(&self, path: &RelPath) -> Option<Arc<Download>> {
@@ -114,7 +114,7 @@ impl<T: LocalTree> Engine<T> {
         self.downloads.lock().unwrap().get(path).cloned()
     }
 
-    async fn fetch_start(&self, path: &RelPath) -> io::Result<()> {
+    async fn fetch_start(&self, path: &RelPath, current: Option<Observation>) -> io::Result<()> {
         if self.downloads.lock().unwrap().contains_key(path) {
             return Ok(());
         }
@@ -129,16 +129,19 @@ impl<T: LocalTree> Engine<T> {
             return Ok(());
         }
         let abs = self.tree.backing(path);
-        let current = match self.sdk.stat(&path.as_file()).await {
-            Ok(info) => Observation::of(&info),
-            Err(err @ (SdkError::NotFound | SdkError::PermissionDenied)) => {
-                return Err(io_err(err))
-            }
-            Err(err) if abs.is_file() => {
-                log::debug!("hydrate {path} unreachable, serving the cache: {err}");
-                return Ok(());
-            }
-            Err(err) => return Err(io_err(err)),
+        let current = match current {
+            Some(current) => current,
+            None => match self.sdk.stat(&path.as_file()).await {
+                Ok(info) => Observation::of(&info),
+                Err(err @ (SdkError::NotFound | SdkError::PermissionDenied)) => {
+                    return Err(io_err(err))
+                }
+                Err(err) if abs.is_file() => {
+                    log::debug!("hydrate {path} unreachable, serving the cache: {err}");
+                    return Ok(());
+                }
+                Err(err) => return Err(io_err(err)),
+            },
         };
         if observed == Some(current) && abs.is_file() {
             return Ok(());
@@ -172,7 +175,7 @@ impl<T: LocalTree> Engine<T> {
             tx.send_modify(|s| s.1 = DownloadStatus::Failed);
         };
         let downloaded = async {
-            let mut stream = self.sdk.cat(&path.as_file()).await.map_err(io_err)?;
+            let (info, mut stream) = self.sdk.cat(&path.as_file()).await.map_err(io_err)?;
             let mut file = fs::File::options().append(true).open(&tmp)?;
             let mut size: u64 = 0;
             while let Some(chunk) = stream.try_next().await? {
@@ -180,11 +183,11 @@ impl<T: LocalTree> Engine<T> {
                 size += chunk.len() as u64;
                 tx.send_modify(|s| s.0 = size);
             }
-            Ok::<u64, io::Error>(size)
+            Ok::<(u64, crate::sdk::FileInfo), io::Error>((size, info))
         }
         .await;
-        let size = match downloaded {
-            Ok(size) => size,
+        let (size, info) = match downloaded {
+            Ok(downloaded) => downloaded,
             Err(err) => return fail(&err),
         };
         if self.ledger().dirty.contains(&path) {
@@ -193,18 +196,9 @@ impl<T: LocalTree> Engine<T> {
         if let Err(err) = fs::rename(&tmp, self.tree.backing(&path)) {
             return fail(&err);
         }
-        let observed = self
-            .sdk
-            .stat(&path.as_file())
-            .await
-            .ok()
-            .map(|info| Observation::of(&info));
         {
             let mut ledger = self.ledger();
-            match observed {
-                Some(obs) => ledger.observe(&path, obs),
-                None => ledger.unobserve(&path),
-            }
+            ledger.observe(&path, Observation::new(size, info.mtime));
             ledger.dirty_clear(&path);
         }
         self.downloads.lock().unwrap().remove(&path);

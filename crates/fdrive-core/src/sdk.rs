@@ -20,6 +20,8 @@ pub enum Error {
     PermissionDenied,
     #[error("not found")]
     NotFound,
+    #[error("precondition failed")]
+    PreconditionFailed,
     #[error("not a Filestash server")]
     NotFilestash,
     #[error("api error: {0}")]
@@ -44,6 +46,27 @@ pub struct FileInfo {
     pub kind: FileType,
     pub size: Option<u64>,
     pub mtime: Option<SystemTime>,
+}
+
+impl FileInfo {
+    fn of(path: &str, headers: &reqwest::header::HeaderMap) -> Self {
+        let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+        Self {
+            name: path
+                .trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .unwrap_or("")
+                .to_string(),
+            kind: if header("content-type") == Some("inode/directory") {
+                FileType::Directory
+            } else {
+                FileType::File
+            },
+            size: header("content-length").and_then(|v| v.parse().ok()),
+            mtime: header("last-modified").and_then(|v| httpdate::parse_http_date(v).ok()),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -180,30 +203,18 @@ impl Sdk {
         let resp = self
             .request(Method::HEAD, &["api", "files", "cat"], &[("path", path)])
             .await?;
-        let headers = resp.headers();
-        let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
-        Ok(FileInfo {
-            name: path
-                .trim_end_matches('/')
-                .rsplit('/')
-                .next()
-                .unwrap_or("")
-                .to_string(),
-            kind: if header("content-type") == Some("inode/directory") {
-                FileType::Directory
-            } else {
-                FileType::File
-            },
-            size: header("content-length").and_then(|v| v.parse().ok()),
-            mtime: header("last-modified").and_then(|v| httpdate::parse_http_date(v).ok()),
-        })
+        Ok(FileInfo::of(path, resp.headers()))
     }
 
-    pub async fn cat(&self, path: &str) -> Result<ByteStream> {
+    pub async fn cat(&self, path: &str) -> Result<(FileInfo, ByteStream)> {
         let resp = self
             .request(Method::GET, &["api", "files", "cat"], &[("path", path)])
             .await?;
-        Ok(Box::pin(resp.bytes_stream().map_err(std::io::Error::other)))
+        let info = FileInfo::of(path, resp.headers());
+        Ok((
+            info,
+            Box::pin(resp.bytes_stream().map_err(std::io::Error::other)),
+        ))
     }
 
     pub async fn probe(&self) -> Result<String> {
@@ -238,18 +249,29 @@ impl Sdk {
         Ok(resp.bytes().await?.to_vec())
     }
 
-    pub async fn save(&self, path: &str, body: ByteStream) -> Result<()> {
+    pub async fn save(
+        &self,
+        path: &str,
+        body: ByteStream,
+        since: Option<SystemTime>,
+    ) -> Result<Option<SystemTime>> {
         let mut url = self.api(&["api", "files", "cat"]);
         url.query_pairs_mut().append_pair("path", path);
-        let resp = self
+        let mut req = self
             .http
             .post(url)
             .header("X-Requested-With", "SDKHttpRequest")
-            .header(AUTHORIZATION, self.bearer()?)
-            .body(Body::wrap_stream(body))
-            .send()
-            .await?;
-        check_status(resp).await.map(drop)
+            .header(AUTHORIZATION, self.bearer()?);
+        if let Some(since) = since {
+            req = req.header("If-Unmodified-Since", httpdate::fmt_http_date(since));
+        }
+        let resp = req.body(Body::wrap_stream(body)).send().await?;
+        let resp = check_status(resp).await?;
+        Ok(resp
+            .headers()
+            .get("last-modified")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| httpdate::parse_http_date(v).ok()))
     }
 
     pub async fn mkdir(&self, path: &str) -> Result<()> {
@@ -313,6 +335,7 @@ async fn check_status(resp: Response) -> Result<Response> {
         s if s.is_success() => Ok(resp),
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Err(Error::PermissionDenied),
         StatusCode::NOT_FOUND => Err(Error::NotFound),
+        StatusCode::PRECONDITION_FAILED => Err(Error::PreconditionFailed),
         s => Err(Error::Api(format!("unexpected status {s}"))),
     }
 }

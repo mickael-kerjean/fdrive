@@ -232,14 +232,17 @@ impl Adapter {
 
     pub fn open(&self, path: String) -> Result<String, FsError> {
         let rel = rel(&path);
+        let mut current = None;
         if let Ok(listing) = self.listing(&rel.parent_or_root()) {
             if let Some(entry) = listing.iter().find(|e| e.name == rel.name()) {
-                if self.engine.content_current(&rel, Observation::of(entry)) {
+                let observation = Observation::of(entry);
+                if self.engine.content_current(&rel, observation) {
                     return Ok(self.local(&rel));
                 }
+                current = Some(observation);
             }
         }
-        self.rt.block_on(self.engine.hydrate(&rel))?;
+        self.rt.block_on(self.engine.hydrate(&rel, current))?;
         Ok(self.local(&rel))
     }
 

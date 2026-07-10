@@ -449,19 +449,12 @@ async fn upload_new_file() {
 async fn upload_overwrites_when_the_observation_matches() {
     let server = MockServer::start();
     let mtime = "Wed, 21 Oct 2015 07:28:00 GMT";
-    let stat = server.mock(|when, then| {
-        when.method(Method::HEAD)
-            .path("/api/files/cat")
-            .query_param("path", "/f");
-        then.status(200)
-            .header("content-length", "5")
-            .header("last-modified", mtime);
-    });
     let save = server.mock(|when, then| {
         when.method(Method::POST)
             .path("/api/files/cat")
-            .query_param("path", "/f");
-        then.status(200);
+            .query_param("path", "/f")
+            .header("If-Unmodified-Since", mtime);
+        then.status(200).header("Last-Modified", mtime);
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
@@ -475,7 +468,6 @@ async fn upload_overwrites_when_the_observation_matches() {
 
     assert!(matches!(engine.upload(&path).await.unwrap(), Upload::Done));
     save.assert_hits(1);
-    assert!(stat.hits() >= 2);
     assert_eq!(engine.ledger().observations[&path], observation);
     assert!(engine.ledger().dirty.is_empty());
 }
@@ -483,13 +475,11 @@ async fn upload_overwrites_when_the_observation_matches() {
 #[tokio::test]
 async fn upload_conflict_keeps_both_versions() {
     let server = MockServer::start();
-    let stat = server.mock(|when, then| {
-        when.method(Method::HEAD)
+    let reject = server.mock(|when, then| {
+        when.method(Method::POST)
             .path("/api/files/cat")
             .query_param("path", "/f");
-        then.status(200)
-            .header("content-length", "3")
-            .header("last-modified", "Wed, 21 Oct 2015 07:28:00 GMT");
+        then.status(412);
     });
     let save = server.mock(|when, then| {
         when.method(Method::POST)
@@ -508,7 +498,7 @@ async fn upload_conflict_keeps_both_versions() {
 
     assert!(matches!(engine.upload(&path).await.unwrap(), Upload::Done));
     save.assert_hits(1);
-    stat.assert_hits(1);
+    reject.assert_hits(1);
     assert_eq!(engine.tree().read("f"), None);
     assert_eq!(
         engine.tree().read("f (conflicted copy)").as_deref(),
@@ -525,10 +515,10 @@ async fn upload_conflict_keeps_both_versions() {
 async fn upload_unseen_collision_diverts_to_a_conflict_copy() {
     let server = MockServer::start();
     server.mock(|when, then| {
-        when.method(Method::HEAD)
+        when.method(Method::POST)
             .path("/api/files/cat")
             .query_param("path", "/f");
-        then.status(200).header("content-length", "3");
+        then.status(412);
     });
     let save = server.mock(|when, then| {
         when.method(Method::POST)
@@ -549,10 +539,10 @@ async fn upload_unseen_collision_diverts_to_a_conflict_copy() {
 async fn upload_conflict_never_clobbers_a_local_only_file() {
     let server = MockServer::start();
     server.mock(|when, then| {
-        when.method(Method::HEAD)
+        when.method(Method::POST)
             .path("/api/files/cat")
             .query_param("path", "/f");
-        then.status(200).header("content-length", "3");
+        then.status(412);
     });
     let save = server.mock(|when, then| {
         when.method(Method::POST)
@@ -645,12 +635,13 @@ async fn concurrent_hydrates_download_once() {
             .query_param("path", "/f");
         then.status(200)
             .body("hello")
+            .header("last-modified", mtime)
             .delay(std::time::Duration::from_millis(200));
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
 
-    let (a, b) = tokio::join!(engine.hydrate(&path), engine.hydrate(&path));
+    let (a, b) = tokio::join!(engine.hydrate(&path, None), engine.hydrate(&path, None));
     a.unwrap();
     b.unwrap();
     cat.assert_hits(1);
@@ -680,7 +671,7 @@ async fn reads_are_served_while_the_download_is_in_flight() {
     let engine = engine(&server);
     let path = RelPath::new("f");
 
-    engine.hydrate_start(&path).await.unwrap();
+    engine.hydrate_start(&path, None).await.unwrap();
     assert!(
         engine.tree().read("f").is_none(),
         "hydrate_start returned before the file was cached"
@@ -801,10 +792,59 @@ async fn a_cached_file_opens_when_the_server_is_unreachable() {
         .ledger()
         .observe(&path, Observation::new(6, None));
 
-    engine.hydrate(&path).await.unwrap();
+    engine.hydrate(&path, None).await.unwrap();
     assert_eq!(engine.tree().read("f").unwrap(), b"cached");
     assert!(
-        engine.hydrate(&RelPath::new("never-cached")).await.is_err(),
+        engine.hydrate(&RelPath::new("never-cached"), None).await.is_err(),
         "a file we never saw still fails honestly"
     );
+}
+
+#[tokio::test]
+async fn a_fresh_listing_hint_makes_a_cold_open_one_request() {
+    let server = MockServer::start();
+    let mtime = "Wed, 21 Oct 2015 07:28:00 GMT";
+    let cat = server.mock(|when, then| {
+        when.method(Method::GET)
+            .path("/api/files/cat")
+            .query_param("path", "/f");
+        then.status(200).body("hello").header("last-modified", mtime);
+    });
+    let engine = engine(&server);
+    let path = RelPath::new("f");
+    let hint = Observation::new(5, Some(httpdate::parse_http_date(mtime).unwrap()));
+
+    engine.hydrate(&path, Some(hint)).await.unwrap();
+    cat.assert_hits(1);
+    assert_eq!(engine.tree().read("f").unwrap(), b"hello");
+    assert_eq!(
+        engine.ledger().observations.get(&path).copied(),
+        Some(hint),
+        "the observation comes from the cat response headers"
+    );
+}
+
+#[tokio::test]
+async fn a_file_deleted_within_the_grace_never_touches_the_server() {
+    let server = MockServer::start();
+    let save = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/cat");
+        then.status(200);
+    });
+    let rm = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/rm");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    let engine = engine(&server);
+    let path = RelPath::new("db-journal");
+    engine.tree().write("db-journal", b"tmp");
+    mark_dirty(&engine, &path);
+    engine.released(&path);
+    engine.delete(&path, false).await.unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    save.assert_hits(0);
+    rm.assert_hits(0);
+    assert!(engine.ledger().dirty.is_empty());
 }

@@ -1,6 +1,7 @@
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::path::RelPath;
 use crate::port::LocalTree;
@@ -14,12 +15,16 @@ pub enum Upload {
     Retry,
 }
 
-pub async fn save_with_parents(sdk: &Sdk, target: &RelPath, source: &Path) -> io::Result<()> {
-    match sdk
-        .save(&target.as_file(), crate::file_stream(source).await?)
-        .await
-    {
-        Ok(()) => Ok(()),
+pub async fn save_with_parents(
+    sdk: &Sdk,
+    target: &RelPath,
+    source: &Path,
+    since: Option<SystemTime>,
+) -> io::Result<Result<Option<SystemTime>, ()>> {
+    let stream = crate::file_stream(source).await?;
+    match sdk.save(&target.as_file(), stream, since).await {
+        Ok(mtime) => Ok(Ok(mtime)),
+        Err(SdkError::PreconditionFailed) => Ok(Err(())),
         Err(SdkError::NotFound | SdkError::PermissionDenied) => {
             let mut ancestors = vec![];
             let mut cur = target.parent_or_root();
@@ -32,9 +37,12 @@ pub async fn save_with_parents(sdk: &Sdk, target: &RelPath, source: &Path) -> io
                     log::debug!("mkdirs {dir}: {err}");
                 }
             }
-            sdk.save(&target.as_file(), crate::file_stream(source).await?)
-                .await
-                .map_err(io_err)
+            let stream = crate::file_stream(source).await?;
+            match sdk.save(&target.as_file(), stream, since).await {
+                Ok(mtime) => Ok(Ok(mtime)),
+                Err(SdkError::PreconditionFailed) => Ok(Err(())),
+                Err(err) => Err(io_err(err)),
+            }
         }
         Err(err) => Err(io_err(err)),
     }
@@ -87,31 +95,19 @@ impl<T: LocalTree> Engine<T> {
         let before = md.modified().ok();
 
         let recorded = self.ledger().observations.get(path).copied();
-        let server = self
-            .sdk
-            .stat(&path.as_file())
-            .await
-            .ok()
-            .map(|i| Observation::of(&i));
-        let target = match (recorded, server) {
-            (Some(rec), Some(now)) if rec != now => self.conflict_target(path).await,
-            (None, Some(_)) => self.conflict_target(path).await,
-            _ => path.clone(),
+        let since = UNIX_EPOCH + Duration::from_secs(recorded.map_or(0, |rec| rec.time));
+        let (target, mtime) = match save_with_parents(&self.sdk, path, &abs, Some(since)).await? {
+            Ok(mtime) => (path.clone(), mtime),
+            Err(()) => {
+                let target = self.conflict_target(path).await;
+                log::warn!("conflict on {path}: uploading as {target}");
+                match save_with_parents(&self.sdk, &target, &abs, None).await? {
+                    Ok(mtime) => (target, mtime),
+                    Err(()) => return Err(io::Error::other("conflict copy was preempted")),
+                }
+            }
         };
-        if target != *path {
-            log::warn!("conflict on {path}: uploading as {target}");
-        }
-
-        if !self.ledger().dirty.contains(path) {
-            return Ok(Upload::Done);
-        }
-        save_with_parents(&self.sdk, &target, &abs).await?;
-        let uploaded = self
-            .sdk
-            .stat(&target.as_file())
-            .await
-            .ok()
-            .map(|info| Observation::of(&info));
+        let uploaded = mtime.map(|mtime| Observation::new(md.len(), Some(mtime)));
 
         if target == *path {
             if let Some(rec) = uploaded {

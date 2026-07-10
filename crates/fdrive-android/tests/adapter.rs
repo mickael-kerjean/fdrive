@@ -141,7 +141,9 @@ fn open_caches_the_download() {
         when.method(GET)
             .path("/api/files/cat")
             .query_param("path", "/hello.txt");
-        then.status(200).body("hello world");
+        then.status(200)
+            .body("hello world")
+            .header("Last-Modified", "Wed, 21 Oct 2015 07:28:00 GMT");
     });
 
     let data = TempDir::new();

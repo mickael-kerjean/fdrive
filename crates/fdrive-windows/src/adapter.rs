@@ -233,7 +233,7 @@ impl Adapter {
         let mut sent: u64 = 0;
         let mut buf: Vec<u8> = Vec::with_capacity(FLUSH_AT + ALIGN);
         self.engine.rt().block_on(async {
-            let mut stream = sdk.cat(&api).await.map_err(io_err)?;
+            let (_, mut stream) = sdk.cat(&api).await.map_err(io_err)?;
             while let Some(chunk) = stream.try_next().await? {
                 buf.extend_from_slice(&chunk);
                 if buf.len() >= FLUSH_AT {

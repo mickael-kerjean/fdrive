@@ -10,6 +10,7 @@ use crate::path::RelPath;
 use crate::port::LocalTree;
 
 const QUIET: Duration = Duration::from_secs(5);
+const GRACE: Duration = Duration::from_millis(250);
 const RETRY: Duration = Duration::from_secs(10);
 const RETRY_CAP: Duration = Duration::from_secs(300);
 const CONCURRENCY: usize = 4;
@@ -77,7 +78,7 @@ pub(crate) async fn run<T: LocalTree>(
                     pending.insert(path, Instant::now() + QUIET);
                 }
                 Some(Msg::Now(path)) => {
-                    pending.insert(path, Instant::now());
+                    pending.insert(path, Instant::now() + GRACE);
                 }
                 Some(Msg::Cancel(path)) => {
                     pending.retain(|p, _| p != &path && !p.is_descendant_of(&path));
