@@ -59,7 +59,8 @@ impl Ledger {
             let db = open_db(
                 file,
                 "CREATE TABLE IF NOT EXISTS observations(path TEXT PRIMARY KEY, size INTEGER NOT NULL, time INTEGER NOT NULL);
-                 CREATE TABLE IF NOT EXISTS dirty(path TEXT PRIMARY KEY);",
+                 CREATE TABLE IF NOT EXISTS dirty(path TEXT PRIMARY KEY);
+                 CREATE TABLE IF NOT EXISTS signatures(path TEXT PRIMARY KEY, sig BLOB NOT NULL);",
             )?;
             let mut ledger = Ledger::default();
             {
@@ -130,6 +131,23 @@ impl Ledger {
         if self.observations.remove(path).is_some() {
             self.exec("DELETE FROM observations WHERE path = ?1", [path.as_str()]);
         }
+        self.exec("DELETE FROM signatures WHERE path = ?1", [path.as_str()]);
+    }
+
+    pub fn sign_set(&mut self, path: &RelPath, sig: &[u8]) {
+        self.exec(
+            "INSERT OR REPLACE INTO signatures(path, sig) VALUES (?1, ?2)",
+            rusqlite::params![path.as_str(), sig],
+        );
+    }
+
+    pub fn sign_get(&self, path: &RelPath) -> Option<Vec<u8>> {
+        self.db
+            .as_ref()?
+            .prepare_cached("SELECT sig FROM signatures WHERE path = ?1")
+            .ok()?
+            .query_row([path.as_str()], |row| row.get(0))
+            .ok()
     }
 
     pub fn forget(&mut self, path: &RelPath) {
@@ -145,9 +163,21 @@ impl Ledger {
             &format!("DELETE FROM dirty WHERE {SUBTREE}"),
             [path.as_str()],
         );
+        self.exec(
+            &format!("DELETE FROM signatures WHERE {SUBTREE}"),
+            [path.as_str()],
+        );
     }
 
     pub fn remap(&mut self, from: &RelPath, to: &RelPath) {
+        self.exec(
+            &format!("DELETE FROM signatures WHERE {SUBTREE}"),
+            [to.as_str()],
+        );
+        self.exec(
+            &format!("UPDATE OR REPLACE signatures SET path = ?2 || substr(path, length(?1) + 1) WHERE {SUBTREE}"),
+            rusqlite::params![from.as_str(), to.as_str()],
+        );
         let rebase =
             |p: &RelPath| RelPath::new(&p.as_str().replacen(from.as_str(), to.as_str(), 1));
         let moved: Vec<RelPath> = self

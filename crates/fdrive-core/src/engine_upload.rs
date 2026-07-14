@@ -15,37 +15,20 @@ pub enum Upload {
     Retry,
 }
 
-async fn save_with_parents(
-    sdk: &Sdk,
-    target: &RelPath,
-    source: &Path,
-    since: Option<SystemTime>,
-) -> io::Result<Result<Option<SystemTime>, ()>> {
-    let stream = crate::file_stream(source).await?;
-    match sdk.save(&target.as_file(), stream, since).await {
-        Ok(mtime) => Ok(Ok(mtime)),
-        Err(SdkError::PreconditionFailed) => Ok(Err(())),
-        Err(SdkError::NotFound | SdkError::PermissionDenied) => {
-            let mut ancestors = vec![];
-            let mut cur = target.parent_or_root();
-            while !cur.is_root() {
-                ancestors.push(cur.clone());
-                cur = cur.parent_or_root();
-            }
-            for dir in ancestors.iter().rev() {
-                if let Err(err) = sdk.mkdir(&dir.as_dir()).await {
-                    log::debug!("mkdirs {dir}: {err}");
-                }
-            }
-            let stream = crate::file_stream(source).await?;
-            match sdk.save(&target.as_file(), stream, since).await {
-                Ok(mtime) => Ok(Ok(mtime)),
-                Err(SdkError::PreconditionFailed) => Ok(Err(())),
-                Err(err) => Err(io_err(err)),
-            }
-        }
-        Err(err) => Err(io_err(err)),
-    }
+enum Saved {
+    Done(Option<SystemTime>),
+    Conflict,
+}
+
+pub(crate) fn signature(data: &[u8]) -> Vec<u8> {
+    fast_rsync::Signature::calculate(
+        data,
+        fast_rsync::SignatureOptions {
+            block_size: 2048,
+            crypto_hash_size: 16,
+        },
+    )
+    .into_serialized()
 }
 
 impl<T: LocalTree> Engine<T> {
@@ -96,14 +79,23 @@ impl<T: LocalTree> Engine<T> {
 
         let recorded = self.ledger().observations.get(path).copied();
         let since = UNIX_EPOCH + Duration::from_secs(recorded.map_or(0, |rec| rec.time));
-        let (target, mtime) = match save_with_parents(&self.sdk, path, &abs, Some(since)).await? {
-            Ok(mtime) => (path.clone(), mtime),
-            Err(()) => {
+        let sig = self.ledger().sign_get(path);
+        let delta = match sig {
+            Some(sig) => upload_delta(&self.sdk, path, &abs, sig, since).await,
+            None => None,
+        };
+        let attempt = match delta {
+            Some(saved) => saved,
+            None => upload_full(&self.sdk, path, &abs, Some(since)).await?,
+        };
+        let (target, mtime) = match attempt {
+            Saved::Done(mtime) => (path.clone(), mtime),
+            Saved::Conflict => {
                 let target = self.conflict_target(path).await;
                 log::warn!("conflict on {path}: uploading as {target}");
-                match save_with_parents(&self.sdk, &target, &abs, None).await? {
-                    Ok(mtime) => (target, mtime),
-                    Err(()) => return Err(io::Error::other("conflict copy was preempted")),
+                match upload_full(&self.sdk, &target, &abs, None).await? {
+                    Saved::Done(mtime) => (target, mtime),
+                    Saved::Conflict => return Err(io::Error::other("conflict copy was preempted")),
                 }
             }
         };
@@ -136,8 +128,79 @@ impl<T: LocalTree> Engine<T> {
                 ledger.observe(&target, rec);
             }
         }
+        if uploaded.is_some() {
+            if let Ok(data) = fs::read(self.tree.backing(&target)) {
+                self.ledger().sign_set(&target, &signature(&data));
+            }
+        }
         self.tree.settled(&target, after);
         log::info!("uploaded {target} ({} bytes)", md.len());
         Ok(Upload::Done)
+    }
+}
+
+async fn upload_delta(
+    sdk: &Sdk,
+    target: &RelPath,
+    source: &Path,
+    sig: Vec<u8>,
+    since: SystemTime,
+) -> Option<Saved> {
+    if !sdk.delta_supported().await {
+        return None;
+    }
+    let sig = fast_rsync::Signature::deserialize(sig).ok()?;
+    let data = fs::read(source).ok()?;
+    let mut body = vec![1u8];
+    fast_rsync::diff(&sig.index(), &data, &mut body).ok()?;
+    if body.len() >= data.len() {
+        return None;
+    }
+    use sha2::Digest;
+    body.extend_from_slice(&sha2::Sha256::digest(&data));
+    let (sent, size) = (body.len(), data.len());
+    match sdk.save_delta(&target.as_file(), body, since).await {
+        Ok(mtime) => {
+            log::info!("delta {target} ({sent} bytes for {size})");
+            Some(Saved::Done(mtime))
+        }
+        Err(SdkError::PreconditionFailed) => Some(Saved::Conflict),
+        Err(err) => {
+            log::debug!("delta {target}: {err}");
+            None
+        }
+    }
+}
+
+async fn upload_full(
+    sdk: &Sdk,
+    target: &RelPath,
+    source: &Path,
+    since: Option<SystemTime>,
+) -> io::Result<Saved> {
+    let stream = crate::file_stream(source).await?;
+    match sdk.save(&target.as_file(), stream, since).await {
+        Ok(mtime) => Ok(Saved::Done(mtime)),
+        Err(SdkError::PreconditionFailed) => Ok(Saved::Conflict),
+        Err(SdkError::NotFound | SdkError::PermissionDenied) => {
+            let mut ancestors = vec![];
+            let mut cur = target.parent_or_root();
+            while !cur.is_root() {
+                ancestors.push(cur.clone());
+                cur = cur.parent_or_root();
+            }
+            for dir in ancestors.iter().rev() {
+                if let Err(err) = sdk.mkdir(&dir.as_dir()).await {
+                    log::debug!("mkdirs {dir}: {err}");
+                }
+            }
+            let stream = crate::file_stream(source).await?;
+            match sdk.save(&target.as_file(), stream, since).await {
+                Ok(mtime) => Ok(Saved::Done(mtime)),
+                Err(SdkError::PreconditionFailed) => Ok(Saved::Conflict),
+                Err(err) => Err(io_err(err)),
+            }
+        }
+        Err(err) => Err(io_err(err)),
     }
 }

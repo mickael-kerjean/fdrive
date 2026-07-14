@@ -325,9 +325,14 @@ impl<T: LocalTree> Engine<T> {
         log::info!("renamed {from} -> {to}");
         {
             let mut ledger = self.ledger();
-            ledger.unobserve(to);
-            ledger.dirty_clear(to);
-            ledger.remap(from, to);
+            if !is_dir && ledger.local_only(from) && ledger.observations.contains_key(to) {
+                ledger.dirty_clear(from);
+                ledger.dirty_set(to);
+            } else {
+                ledger.unobserve(to);
+                ledger.dirty_clear(to);
+                ledger.remap(from, to);
+            }
         }
         self.cancel(from);
         let moved: Vec<RelPath> = self
