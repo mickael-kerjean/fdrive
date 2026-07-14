@@ -79,9 +79,11 @@ impl<T: LocalTree> Engine<T> {
 
         let recorded = self.ledger().observations.get(path).copied();
         let since = UNIX_EPOCH + Duration::from_secs(recorded.map_or(0, |rec| rec.time));
-        let sig = self.ledger().sign_get(path);
-        let delta = match sig {
-            Some(sig) => upload_delta(&self.sdk, path, &abs, sig, since).await,
+        let delta = match self.delta_source(path) {
+            Some((sig, base, time)) => {
+                let base_since = UNIX_EPOCH + Duration::from_secs(time);
+                upload_delta(&self.sdk, path, &abs, sig, base.as_ref(), base_since).await
+            }
             None => None,
         };
         let attempt = match delta {
@@ -133,9 +135,37 @@ impl<T: LocalTree> Engine<T> {
                 self.ledger().sign_set(&target, &signature(&data));
             }
         }
+        if target == *path {
+            let entry = self.displaced.lock().unwrap().remove(path);
+            if let Some(d) = entry {
+                if d.rm_pending {
+                    self.rm_displaced(&d.base).await;
+                }
+            }
+        }
         self.tree.settled(&target, after);
         log::info!("uploaded {target} ({} bytes)", md.len());
         Ok(Upload::Done)
+    }
+
+    fn delta_source(&self, path: &RelPath) -> Option<(Vec<u8>, Option<RelPath>, u64)> {
+        {
+            let ledger = self.ledger();
+            if let Some(sig) = ledger.sign_get(path) {
+                let time = ledger.observations.get(path).map_or(0, |rec| rec.time);
+                return Some((sig, None, time));
+            }
+        }
+        let base = self
+            .displaced
+            .lock()
+            .unwrap()
+            .get(path)
+            .map(|d| d.base.clone())?;
+        let ledger = self.ledger();
+        let sig = ledger.sign_get(&base)?;
+        let time = ledger.observations.get(&base)?.time;
+        Some((sig, Some(base), time))
     }
 }
 
@@ -144,6 +174,7 @@ async fn upload_delta(
     target: &RelPath,
     source: &Path,
     sig: Vec<u8>,
+    base: Option<&RelPath>,
     since: SystemTime,
 ) -> Option<Saved> {
     if !sdk.delta_supported().await {
@@ -159,7 +190,10 @@ async fn upload_delta(
     use sha2::Digest;
     body.extend_from_slice(&sha2::Sha256::digest(&data));
     let (sent, size) = (body.len(), data.len());
-    match sdk.save_delta(&target.as_file(), body, since).await {
+    match sdk
+        .save_delta(&target.as_file(), body, since, base.map(|b| b.as_file()))
+        .await
+    {
         Ok(mtime) => {
             log::info!("delta {target} ({sent} bytes for {size})");
             Some(Saved::Done(mtime))

@@ -312,19 +312,21 @@ impl Sdk {
         path: &str,
         body: Vec<u8>,
         since: SystemTime,
+        base: Option<String>,
     ) -> Result<Option<SystemTime>> {
         let mut url = self.api(&["api", "files", "cat"]);
         url.query_pairs_mut().append_pair("path", path);
-        let resp = self
+        let mut req = self
             .http
             .post(url)
             .header("X-Requested-With", "SDKHttpRequest")
             .header(AUTHORIZATION, self.bearer()?)
             .header(CONTENT_TYPE, DELTA_MEDIA_TYPE)
-            .header("If-Unmodified-Since", httpdate::fmt_http_date(since))
-            .body(body)
-            .send()
-            .await?;
+            .header("If-Unmodified-Since", httpdate::fmt_http_date(since));
+        if let Some(base) = base {
+            req = req.header("X-Copy-Source", base);
+        }
+        let resp = req.body(body).send().await?;
         let resp = check_status(resp).await?;
         Ok(resp
             .headers()
