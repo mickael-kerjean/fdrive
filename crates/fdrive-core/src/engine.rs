@@ -41,9 +41,17 @@ pub struct Engine<T: LocalTree> {
     hydrating: Mutex<HashMap<RelPath, Arc<tokio::sync::Mutex<()>>>>,
     downloads: Mutex<HashMap<RelPath, Arc<Download>>>,
     uploading: Mutex<HashMap<RelPath, Arc<tokio::sync::Mutex<()>>>>,
+    displaced: Mutex<HashMap<RelPath, Displaced>>,
     frozen: Mutex<BTreeSet<RelPath>>,
     weak: Weak<Engine<T>>,
 }
+
+pub(crate) struct Displaced {
+    pub(crate) base: RelPath,
+    pub(crate) rm_pending: bool,
+}
+
+const DISPLACED_TTL: Duration = Duration::from_secs(30);
 
 pub(crate) fn gate(
     gates: &Mutex<HashMap<RelPath, Arc<tokio::sync::Mutex<()>>>>,
@@ -95,6 +103,7 @@ impl<T: LocalTree> Engine<T> {
                 hydrating: Mutex::new(HashMap::new()),
                 downloads: Mutex::new(HashMap::new()),
                 uploading: Mutex::new(HashMap::new()),
+                displaced: Mutex::new(HashMap::new()),
                 frozen: Mutex::new(BTreeSet::new()),
                 weak: weak.clone(),
             }
@@ -288,6 +297,16 @@ impl<T: LocalTree> Engine<T> {
     pub async fn delete(&self, path: &RelPath, is_dir: bool) -> io::Result<()> {
         let _frozen = self.freeze(&[path]);
         self.drain(path, is_dir).await;
+        if !is_dir {
+            let mut map = self.displaced.lock().unwrap();
+            if let Some((src, entry)) = map.iter_mut().find(|(_, e)| e.base == *path) {
+                if self.ledger().dirty.contains(src) {
+                    entry.rm_pending = true;
+                    log::debug!("rm {path} deferred until {src} uploads");
+                    return Ok(());
+                }
+            }
+        }
         let local_only = !is_dir && self.ledger().local_only(path);
         if !local_only {
             let api = if is_dir {
@@ -323,16 +342,42 @@ impl<T: LocalTree> Engine<T> {
             }
         }
         log::info!("renamed {from} -> {to}");
+        let mut baseline_moved = false;
         {
             let mut ledger = self.ledger();
             if !is_dir && ledger.local_only(from) && ledger.observations.contains_key(to) {
                 ledger.dirty_clear(from);
                 ledger.dirty_set(to);
             } else {
+                baseline_moved = !is_dir && ledger.observations.contains_key(from);
                 ledger.unobserve(to);
                 ledger.dirty_clear(to);
                 ledger.remap(from, to);
             }
+        }
+        if baseline_moved {
+            self.displaced.lock().unwrap().insert(
+                from.clone(),
+                Displaced {
+                    base: to.clone(),
+                    rm_pending: false,
+                },
+            );
+            let weak = self.weak.clone();
+            let from = from.clone();
+            self.rt.spawn(async move {
+                loop {
+                    tokio::time::sleep(DISPLACED_TTL).await;
+                    let Some(engine) = weak.upgrade() else { return };
+                    if !engine.displaced.lock().unwrap().contains_key(&from) {
+                        return;
+                    }
+                    if !engine.ledger().dirty.contains(&from) {
+                        engine.displaced_expire(&from).await;
+                        return;
+                    }
+                }
+            });
         }
         self.cancel(from);
         let moved: Vec<RelPath> = self
@@ -346,6 +391,24 @@ impl<T: LocalTree> Engine<T> {
             self.now(&path);
         }
         Ok(())
+    }
+
+    async fn displaced_expire(&self, path: &RelPath) {
+        let entry = self.displaced.lock().unwrap().remove(path);
+        if let Some(d) = entry {
+            if d.rm_pending {
+                self.rm_displaced(&d.base).await;
+            }
+        }
+    }
+
+    pub(crate) async fn rm_displaced(&self, base: &RelPath) {
+        match self.sdk.rm(&base.as_file()).await {
+            Ok(()) | Err(SdkError::NotFound) => {}
+            Err(err) => log::warn!("deferred rm {base}: {err}"),
+        }
+        self.ledger().forget(base);
+        self.cancel(base);
     }
 
     pub fn sdk(&self) -> &Arc<Sdk> {
