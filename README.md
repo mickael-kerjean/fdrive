@@ -38,7 +38,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 ## Features
 
 - [X] Sane Architecture: one Rust core makes every decision and each platform only implements the lipstick, so sync behaves the same everywhere
-- [ ] Delta sync: only ship the bytes that changed, not the whole file
+- [X] Delta sync: only ship the bytes that changed, not the whole file
 - [X] Lives in the tray: the tray icon shows the status, synced, syncing or in trouble at a glance
 - [X] Files on demand: a file only downloads when you open it, with both content and listings cached so browsing stays snappy and the next open is instant
 - [X] Streaming: large files open immediately, reads are served as the bytes arrive

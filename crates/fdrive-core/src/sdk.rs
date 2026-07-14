@@ -1,7 +1,7 @@
 use std::time::{Duration, SystemTime};
 
 use futures_util::TryStreamExt;
-use reqwest::header::{HeaderMap, AUTHORIZATION, SET_COOKIE};
+use reqwest::header::{HeaderMap, AUTHORIZATION, CONTENT_TYPE, SET_COOKIE};
 use reqwest::{Body, Method, Response, StatusCode};
 use serde::Deserialize;
 use url::Url;
@@ -9,6 +9,7 @@ use url::Url;
 use crate::ByteStream;
 
 const COOKIE_NAME_SESSION: &str = "auth";
+pub const DELTA_MEDIA_TYPE: &str = "application/vnd.filestash.delta.rdiff";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -74,6 +75,7 @@ pub struct Sdk {
     url: Url,
     http: reqwest::Client,
     token: Option<String>,
+    delta: std::sync::Arc<std::sync::OnceLock<bool>>,
 }
 
 pub struct SdkBuilder {
@@ -136,6 +138,7 @@ impl Sdk {
             url,
             http,
             token: None,
+            delta: Default::default(),
         })
     }
 
@@ -272,6 +275,56 @@ impl Sdk {
             req = req.header("If-Unmodified-Since", httpdate::fmt_http_date(since));
         }
         let resp = req.body(Body::wrap_stream(body)).send().await?;
+        let resp = check_status(resp).await?;
+        Ok(resp
+            .headers()
+            .get("last-modified")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| httpdate::parse_http_date(v).ok()))
+    }
+
+    pub async fn delta_supported(&self) -> bool {
+        if let Some(cached) = self.delta.get() {
+            return *cached;
+        }
+        let supported = self.probe_delta().await.unwrap_or(false);
+        let _ = self.delta.set(supported);
+        supported
+    }
+
+    async fn probe_delta(&self) -> Result<bool> {
+        let resp = self
+            .http
+            .request(Method::OPTIONS, self.api(&["api", "files", "save"]))
+            .header("X-Requested-With", "SDKHttpRequest")
+            .header(AUTHORIZATION, self.bearer()?)
+            .send()
+            .await?;
+        Ok(resp
+            .headers()
+            .get("Accept-Post")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains(DELTA_MEDIA_TYPE)))
+    }
+
+    pub async fn save_delta(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        since: SystemTime,
+    ) -> Result<Option<SystemTime>> {
+        let mut url = self.api(&["api", "files", "cat"]);
+        url.query_pairs_mut().append_pair("path", path);
+        let resp = self
+            .http
+            .post(url)
+            .header("X-Requested-With", "SDKHttpRequest")
+            .header(AUTHORIZATION, self.bearer()?)
+            .header(CONTENT_TYPE, DELTA_MEDIA_TYPE)
+            .header("If-Unmodified-Since", httpdate::fmt_http_date(since))
+            .body(body)
+            .send()
+            .await?;
         let resp = check_status(resp).await?;
         Ok(resp
             .headers()
