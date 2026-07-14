@@ -205,6 +205,10 @@ impl<T: LocalTree> Engine<T> {
             ledger.observe(&path, Observation::new(size, info.mtime));
             ledger.dirty_clear(&path);
         }
+        if let Ok(data) = fs::read(self.tree.backing(&path)) {
+            self.ledger()
+                .sign_set(&path, &super::upload::signature(&data));
+        }
         self.downloads.lock().unwrap().remove(&path);
         tx.send_modify(|s| s.1 = DownloadStatus::Done);
         log::info!("cached {path} ({size} bytes)");
