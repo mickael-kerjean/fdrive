@@ -62,5 +62,6 @@ Inside the core, sync is a journal: filesystem events are recorded, coalesced in
 - [ ] Explorer actions: surface share links and friends right from the file manager
 - [ ] MacOS FileProvider: fuse-t fills the gap until we pay Apple the $100 a year it takes to get there
 - [ ] Testing: test on all possible devices / configuration
+- [ ] Support for delta download: same as the existing upload but for download. Awaiting for server support
 - [ ] MDM integration: preconfigure the client and roll it out across a fleet
 - [ ] full POSIX compliance

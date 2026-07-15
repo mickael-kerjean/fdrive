@@ -22,29 +22,29 @@ enum Msg {
     Flush(oneshot::Sender<()>),
 }
 
-pub(crate) struct Handle {
+pub(super) struct Handle {
     queue: mpsc::UnboundedSender<Msg>,
     status: watch::Receiver<UploadStatus>,
 }
 
 impl Handle {
-    pub(crate) fn kick(&self) {
+    pub(super) fn kick(&self) {
         let _ = self.queue.send(Msg::Kick);
     }
 
-    pub(crate) async fn flush(&self, timeout: Duration) {
+    pub(super) async fn flush(&self, timeout: Duration) {
         let (reply, done) = oneshot::channel();
         if self.queue.send(Msg::Flush(reply)).is_ok() {
             let _ = tokio::time::timeout(timeout, done).await;
         }
     }
 
-    pub(crate) fn status(&self) -> watch::Receiver<UploadStatus> {
+    pub(super) fn status(&self) -> watch::Receiver<UploadStatus> {
         self.status.clone()
     }
 }
 
-pub(crate) fn spawn<T: LocalTree>(rt: &tokio::runtime::Handle, engine: Weak<Engine<T>>) -> Handle {
+pub(super) fn spawn<T: LocalTree>(rt: &tokio::runtime::Handle, engine: Weak<Engine<T>>) -> Handle {
     let (queue, rx) = mpsc::unbounded_channel();
     let (status_tx, status) = watch::channel(UploadStatus::Idle);
     rt.spawn(run(engine, rx, status_tx));
