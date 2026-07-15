@@ -110,7 +110,7 @@ impl<T: LocalTree> Engine<T> {
     }
 
     pub fn recover(&self) {
-        let pending = self.state().journal.pending.len();
+        let pending = self.state().pending();
         if pending > 0 {
             log::info!("recovered {pending} pending plans");
         }
@@ -118,17 +118,17 @@ impl<T: LocalTree> Engine<T> {
         self.pin_sweep();
     }
 
-    pub(crate) fn compact(&self, force: bool) {
+    pub(super) fn compact(&self, force: bool) {
         self.state().compact(force, &self.ignore, |p| {
             fs::metadata(self.tree.backing(p)).is_ok_and(|md| md.len() == 0)
         });
     }
 
-    pub(crate) fn next(&self) -> Option<(i64, Plan)> {
+    pub(super) fn next(&self) -> Option<(i64, Plan)> {
         self.state().next()
     }
 
-    pub(crate) fn settle(&self, seq: i64, outcome: Outcome) -> bool {
+    pub(super) fn settle(&self, seq: i64, outcome: Outcome) -> bool {
         let (failing, conflict) = self.state().settle(seq, outcome);
         if let Some(c) = conflict {
             self.conflicted(c);
@@ -136,15 +136,15 @@ impl<T: LocalTree> Engine<T> {
         failing
     }
 
-    pub(crate) fn idle(&self) -> bool {
+    pub(super) fn idle(&self) -> bool {
         self.state().idle()
     }
 
-    pub(crate) fn wait(&self) -> Option<Instant> {
+    pub(super) fn wait(&self) -> Option<Instant> {
         self.state().wait()
     }
 
-    pub(crate) fn rush(&self) {
+    pub(super) fn rush(&self) {
         self.compact(true);
         self.state().rush();
     }
@@ -174,7 +174,7 @@ impl<T: LocalTree> Engine<T> {
         }
     }
 
-    pub(crate) fn is_frozen(&self, path: &RelPath) -> bool {
+    pub(super) fn is_frozen(&self, path: &RelPath) -> bool {
         self.frozen
             .lock()
             .unwrap()

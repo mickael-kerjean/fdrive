@@ -12,7 +12,7 @@ use super::Engine;
 use crate::model::{Conflict, Observation, Operation, Resolution};
 
 impl Conflict {
-    pub(crate) fn what(&self) -> (&'static str, &RelPath, Option<&RelPath>) {
+    pub(super) fn what(&self) -> (&'static str, &RelPath, Option<&RelPath>) {
         match &self.op {
             Operation::Create(p) | Operation::Write(p) => ("w", p, None),
             Operation::Rename(a, b) => ("mv", a, Some(b)),
@@ -21,7 +21,7 @@ impl Conflict {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn from_row(
+    pub(super) fn from_row(
         seq: i64,
         op: &str,
         path: RelPath,
@@ -86,7 +86,7 @@ impl Conflicts {
 }
 
 impl<T: LocalTree> Engine<T> {
-    pub(crate) fn conflicted(&self, mut c: Conflict) {
+    pub(super) fn conflicted(&self, mut c: Conflict) {
         log::warn!("conflict on {}", c.op);
         c.seq = self.ledger().conflict_add(&c);
         self.conflicts.add(c);

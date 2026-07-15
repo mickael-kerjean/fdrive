@@ -113,7 +113,7 @@ pub enum Plan {
 }
 
 impl Plan {
-    pub fn paths(&self) -> Vec<&RelPath> {
+    pub(crate) fn paths(&self) -> Vec<&RelPath> {
         match self {
             Plan::Save { path, reuses, .. } => std::iter::once(path).chain(reuses).collect(),
             Plan::Move { from, to, .. } => vec![from, to],
@@ -121,13 +121,13 @@ impl Plan {
         }
     }
 
-    pub fn touches(&self, p: &RelPath) -> bool {
+    pub(crate) fn touches(&self, p: &RelPath) -> bool {
         self.paths()
             .iter()
             .any(|q| p == *q || p.is_descendant_of(q) || q.is_descendant_of(p))
     }
 
-    pub fn overlaps(&self, other: &Plan) -> bool {
+    pub(crate) fn overlaps(&self, other: &Plan) -> bool {
         other.paths().iter().any(|p| self.touches(p))
     }
 }
@@ -162,7 +162,7 @@ enum Content {
     Gone,
 }
 
-pub fn coalesce<'a>(
+pub(crate) fn coalesce<'a>(
     pending: impl Iterator<Item = &'a Plan>,
     ops: &[Operation],
     know: impl Fn(&RelPath) -> Option<Observation>,
@@ -312,7 +312,7 @@ fn cycle_members(renames: &[(RelPath, RelPath)]) -> BTreeSet<RelPath> {
     members
 }
 
-pub fn render<D: fmt::Display>(items: &[D]) -> String {
+pub(crate) fn render<D: fmt::Display>(items: &[D]) -> String {
     items
         .iter()
         .map(|x| x.to_string())

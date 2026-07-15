@@ -15,7 +15,7 @@ enum Saved {
     Conflict,
 }
 
-pub(crate) fn signature(data: &[u8]) -> Vec<u8> {
+pub(super) fn signature(data: &[u8]) -> Vec<u8> {
     fast_rsync::Signature::calculate(
         data,
         fast_rsync::SignatureOptions {
@@ -48,7 +48,7 @@ impl<T: LocalTree> Engine<T> {
         dir.join(&format!("{stem} (conflicted copy){ext}"))
     }
 
-    pub(crate) async fn replay_save(
+    pub(super) async fn replay_save(
         &self,
         path: &RelPath,
         replaces: Option<Observation>,

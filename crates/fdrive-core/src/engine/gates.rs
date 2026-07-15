@@ -31,7 +31,7 @@ fn gate(
     gates.entry(path.clone()).or_default().clone()
 }
 
-pub(crate) struct Frozen<'a> {
+pub(super) struct Frozen<'a> {
     pub(super) set: &'a Mutex<BTreeSet<RelPath>>,
     pub(super) paths: Vec<RelPath>,
 }

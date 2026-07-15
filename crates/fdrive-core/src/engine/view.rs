@@ -14,7 +14,7 @@ impl<T: LocalTree> Engine<T> {
         self.state().view().fates
     }
 
-    pub(crate) fn upstream_of(&self, path: &RelPath) -> Option<RelPath> {
+    pub(super) fn upstream_of(&self, path: &RelPath) -> Option<RelPath> {
         match self.fates().get(path) {
             Some(Fate::Arrived { from, .. }) => Some(from.clone()),
             _ => None,
@@ -90,6 +90,14 @@ impl<T: LocalTree> Engine<T> {
             }
         }
         listing
+    }
+
+    pub fn observed(&self, path: &RelPath) -> Option<Observation> {
+        self.ledger().observations.get(path).copied()
+    }
+
+    pub fn is_dirty(&self, path: &RelPath) -> bool {
+        self.ledger().dirty.contains(path)
     }
 
     pub fn needs_baseline(&self, path: &RelPath) -> bool {
