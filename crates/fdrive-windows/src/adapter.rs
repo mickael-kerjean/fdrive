@@ -204,7 +204,7 @@ impl Adapter {
         let md = fs::symlink_metadata(abs)?;
         let ps = wire::placeholder_state(abs)?;
         if !ps.placeholder {
-            return Ok(if self.engine.ledger().observations.contains_key(path) {
+            return Ok(if self.engine.observed(path).is_some() {
                 FileState::Foreign
             } else {
                 FileState::New
@@ -476,10 +476,10 @@ impl Adapter {
     }
 
     fn adopt(&self, path: &RelPath, abs: &Path, md: &fs::Metadata) {
-        if self.engine.ledger().dirty.contains(path) {
+        if self.engine.is_dirty(path) {
             return;
         }
-        let observed = self.engine.ledger().observations.get(path).copied();
+        let observed = self.engine.observed(path);
         match observed {
             Some(rec) if Observation::of_local(md) == rec => {
                 match wire::mark_in_sync_if_unmodified(abs, path, md.modified().ok()) {
@@ -495,11 +495,11 @@ impl Adapter {
     }
 
     fn freshen(&self, path: &RelPath, remote: &FileInfo, md: &fs::Metadata) {
-        if self.engine.ledger().dirty.contains(path) {
+        if self.engine.is_dirty(path) {
             return;
         }
         let remote_rec = Observation::of(remote);
-        let unchanged = match self.engine.ledger().observations.get(path).copied() {
+        let unchanged = match self.engine.observed(path) {
             Some(rec) => rec == remote_rec,
             None => Observation::of_local(md) == remote_rec,
         };
@@ -553,7 +553,7 @@ impl Adapter {
             }
         } else if !self.file_is_clean(&abs, path) {
             if matches!(self.classify(&abs, path), Ok(FileState::New))
-                && !self.engine.ledger().dirty.contains(path)
+                && !self.engine.is_dirty(path)
             {
                 log::info!("found new local file {path}");
                 self.engine.modified(path);
@@ -581,7 +581,7 @@ impl Adapter {
     }
 
     fn file_is_clean(&self, abs: &Path, path: &RelPath) -> bool {
-        !self.engine.ledger().dirty.contains(path)
+        !self.engine.is_dirty(path)
             && matches!(
                 self.classify(abs, path),
                 Ok(FileState::Cached(_) | FileState::Dehydrated(_))
@@ -657,7 +657,7 @@ impl Adapter {
                     continue;
                 }
                 match self.classify(&abs, &child) {
-                    Ok(FileState::Edited) if !self.engine.ledger().dirty.contains(&child) => {
+                    Ok(FileState::Edited) if !self.engine.is_dirty(&child) => {
                         self.engine.modified(&child);
                         armed.push(child);
                     }

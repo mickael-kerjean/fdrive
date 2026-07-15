@@ -11,7 +11,7 @@ pub struct Ledger {
     pub pins: BTreeSet<RelPath>,
 
     pub dirty: BTreeSet<RelPath>,
-    pub(crate) unreadable: bool,
+    pub(super) unreadable: bool,
     db: Option<rusqlite::Connection>,
 }
 
@@ -34,7 +34,7 @@ fn row_obs(size: Option<i64>, time: Option<i64>) -> Option<Observation> {
 }
 
 impl Ledger {
-    pub(crate) fn open(file: &Path) -> Result<Self, ()> {
+    pub(super) fn open(file: &Path) -> Result<Self, ()> {
         let load = || -> rusqlite::Result<Self> {
             let db = open_db(
                 file,
@@ -102,14 +102,14 @@ impl Ledger {
         }
     }
 
-    pub(crate) fn mark(&self, path: &RelPath) {
+    pub(super) fn mark(&self, path: &RelPath) {
         self.exec(
             "INSERT INTO journal(op, path) VALUES ('w', ?1)",
             [path.as_str()],
         );
     }
 
-    pub(crate) fn journal_load(&self) -> (Vec<Operation>, Vec<(i64, Plan)>) {
+    pub(super) fn journal_load(&self) -> (Vec<Operation>, Vec<(i64, Plan)>) {
         let Some(db) = &self.db else {
             return (Vec::new(), Vec::new());
         };
@@ -163,7 +163,7 @@ impl Ledger {
         (window, out)
     }
 
-    pub(crate) fn journal_swap(
+    pub(super) fn journal_swap(
         &mut self,
         unmark: &[RelPath],
         retired: &[i64],
@@ -226,11 +226,11 @@ impl Ledger {
             .collect()
     }
 
-    pub(crate) fn journal_retire(&self, seq: i64) {
+    pub(super) fn journal_retire(&self, seq: i64) {
         self.exec("DELETE FROM journal WHERE seq = ?1", [seq]);
     }
 
-    pub(crate) fn conflict_add(&self, c: &Conflict) -> i64 {
+    pub(super) fn conflict_add(&self, c: &Conflict) -> i64 {
         let (op, path, dest) = c.what();
         self.exec(
             "INSERT INTO conflicts(op, path, dest, expected_size, expected_time, found_size, found_time, ours, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -252,11 +252,11 @@ impl Ledger {
             .unwrap_or_default()
     }
 
-    pub(crate) fn conflict_retire(&self, seq: i64) {
+    pub(super) fn conflict_retire(&self, seq: i64) {
         self.exec("DELETE FROM conflicts WHERE seq = ?1", [seq]);
     }
 
-    pub(crate) fn conflicts_load(&self) -> Vec<Conflict> {
+    pub(super) fn conflicts_load(&self) -> Vec<Conflict> {
         let Some(db) = &self.db else {
             return Vec::new();
         };
@@ -390,7 +390,7 @@ impl Ledger {
         }
     }
 
-    pub(crate) fn local_only(&self, path: &RelPath) -> bool {
+    pub(super) fn local_only(&self, path: &RelPath) -> bool {
         !self.observations.contains_key(path) && self.dirty.contains(path)
     }
 }
