@@ -155,8 +155,6 @@ impl Handle {
     }
 
     fn write(&self, path: &RelPath, offset: u64, data: &[u8]) -> io::Result<usize> {
-        // the C shim has no open hook, so the backing file must be
-        // hydrated before the first write lands at an offset
         self.hydrate(path)?;
         let file_path = self.backing(path);
         ensure_parent(&file_path)?;

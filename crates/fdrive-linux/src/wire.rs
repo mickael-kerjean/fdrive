@@ -12,8 +12,7 @@ use fuser::{
 use crate::adapter::Adapter;
 use fdrive_core::path::RelPath;
 
-const TTL_OK: Duration = Duration::from_secs(60);
-const TTL_NOK: Duration = Duration::from_secs(5);
+const TTL: Duration = Duration::from_secs(5);
 const ROOT: u64 = 1;
 
 struct InodeTable {
@@ -69,7 +68,6 @@ struct Wire {
 impl Filesystem for MountFs {
     fn init(&mut self, _req: &Request, config: &mut fuser::KernelConfig) -> std::io::Result<()> {
         let _ = config.add_capabilities(fuser::InitFlags::FUSE_ATOMIC_O_TRUNC);
-        let _ = config.add_capabilities(fuser::InitFlags::FUSE_WRITEBACK_CACHE);
         let _ = config.set_max_write(1 << 20);
         Ok(())
     }
@@ -81,10 +79,10 @@ impl Filesystem for MountFs {
         self.go(move |wire| match wire.attr(&path) {
             Some(attr) => {
                 wire.bump(attr.ino.0);
-                reply.entry(&TTL_OK, &attr, Generation(0));
+                reply.entry(&TTL, &attr, Generation(0));
             }
             None => reply.entry(
-                &TTL_NOK,
+                &TTL,
                 &wire.make_attr(0, false, 0, SystemTime::UNIX_EPOCH),
                 Generation(0),
             ),
@@ -100,7 +98,7 @@ impl Filesystem for MountFs {
             return reply.error(Errno::ENOENT);
         };
         self.go(move |wire| match wire.attr(&path) {
-            Some(attr) => reply.attr(&TTL_OK, &attr),
+            Some(attr) => reply.attr(&TTL, &attr),
             None => reply.error(Errno::ENOENT),
         });
     }
@@ -135,7 +133,7 @@ impl Filesystem for MountFs {
                 }
             }
             match wire.attr(&path) {
-                Some(attr) => reply.attr(&TTL_OK, &attr),
+                Some(attr) => reply.attr(&TTL, &attr),
                 None => reply.error(Errno::ENOENT),
             }
         });
@@ -202,7 +200,7 @@ impl Filesystem for MountFs {
             match wire.attr(&path) {
                 Some(attr) => {
                     wire.bump(attr.ino.0);
-                    reply.entry(&TTL_OK, &attr, Generation(0));
+                    reply.entry(&TTL, &attr, Generation(0));
                 }
                 None => reply.error(Errno::EIO),
             }
@@ -231,7 +229,7 @@ impl Filesystem for MountFs {
             wire.bump(attr.ino.0);
             let fh = wire.adapter.opened(&path, true);
             reply.created(
-                &TTL_OK,
+                &TTL,
                 &attr,
                 Generation(0),
                 FileHandle(fh),
@@ -246,12 +244,14 @@ impl Filesystem for MountFs {
         };
         self.go(move |wire| {
             log::debug!("open path={path} flags={flags:x}");
+            let writable = flags.0 & libc::O_ACCMODE != libc::O_RDONLY;
             let result = if flags.0 & libc::O_TRUNC != 0 {
                 wire.adapter.truncate(&path, 0)
+            } else if writable {
+                wire.adapter.hydrate(&path)
             } else {
                 wire.adapter.hydrate_start(&path)
             };
-            let writable = flags.0 & libc::O_ACCMODE != libc::O_RDONLY;
             match result {
                 Ok(()) => reply.opened(
                     FileHandle(wire.adapter.opened(&path, writable)),

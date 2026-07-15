@@ -100,5 +100,54 @@ async fn prune_spares_pinned_content() {
     engine.unpin(&RelPath::new("d"));
     engine.prune(&root).unwrap();
     assert!(engine.tree().read("d/f.txt").is_none());
-    assert!(!engine.ledger().observations.contains_key(&path));
+    assert!(
+        engine.ledger().observations.contains_key(&path),
+        "prune drops bytes, never knowledge"
+    );
+}
+
+#[tokio::test]
+async fn prune_keeps_the_delta_base_across_restarts() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(Method::OPTIONS).path("/api/files/save");
+        then.status(200)
+            .header("Accept-Post", crate::sdk::DELTA_MEDIA_TYPE);
+    });
+    let delta = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/cat")
+            .header("content-type", crate::sdk::DELTA_MEDIA_TYPE);
+        then.status(200)
+            .header("last-modified", MTIME)
+            .body(r#"{"status":"ok"}"#);
+    });
+    let engine = engine(&server);
+    let root = engine.tree().dir.clone();
+    let path = RelPath::new("big.txt");
+    let synced = vec![b'a'; 8192];
+    engine.tree().write("big.txt", &synced);
+    engine.ledger().observe(&path, observed(8192));
+    let sig = crate::engine::upload::signature(&synced);
+    engine.ledger().sign_set(&path, &sig);
+
+    engine.prune(&root).unwrap();
+    assert!(engine.tree().read("big.txt").is_none());
+    assert!(
+        engine.ledger().sign_get(&path).is_some(),
+        "the signature describes server content, it outlives the bytes"
+    );
+    assert!(
+        !engine.content_current(&path, observed(8192)),
+        "a kept observation cannot fake freshness"
+    );
+
+    let mut edited = synced.clone();
+    edited[0] = b'b';
+    engine.tree().write("big.txt", &edited);
+    engine.modified(&path);
+    settle(&engine).await;
+
+    delta.assert_hits(1);
+    assert!(!engine.ledger().dirty.contains(&path));
 }

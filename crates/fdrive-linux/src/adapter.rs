@@ -295,10 +295,14 @@ impl Adapter {
     }
 
     pub fn write(&self, fh: u64, path: &RelPath, offset: u64, data: &[u8]) -> io::Result<u32> {
-        self.engine.modified(path);
         match self.handle_file(fh) {
-            Some(file) => file.write_all_at(data, offset)?,
+            Some(file) => {
+                self.engine.modified(path);
+                file.write_all_at(data, offset)?;
+            }
             None => {
+                self.hydrate(path)?;
+                self.engine.modified(path);
                 let file_path = self.backing(path);
                 ensure_parent(&file_path)?;
                 fs::OpenOptions::new()
