@@ -12,7 +12,7 @@ mod upload;
 mod view;
 
 pub use self::{download::Download, ledger::Ledger, scheduler::UploadStatus, state::LedgerGuard};
-pub(crate) use self::{gates::Frozen, play::Outcome};
+use self::{gates::Frozen, play::Outcome};
 pub use crate::model::{Conflict, Fate, Observation, Operation, Plan, Resolution};
 
 use std::collections::BTreeSet;

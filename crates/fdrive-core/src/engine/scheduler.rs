@@ -22,40 +22,40 @@ enum Msg {
     Flush(oneshot::Sender<()>),
 }
 
-pub(crate) struct Handle {
+pub(super) struct Handle {
     queue: mpsc::UnboundedSender<Msg>,
     status: watch::Receiver<UploadStatus>,
 }
 
 impl Handle {
-    pub(crate) fn kick(&self) {
+    pub(super) fn kick(&self) {
         let _ = self.queue.send(Msg::Kick);
     }
 
-    pub(crate) async fn flush(&self, timeout: Duration) {
+    pub(super) async fn flush(&self, timeout: Duration) {
         let (reply, done) = oneshot::channel();
         if self.queue.send(Msg::Flush(reply)).is_ok() {
             let _ = tokio::time::timeout(timeout, done).await;
         }
     }
 
-    pub(crate) fn status(&self) -> watch::Receiver<UploadStatus> {
+    pub(super) fn status(&self) -> watch::Receiver<UploadStatus> {
         self.status.clone()
     }
 }
 
-pub(crate) struct Driver {
+pub(super) struct Driver {
     rx: mpsc::UnboundedReceiver<Msg>,
     status: watch::Sender<UploadStatus>,
 }
 
 impl Driver {
-    pub(crate) fn spawn<T: LocalTree>(self, rt: &tokio::runtime::Handle, engine: Weak<Engine<T>>) {
+    pub(super) fn spawn<T: LocalTree>(self, rt: &tokio::runtime::Handle, engine: Weak<Engine<T>>) {
         rt.spawn(run(engine, self.rx, self.status));
     }
 }
 
-pub(crate) fn prepare() -> (Handle, Driver) {
+pub(super) fn prepare() -> (Handle, Driver) {
     let (queue, rx) = mpsc::unbounded_channel();
     let (status_tx, status) = watch::channel(UploadStatus::Idle);
     (Handle { queue, status }, Driver { rx, status: status_tx })
