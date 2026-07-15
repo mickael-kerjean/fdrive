@@ -36,9 +36,11 @@ impl<T: LocalTree> Engine<T> {
             if ledger.observations.get(&path) == Some(&obs) {
                 continue;
             }
-            let mirrors = fs::metadata(self.tree.backing(&path))
-                .is_ok_and(|md| Observation::of_local(&md) == obs);
-            if mirrors {
+            let advance = match fs::metadata(self.tree.backing(&path)) {
+                Ok(md) => Observation::of_local(&md) == obs,
+                Err(_) => true,
+            };
+            if advance {
                 ledger.observe(&path, obs);
             }
         }

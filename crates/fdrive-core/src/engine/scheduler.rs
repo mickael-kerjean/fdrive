@@ -60,7 +60,13 @@ impl Driver {
 pub(super) fn prepare() -> (Handle, Driver) {
     let (queue, rx) = mpsc::unbounded_channel();
     let (status_tx, status) = watch::channel(UploadStatus::Idle);
-    (Handle { queue, status }, Driver { rx, status: status_tx })
+    (
+        Handle { queue, status },
+        Driver {
+            rx,
+            status: status_tx,
+        },
+    )
 }
 
 async fn run<T: LocalTree>(

@@ -173,6 +173,36 @@ is  "pin: getfattr answers" "always" "$(getfattr --only-values -n user.fdrive.pi
 setfattr -n user.fdrive.pin -v auto "$DIR/t9"
 is  "pin: unpin clears the answer" "" "$(getfattr --only-values -n user.fdrive.pin "$DIR/t9" 2>/dev/null)"
 
+# --- 10. a remote change reaches a cached file ------------------------------
+mkdir -p "$DIR/t10"
+settle
+srv_save "t10/shared.txt" "version one"
+sleep 6                        # past the listing TTL so the change is visible
+is  "remote change: first open caches it" "version one" "$(cat "$DIR/t10/shared.txt")"
+srv_save "t10/shared.txt" "version two - longer"
+sleep 6
+is  "remote change: reopen serves the new bytes, not the cache" "version two - longer" "$(cat "$DIR/t10/shared.txt")"
+
+# --- 11. a write during hydration never uploads a partial file ---------------
+mkdir -p "$DIR/t11"
+settle
+python3 -c "print('x' * 4194304, end='')" > /tmp/e2e-big.txt
+srv POST "cat?path=/$E2E/t11/big.txt" /tmp/e2e-big.txt > /dev/null
+rm -f /tmp/e2e-big.txt
+sleep 6
+python3 - "$DIR/t11/big.txt" <<'PYEOF'
+import sys, os
+fd = os.open(sys.argv[1], os.O_WRONLY)
+os.pwrite(fd, b'PATCHED', 4194297)
+os.close(fd)
+PYEOF
+settle
+sleep 2
+got=$(srv_cat t11/big.txt | tail -c 20)
+is  "hydrate race: the upload holds the full original plus the write" "xxxxxxxxxxxxxPATCHED" "$got"
+size=$(srv_ls t11 | python3 -c "import json,sys; print([r['size'] for r in json.load(sys.stdin)['results'] if r['name']=='big.txt'][0])")
+is  "hydrate race: no sparse partial ever landed" "4194304" "$size"
+
 # --- cleanup ---------------------------------------------------------------
 rm -rf "$DIR"
 settle

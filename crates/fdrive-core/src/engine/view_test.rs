@@ -84,11 +84,16 @@ async fn listed_observes_only_what_the_replica_mirrors() {
     );
     assert_eq!(
         engine.observed(&phantom),
-        None,
-        "nothing local, nothing agreed"
+        Some(Observation::new(9, Some(mtime))),
+        "nothing local to protect, the listing is the baseline that arms a later delete"
     );
 
-    engine.listed(&dir, &[entry("mirrored", 23)]);
+    engine.listed(&dir, &[entry("mirrored", 23), entry("phantom", 11)]);
+    assert_eq!(
+        engine.observed(&phantom),
+        Some(Observation::new(11, Some(mtime))),
+        "still nothing local, the baseline follows the server"
+    );
     assert_eq!(
         engine.observed(&mirrored),
         Some(observed(5)),
