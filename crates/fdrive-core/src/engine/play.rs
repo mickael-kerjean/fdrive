@@ -7,7 +7,7 @@ use crate::sdk::Error as SdkError;
 use super::Engine;
 use crate::model::{Conflict, Observation, Operation, Plan};
 
-pub(crate) enum Outcome {
+pub(super) enum Outcome {
     Saved {
         obs: Option<Observation>,
         sig: Option<Vec<u8>>,
@@ -36,7 +36,7 @@ pub(crate) enum Outcome {
 }
 
 impl<T: LocalTree> Engine<T> {
-    pub(crate) async fn replay(&self, plan: &Plan) -> Outcome {
+    pub(super) async fn replay(&self, plan: &Plan) -> Outcome {
         match plan {
             Plan::Save {
                 path,
