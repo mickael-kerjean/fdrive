@@ -24,7 +24,8 @@ impl<T: LocalTree> Engine<T> {
         let ignore = crate::config::ignore(ledger_file.parent().unwrap_or(Path::new("")));
         let state = State::open(&ledger_file);
         let conflicts = Conflicts::load(state.ledger.conflicts_load());
-        Arc::new_cyclic(|weak| Self {
+        let (scheduler, driver) = scheduler::prepare();
+        let engine = Arc::new_cyclic(|weak| Self {
             tree,
             sdk,
             ignore,
@@ -32,12 +33,14 @@ impl<T: LocalTree> Engine<T> {
             transfers: Transfers::default(),
             frozen: Mutex::new(BTreeSet::new()),
             conflicts,
-            scheduler: scheduler::spawn(&rt, weak.clone()),
+            scheduler,
             spawner: Spawner {
-                rt,
+                rt: rt.clone(),
                 weak: weak.clone(),
             },
-        })
+        });
+        driver.spawn(&rt, Arc::downgrade(&engine));
+        engine
     }
 
     pub fn created(&self, path: &RelPath) {

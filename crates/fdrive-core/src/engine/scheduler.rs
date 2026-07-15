@@ -44,11 +44,21 @@ impl Handle {
     }
 }
 
-pub(crate) fn spawn<T: LocalTree>(rt: &tokio::runtime::Handle, engine: Weak<Engine<T>>) -> Handle {
+pub(crate) struct Driver {
+    rx: mpsc::UnboundedReceiver<Msg>,
+    status: watch::Sender<UploadStatus>,
+}
+
+impl Driver {
+    pub(crate) fn spawn<T: LocalTree>(self, rt: &tokio::runtime::Handle, engine: Weak<Engine<T>>) {
+        rt.spawn(run(engine, self.rx, self.status));
+    }
+}
+
+pub(crate) fn prepare() -> (Handle, Driver) {
     let (queue, rx) = mpsc::unbounded_channel();
     let (status_tx, status) = watch::channel(UploadStatus::Idle);
-    rt.spawn(run(engine, rx, status_tx));
-    Handle { queue, status }
+    (Handle { queue, status }, Driver { rx, status: status_tx })
 }
 
 async fn run<T: LocalTree>(
