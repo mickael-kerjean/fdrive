@@ -95,18 +95,8 @@ impl<T: LocalTree> Engine<T> {
             return Ok(());
         }
         let owed: BTreeSet<RelPath> = self.state().owed();
-        let mut ledger = self.ledger();
+        let ledger = self.ledger();
         let pins = ledger.pins.clone();
-        let pinned = |p: &RelPath| pins.iter().any(|r| p == r || p.is_descendant_of(r));
-        let gone: Vec<RelPath> = ledger
-            .observations
-            .keys()
-            .filter(|p| !ledger.dirty.contains(p) && !owed.contains(*p) && !pinned(p))
-            .cloned()
-            .collect();
-        for path in &gone {
-            ledger.unobserve(path);
-        }
         let keep: Vec<PathBuf> = ledger
             .dirty
             .iter()

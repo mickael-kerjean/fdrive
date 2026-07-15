@@ -492,7 +492,10 @@ impl Adapter {
                 }
             }
             Some(rec) if md.len() == 0 && rec.size > 0 => {
-                log::debug!("{path} is an empty husk of {} observed bytes; leaving it untouched", rec.size);
+                log::debug!(
+                    "{path} is an empty husk of {} observed bytes; leaving it untouched",
+                    rec.size
+                );
             }
             Some(_) => {
                 log::info!("adopting local edit {path}");

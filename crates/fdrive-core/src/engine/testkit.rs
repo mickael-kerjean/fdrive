@@ -98,7 +98,8 @@ pub(super) async fn settle(engine: &Engine<TempTree>) {
 
 pub(super) fn backdate(path: &std::path::Path, to: SystemTime) {
     let file = fs::File::options().write(true).open(path).unwrap();
-    file.set_times(fs::FileTimes::new().set_modified(to)).unwrap();
+    file.set_times(fs::FileTimes::new().set_modified(to))
+        .unwrap();
 }
 
 pub(super) const MTIME: &str = "Wed, 21 Oct 2015 07:28:00 GMT";
