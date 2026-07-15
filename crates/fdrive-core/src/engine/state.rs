@@ -21,7 +21,7 @@ pub(super) struct State {
 pub(super) struct Journal {
     window: Vec<(Instant, Operation)>,
     marks: BTreeSet<RelPath>,
-    pub(super) pending: BTreeMap<i64, Entry>,
+    pending: BTreeMap<i64, Entry>,
 
     writing: BTreeMap<RelPath, usize>,
     inflight: BTreeSet<i64>,
@@ -320,6 +320,10 @@ impl State {
         self.journal.pending.remove(&seq);
         self.ledger.journal_retire(seq);
         self.refresh();
+    }
+
+    pub(super) fn pending(&self) -> usize {
+        self.journal.pending.len()
     }
 
     pub(super) fn idle(&self) -> bool {
