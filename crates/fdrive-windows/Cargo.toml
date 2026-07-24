@@ -7,6 +7,10 @@ edition = "2021"
 name = "fdrive-windows"
 path = "src/main.rs"
 
+[lib]
+name = "fdrive_windows"
+path = "src/lib.rs"
+
 [dependencies]
 fdrive-core = { path = "../fdrive-core" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
@@ -49,3 +53,6 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[dev-dependencies]
+fdrive-testkit = { path = "../fdrive-testkit" }

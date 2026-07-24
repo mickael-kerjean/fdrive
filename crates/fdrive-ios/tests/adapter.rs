@@ -175,7 +175,7 @@ fn saved_uploads_the_edit() {
 }
 
 #[test]
-fn delete_is_a_verdict() {
+fn a_dir_delete_is_a_verdict_a_file_delete_is_not() {
     let server = MockServer::start();
     let rm = server.mock(|when, then| {
         when.method(POST)
@@ -187,7 +187,7 @@ fn delete_is_a_verdict() {
     server.mock(|when, then| {
         when.method(POST)
             .path("/api/files/rm")
-            .query_param("path", "/locked.txt");
+            .query_param("path", "/broken/");
         then.status(500);
     });
 
@@ -195,7 +195,8 @@ fn delete_is_a_verdict() {
     let adapter = adapter(&server, &data);
     adapter.delete("/docs/".into()).unwrap();
     rm.assert_hits(1);
-    assert!(adapter.delete("/locked.txt".into()).is_err());
+    assert!(adapter.delete("/broken/".into()).is_err());
+    adapter.delete("/locked.txt".into()).unwrap();
 }
 
 #[test]

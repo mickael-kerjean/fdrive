@@ -92,7 +92,11 @@ impl Handle {
                             log::debug!("ls {dir} unreachable, serving stale: {err}");
                             listing.clone()
                         }
-                        None => return Err(err.into()),
+                        None => {
+                            drop(meta);
+                            log::debug!("ls {dir} unreachable, serving the ledger: {err}");
+                            self.engine.remembered(dir)
+                        }
                     }
                 }
             },
@@ -348,6 +352,14 @@ pub unsafe extern "C" fn fsx_connect(
     }
     engine.recover();
     Box::into_raw(Box::new(Handle { rt, engine }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn fsx_flush(h: *mut Handle, timeout_ms: i64) -> c_int {
+    let h = unsafe { &*h };
+    h.rt
+        .block_on(h.engine.flush(Duration::from_millis(timeout_ms.max(0) as u64)));
+    0
 }
 
 #[no_mangle]

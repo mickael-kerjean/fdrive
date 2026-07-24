@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use fdrive_core::sdk::normalize_server;
 
-use crate::gui::{self, Credentials};
+use fdrive_windows::gui::{self, Credentials};
 
 #[derive(Parser)]
 #[command(name = "fdrive-windows", about = "Filestash drive client — Windows")]

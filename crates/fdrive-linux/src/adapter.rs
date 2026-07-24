@@ -179,7 +179,11 @@ impl Adapter {
                             log::debug!("ls {dir} unreachable, serving stale: {err}");
                             listing.clone()
                         }
-                        None => return Err(err.into()),
+                        None => {
+                            drop(meta);
+                            log::debug!("ls {dir} unreachable, serving the ledger: {err}");
+                            self.engine.remembered(dir)
+                        }
                     }
                 }
             },
@@ -286,12 +290,31 @@ impl Adapter {
             return self.engine.rt().block_on(download.read(offset, size));
         }
         let mut buf = vec![0u8; size as usize];
-        let filled = match self.handle_file(fh) {
+        let filled = match self.fresh_handle_file(fh, path) {
             Some(file) => fill_at(&file, &mut buf, offset)?,
             None => fill_at(&fs::File::open(self.backing(path))?, &mut buf, offset)?,
         };
         buf.truncate(filled);
         Ok(buf)
+    }
+
+    fn fresh_handle_file(&self, fh: u64, path: &RelPath) -> Option<Arc<fs::File>> {
+        use std::os::unix::fs::MetadataExt;
+        let file = self.handle_file(fh)?;
+        let same = file.metadata().ok().zip(fs::metadata(self.backing(path)).ok())
+            .is_some_and(|(a, b)| a.ino() == b.ino() && a.dev() == b.dev());
+        if same {
+            return Some(file);
+        }
+        let reopened = Arc::new(
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(self.backing(path))
+                .ok()?,
+        );
+        self.handles.lock().unwrap().get_mut(&fh)?.file = Some(reopened.clone());
+        Some(reopened)
     }
 
     pub fn write(&self, fh: u64, path: &RelPath, offset: u64, data: &[u8]) -> io::Result<u32> {
