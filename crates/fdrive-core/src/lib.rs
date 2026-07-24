@@ -4,6 +4,7 @@ use std::pin::Pin;
 use bytes::Bytes;
 use futures_core::Stream;
 
+pub mod activity;
 pub mod config;
 pub mod engine;
 pub mod model;

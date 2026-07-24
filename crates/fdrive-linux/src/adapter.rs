@@ -98,6 +98,10 @@ impl Adapter {
         self.engine.upload_status()
     }
 
+    pub fn activity(&self) -> Arc<fdrive_core::activity::Activity> {
+        self.engine.activity()
+    }
+
     pub fn rt(&self) -> &tokio::runtime::Handle {
         self.engine.rt()
     }
