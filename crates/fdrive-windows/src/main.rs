@@ -206,6 +206,7 @@ async fn session(
     viewer::spawn(root, views_tx)?;
     adapter.recover().await?;
 
+    tray.attach(adapter.activity());
     tray.set_status(Status::Ok);
     let refresh_every = Duration::from_secs(config.windows.refresh_secs.max(2));
     let mut refreshed: HashMap<RelPath, Instant> = HashMap::new();

@@ -38,9 +38,14 @@ impl<T: LocalTree> Engine<T> {
                 rt: rt.clone(),
                 weak: weak.clone(),
             },
+            activity: Arc::default(),
         });
         driver.spawn(&rt, Arc::downgrade(&engine));
         engine
+    }
+
+    pub fn activity(&self) -> Arc<crate::activity::Activity> {
+        self.activity.clone()
     }
 
     pub fn created(&self, path: &RelPath) {

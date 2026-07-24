@@ -10,6 +10,7 @@ use tokio::sync::watch;
 use crate::path::RelPath;
 use crate::port::LocalTree;
 
+use crate::activity::{Direction, Mode};
 use crate::sdk::{CatDelta, Error as SdkError, FileInfo};
 
 use super::Engine;
@@ -195,15 +196,20 @@ impl<T: LocalTree> Engine<T> {
         tx: watch::Sender<(u64, DownloadStatus)>,
         expected: Observation,
     ) {
+        let act = self.activity.begin(&path.as_file(), Direction::Down, expected.size);
         let fail = |err: &dyn std::fmt::Display| {
             log::warn!("hydrate {path}: {err}");
+            self.activity.finish(act, Err(err.to_string()));
             let _ = fs::remove_file(&tmp);
             self.transfers.downloads.lock().unwrap().remove(&path);
             tx.send_modify(|s| s.1 = DownloadStatus::Failed);
         };
         let downloaded = async {
             let upstream = self.upstream_of(&path).unwrap_or_else(|| path.clone());
-            if let Some(done) = self.fetch_delta(&path, &upstream, &tmp, &tx, expected).await? {
+            if let Some(done) = self
+                .fetch_delta(&path, &upstream, &tmp, &tx, expected, act)
+                .await?
+            {
                 return Ok(done);
             }
             let (info, mut stream) = self.sdk.cat(&upstream.as_file()).await?;
@@ -213,6 +219,8 @@ impl<T: LocalTree> Engine<T> {
                 io::Write::write_all(&mut file, &chunk)?;
                 size += chunk.len() as u64;
                 tx.send_modify(|s| s.0 = size);
+                self.activity.wire(act, chunk.len() as u64);
+                self.activity.progress(act, size);
             }
             Ok::<(u64, FileInfo), io::Error>((size, info))
         }
@@ -235,6 +243,7 @@ impl<T: LocalTree> Engine<T> {
         }
         self.transfers.downloads.lock().unwrap().remove(&path);
         tx.send_modify(|s| s.1 = DownloadStatus::Done);
+        self.activity.finish(act, Ok(()));
         log::info!("cached {path} ({size} bytes)");
     }
 
@@ -245,6 +254,7 @@ impl<T: LocalTree> Engine<T> {
         tmp: &Path,
         tx: &watch::Sender<(u64, DownloadStatus)>,
         expected: Observation,
+        act: u64,
     ) -> io::Result<Option<(u64, FileInfo)>> {
         if expected.size < 1 << 20 {
             return Ok(None);
@@ -261,11 +271,13 @@ impl<T: LocalTree> Engine<T> {
                 signature,
                 sha256,
             }) => {
+                self.activity.wire(act, signature.len() as u64 + 32);
                 let assembled = self
-                    .assemble(path, upstream, tmp, expected.size, &base, signature, sha256)
+                    .assemble(path, upstream, tmp, expected.size, &base, signature, sha256, act)
                     .await;
                 match assembled {
                     Ok(size) => {
+                        self.activity.mode(act, Mode::Delta);
                         tx.send_modify(|s| s.0 = size);
                         Ok(Some((size, info)))
                     }
@@ -282,6 +294,8 @@ impl<T: LocalTree> Engine<T> {
                     io::Write::write_all(&mut file, &chunk)?;
                     size += chunk.len() as u64;
                     tx.send_modify(|s| s.0 = size);
+                    self.activity.wire(act, chunk.len() as u64);
+                    self.activity.progress(act, size);
                 }
                 Ok(Some((size, info)))
             }
@@ -292,6 +306,7 @@ impl<T: LocalTree> Engine<T> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn assemble(
         &self,
         path: &RelPath,
@@ -301,6 +316,7 @@ impl<T: LocalTree> Engine<T> {
         base: &[u8],
         signature: Vec<u8>,
         sha256: [u8; 32],
+        act: u64,
     ) -> io::Result<u64> {
         let sig = fast_rsync::Signature::deserialize(signature).map_err(io::Error::other)?;
         let mut delta = Vec::new();
@@ -329,6 +345,7 @@ impl<T: LocalTree> Engine<T> {
             if data.len() as u64 != end - start {
                 return Err(io::Error::other("short range"));
             }
+            self.activity.wire(act, data.len() as u64);
             pwrite(&file, &data, *start)?;
         }
         file.set_len(size)?;

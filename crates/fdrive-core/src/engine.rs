@@ -19,6 +19,7 @@ pub use crate::model::{Conflict, Fate, Observation, Operation, Plan, Resolution}
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
+use crate::activity::Activity;
 use crate::path::RelPath;
 use crate::port::LocalTree;
 use crate::sdk::Sdk;
@@ -38,6 +39,7 @@ pub struct Engine<T: LocalTree> {
 
     scheduler: scheduler::Handle,
     spawner: Spawner<T>,
+    activity: Arc<Activity>,
 }
 
 #[cfg(test)]

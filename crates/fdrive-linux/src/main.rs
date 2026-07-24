@@ -128,6 +128,7 @@ async fn run_session(
     let mut unmounted = false;
 
     log::info!("mounted {}", mount.display());
+    tray.attach(adapter.activity()).await;
     tray.set(Status::Ok, true).await;
     let end = loop {
         tokio::select! {

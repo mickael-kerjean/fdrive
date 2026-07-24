@@ -82,16 +82,25 @@ impl<T: LocalTree> Engine<T> {
         let before = md.modified().ok();
         let since = UNIX_EPOCH + Duration::from_secs(replaces.map_or(0, |r| r.time));
 
-        let attempt = match self.try_delta(path, &abs, replaces, reuses).await {
+        let act = self
+            .activity
+            .begin(&path.as_file(), crate::activity::Direction::Up, md.len());
+        let attempt = match self.try_delta(path, &abs, replaces, reuses, act).await {
             Some(saved) => saved,
-            None => match upload_full(&self.sdk, path, &abs, Some(since)).await {
-                Ok(saved) => saved,
-                Err(err) => return Outcome::Failed(err),
-            },
+            None => {
+                match upload_full(&self.sdk, path, &abs, Some(since), &self.activity, act).await {
+                    Ok(saved) => saved,
+                    Err(err) => {
+                        self.activity.finish(act, Err(err.to_string()));
+                        return Outcome::Failed(err);
+                    }
+                }
+            }
         };
         match attempt {
-            Saved::Conflict => self.divert(path, replaces, &abs, md.len()).await,
+            Saved::Conflict => self.divert(path, replaces, &abs, md.len(), act).await,
             Saved::Done(mtime) => {
+                self.activity.finish(act, Ok(()));
                 let obs = mtime.map(|m| Observation::new(md.len(), Some(m)));
                 let sig = fs::read(&abs).ok().map(|d| signature(&d));
                 let after = fs::metadata(&abs).ok().and_then(|md| md.modified().ok());
@@ -112,6 +121,7 @@ impl<T: LocalTree> Engine<T> {
         abs: &Path,
         replaces: Option<Observation>,
         reuses: Option<&RelPath>,
+        act: u64,
     ) -> Option<Saved> {
         let source = reuses.unwrap_or(path);
         let sig = self.ledger().sign_get(source)?;
@@ -120,7 +130,17 @@ impl<T: LocalTree> Engine<T> {
             None => replaces.map(|r| r.time),
         }?;
         let since = UNIX_EPOCH + Duration::from_secs(time);
-        upload_delta(&self.sdk, path, abs, sig, reuses, since).await
+        upload_delta(
+            &self.sdk,
+            path,
+            abs,
+            sig,
+            reuses,
+            since,
+            &self.activity,
+            act,
+        )
+        .await
     }
 
     async fn divert(
@@ -129,6 +149,7 @@ impl<T: LocalTree> Engine<T> {
         replaces: Option<Observation>,
         abs: &Path,
         len: u64,
+        act: u64,
     ) -> Outcome {
         let theirs = match self.sdk.stat(&path.as_file()).await {
             Ok(info) => Some(Observation::of(&info)),
@@ -136,13 +157,19 @@ impl<T: LocalTree> Engine<T> {
         };
         let copy = self.conflict_target(path).await;
         log::warn!("conflict on {path}: uploading as {copy}");
-        let mtime = match upload_full(&self.sdk, &copy, abs, None).await {
+        let mtime = match upload_full(&self.sdk, &copy, abs, None, &self.activity, act).await {
             Ok(Saved::Done(mtime)) => mtime,
             Ok(Saved::Conflict) => {
-                return Outcome::Failed(io::Error::other("conflict copy was preempted"))
+                self.activity
+                    .finish(act, Err("conflict copy was preempted".into()));
+                return Outcome::Failed(io::Error::other("conflict copy was preempted"));
             }
-            Err(err) => return Outcome::Failed(err),
+            Err(err) => {
+                self.activity.finish(act, Err(err.to_string()));
+                return Outcome::Failed(err);
+            }
         };
+        self.activity.finish(act, Ok(()));
         let after = fs::metadata(abs).ok().and_then(|md| md.modified().ok());
         if let Err(err) = self.tree.relocate(path, &copy) {
             log::warn!("move conflicted copy {path} -> {copy}: {err}");
@@ -162,6 +189,7 @@ impl<T: LocalTree> Engine<T> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn upload_delta(
     sdk: &Sdk,
     target: &RelPath,
@@ -169,6 +197,8 @@ async fn upload_delta(
     sig: Vec<u8>,
     base: Option<&RelPath>,
     since: SystemTime,
+    activity: &crate::activity::Activity,
+    act: u64,
 ) -> Option<Saved> {
     if !sdk.delta_supported().await {
         return None;
@@ -183,6 +213,8 @@ async fn upload_delta(
     use sha2::Digest;
     body.extend_from_slice(&sha2::Sha256::digest(&data));
     let (sent, size) = (body.len(), data.len());
+    activity.mode(act, crate::activity::Mode::Delta);
+    activity.wire(act, sent as u64);
     match sdk
         .save_delta(&target.as_file(), body, since, base.map(|b| b.as_file()))
         .await
@@ -204,8 +236,12 @@ async fn upload_full(
     target: &RelPath,
     source: &Path,
     since: Option<SystemTime>,
+    activity: &crate::activity::Activity,
+    act: u64,
 ) -> io::Result<Saved> {
     let stream = crate::file_stream(source).await?;
+    activity.mode(act, crate::activity::Mode::Full);
+    activity.wire(act, fs::metadata(source).map(|md| md.len()).unwrap_or(0));
     match sdk.save(&target.as_file(), stream, since).await {
         Ok(mtime) => Ok(Saved::Done(mtime)),
         Err(SdkError::PreconditionFailed) => Ok(Saved::Conflict),
