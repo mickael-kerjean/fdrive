@@ -28,6 +28,17 @@ fn ls_serves_the_stale_listing_when_the_server_is_unreachable() {
     let listing = adapter.ls(&dir).unwrap();
     assert_eq!(listing.len(), 1);
     assert_eq!(listing[0].name, "a.txt");
-    assert!(adapter.ls(&RelPath::new("never-seen")).is_err());
+
+    adapter.engine.ledger().observe(
+        &RelPath::new("pinned/manual.pdf"),
+        fdrive_core::engine::Observation::new(9, None),
+    );
+    let remembered = adapter.ls(&RelPath::new("pinned")).unwrap();
+    assert_eq!(remembered.len(), 1, "no stale listing, the ledger answers");
+    assert_eq!(remembered[0].name, "manual.pdf");
+    assert!(
+        adapter.ls(&RelPath::new("never-seen")).unwrap().is_empty(),
+        "an unknown dir is what the ledger remembers: nothing"
+    );
     let _ = fs::remove_dir_all(&data);
 }

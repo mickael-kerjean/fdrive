@@ -1,12 +1,7 @@
 #![windows_subsystem = "windows"]
 
-mod adapter;
 mod args;
-mod config;
-mod gui;
 mod log;
-mod webview;
-mod wire;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -20,10 +15,10 @@ use fdrive_core::sdk::Sdk;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::Instant;
 
-use crate::adapter::Adapter;
-use crate::config::AppConfig;
-use crate::gui::{Credentials, Status, Tray, TrayEvent, TrayState};
-use crate::wire::{shell, viewer, watcher};
+use fdrive_windows::adapter::Adapter;
+use fdrive_windows::config::AppConfig;
+use fdrive_windows::gui::{self, Credentials, Status, Tray, TrayEvent, TrayState};
+use fdrive_windows::wire::{self, shell, viewer, watcher};
 
 #[tokio::main]
 async fn main() {

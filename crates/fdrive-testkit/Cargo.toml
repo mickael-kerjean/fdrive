@@ -1,0 +1,11 @@
+[package]
+name = "fdrive-testkit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tiny_http = "0.12"
+httpdate = "1"
+serde_json = "1"
+fast_rsync = "0.2"
+sha2 = "0.11.0"

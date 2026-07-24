@@ -7,6 +7,10 @@ edition = "2021"
 name = "fdrive"
 path = "src/main.rs"
 
+[[bench]]
+name = "sqlite"
+harness = false
+
 [dependencies]
 fdrive-core = { path = "../fdrive-core" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "sync"] }
@@ -28,3 +32,6 @@ glib = { version = "0.15", features = ["v2_50"] }
 
 [dev-dependencies]
 httpmock = "0.7"
+httpdate = "1"
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+fdrive-testkit = { path = "../fdrive-testkit" }
