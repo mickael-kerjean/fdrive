@@ -99,6 +99,39 @@ impl<T: LocalTree> Engine<T> {
         listing
     }
 
+    pub fn remembered(&self, dir: &RelPath) -> Vec<FileInfo> {
+        let ledger = self.ledger();
+        let mut listing = Vec::new();
+        let mut dirs = std::collections::BTreeSet::new();
+        for (path, obs) in &ledger.observations {
+            if path.parent_or_root() == *dir {
+                listing.push(FileInfo {
+                    name: path.name().to_string(),
+                    kind: crate::sdk::FileType::File,
+                    size: Some(obs.size),
+                    mtime: Some(UNIX_EPOCH + Duration::from_secs(obs.time)),
+                });
+            } else if dir.is_root() || path.is_descendant_of(dir) {
+                let rest = match dir.is_root() {
+                    true => path.as_str(),
+                    false => &path.as_str()[dir.as_str().len() + 1..],
+                };
+                if let Some((child, _)) = rest.split_once('/') {
+                    dirs.insert(child.to_string());
+                }
+            }
+        }
+        for name in dirs {
+            listing.push(FileInfo {
+                name,
+                kind: crate::sdk::FileType::Directory,
+                size: Some(0),
+                mtime: None,
+            });
+        }
+        listing
+    }
+
     pub fn observed(&self, path: &RelPath) -> Option<Observation> {
         self.ledger().observations.get(path).copied()
     }

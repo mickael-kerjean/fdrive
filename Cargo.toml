@@ -5,6 +5,7 @@ members = [
     "crates/fdrive-ios",
     "crates/fdrive-linux",
     "crates/fdrive-mac",
+    "crates/fdrive-testkit",
     "crates/fdrive-windows",
 ]
 default-members = [
@@ -13,5 +14,6 @@ default-members = [
     "crates/fdrive-ios",
     "crates/fdrive-linux",
     "crates/fdrive-mac",
+    "crates/fdrive-testkit",
 ]
 resolver = "2"

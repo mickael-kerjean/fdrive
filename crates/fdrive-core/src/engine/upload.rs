@@ -175,7 +175,7 @@ async fn upload_delta(
     }
     let sig = fast_rsync::Signature::deserialize(sig).ok()?;
     let data = fs::read(source).ok()?;
-    let mut body = vec![1u8];
+    let mut body = Vec::new();
     fast_rsync::diff(&sig.index(), &data, &mut body).ok()?;
     if body.len() >= data.len() {
         return None;

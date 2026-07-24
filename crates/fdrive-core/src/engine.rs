@@ -1,5 +1,6 @@
 mod cache;
 mod conflict;
+mod delta;
 mod download;
 mod facade;
 mod gates;
