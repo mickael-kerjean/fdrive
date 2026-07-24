@@ -133,6 +133,10 @@ impl Adapter {
         self.engine.upload_status()
     }
 
+    pub fn activity(&self) -> Arc<fdrive_core::activity::Activity> {
+        self.engine.activity()
+    }
+
     pub fn connect(self: &Arc<Self>, root: &Path) -> io::Result<wire::Connection> {
         let fetch = self.clone();
         let populate = self.clone();
