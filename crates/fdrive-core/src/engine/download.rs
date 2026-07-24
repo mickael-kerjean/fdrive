@@ -10,7 +10,7 @@ use tokio::sync::watch;
 use crate::path::RelPath;
 use crate::port::LocalTree;
 
-use crate::sdk::Error as SdkError;
+use crate::sdk::{CatDelta, Error as SdkError, FileInfo};
 
 use super::Engine;
 use crate::model::{Fate, Observation};
@@ -92,6 +92,21 @@ fn pread(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
     std::os::windows::fs::FileExt::seek_read(file, buf, offset)
 }
 
+#[cfg(unix)]
+fn pwrite(file: &fs::File, buf: &[u8], offset: u64) -> io::Result<()> {
+    std::os::unix::fs::FileExt::write_all_at(file, buf, offset)
+}
+
+#[cfg(windows)]
+fn pwrite(file: &fs::File, mut buf: &[u8], mut offset: u64) -> io::Result<()> {
+    while !buf.is_empty() {
+        let n = std::os::windows::fs::FileExt::seek_write(file, buf, offset)?;
+        buf = &buf[n..];
+        offset += n as u64;
+    }
+    Ok(())
+}
+
 impl<T: LocalTree> Engine<T> {
     pub async fn hydrate(&self, path: &RelPath, current: Option<Observation>) -> io::Result<()> {
         self.hydrate_start(path, current).await?;
@@ -169,7 +184,7 @@ impl<T: LocalTree> Engine<T> {
             .unwrap()
             .insert(path.clone(), Arc::new(Download { file, state }));
         self.spawner
-            .spawn(|engine| engine.stream(path.clone(), tmp, tx));
+            .spawn(|engine| engine.stream(path.clone(), tmp, tx, current));
         Ok(())
     }
 
@@ -178,6 +193,7 @@ impl<T: LocalTree> Engine<T> {
         path: RelPath,
         tmp: PathBuf,
         tx: watch::Sender<(u64, DownloadStatus)>,
+        expected: Observation,
     ) {
         let fail = |err: &dyn std::fmt::Display| {
             log::warn!("hydrate {path}: {err}");
@@ -187,15 +203,18 @@ impl<T: LocalTree> Engine<T> {
         };
         let downloaded = async {
             let upstream = self.upstream_of(&path).unwrap_or_else(|| path.clone());
+            if let Some(done) = self.fetch_delta(&path, &upstream, &tmp, &tx, expected).await? {
+                return Ok(done);
+            }
             let (info, mut stream) = self.sdk.cat(&upstream.as_file()).await?;
-            let mut file = fs::File::options().append(true).open(&tmp)?;
+            let mut file = fs::File::options().write(true).truncate(true).open(&tmp)?;
             let mut size: u64 = 0;
             while let Some(chunk) = stream.try_next().await? {
                 io::Write::write_all(&mut file, &chunk)?;
                 size += chunk.len() as u64;
                 tx.send_modify(|s| s.0 = size);
             }
-            Ok::<(u64, crate::sdk::FileInfo), io::Error>((size, info))
+            Ok::<(u64, FileInfo), io::Error>((size, info))
         }
         .await;
         let (size, info) = match downloaded {
@@ -217,5 +236,107 @@ impl<T: LocalTree> Engine<T> {
         self.transfers.downloads.lock().unwrap().remove(&path);
         tx.send_modify(|s| s.1 = DownloadStatus::Done);
         log::info!("cached {path} ({size} bytes)");
+    }
+
+    async fn fetch_delta(
+        &self,
+        path: &RelPath,
+        upstream: &RelPath,
+        tmp: &Path,
+        tx: &watch::Sender<(u64, DownloadStatus)>,
+        expected: Observation,
+    ) -> io::Result<Option<(u64, FileInfo)>> {
+        if expected.size < 1 << 20 {
+            return Ok(None);
+        }
+        let Ok(base) = fs::read(self.tree.backing(path)) else {
+            return Ok(None);
+        };
+        if base.is_empty() {
+            return Ok(None);
+        }
+        match self.sdk.cat_delta(&upstream.as_file()).await {
+            Ok(CatDelta::Signature {
+                info,
+                signature,
+                sha256,
+            }) => {
+                let assembled = self
+                    .assemble(path, upstream, tmp, expected.size, &base, signature, sha256)
+                    .await;
+                match assembled {
+                    Ok(size) => {
+                        tx.send_modify(|s| s.0 = size);
+                        Ok(Some((size, info)))
+                    }
+                    Err(err) => {
+                        log::debug!("delta {path}: {err}");
+                        Ok(None)
+                    }
+                }
+            }
+            Ok(CatDelta::Full(info, mut stream)) => {
+                let mut file = fs::File::options().write(true).truncate(true).open(tmp)?;
+                let mut size: u64 = 0;
+                while let Some(chunk) = stream.try_next().await? {
+                    io::Write::write_all(&mut file, &chunk)?;
+                    size += chunk.len() as u64;
+                    tx.send_modify(|s| s.0 = size);
+                }
+                Ok(Some((size, info)))
+            }
+            Err(err) => {
+                log::debug!("delta {path}: {err}");
+                Ok(None)
+            }
+        }
+    }
+
+    async fn assemble(
+        &self,
+        path: &RelPath,
+        upstream: &RelPath,
+        tmp: &Path,
+        size: u64,
+        base: &[u8],
+        signature: Vec<u8>,
+        sha256: [u8; 32],
+    ) -> io::Result<u64> {
+        let sig = fast_rsync::Signature::deserialize(signature).map_err(io::Error::other)?;
+        let mut delta = Vec::new();
+        fast_rsync::diff(&sig.index(), base, &mut delta).map_err(io::Error::other)?;
+        let copies =
+            super::delta::copy_map(&delta).ok_or_else(|| io::Error::other("unreadable delta"))?;
+        let ranges = super::delta::missing_ranges(&copies, size, 64 * 1024);
+        let missing: u64 = ranges.iter().map(|(start, end)| end - start).sum();
+        if missing * 10 > size * 6 {
+            return Err(io::Error::other(format!("{missing} of {size} bytes missing")));
+        }
+        let file = fs::File::options().write(true).open(tmp)?;
+        for (server, local, len) in &copies {
+            let chunk = usize::try_from(*local)
+                .ok()
+                .and_then(|at| base.get(at..at + *len as usize))
+                .ok_or_else(|| io::Error::other("copy out of bounds"))?;
+            pwrite(&file, chunk, *server)?;
+        }
+        for (start, end) in &ranges {
+            let data = self
+                .sdk
+                .cat_range(&upstream.as_file(), *start, *end - 1)
+                .await
+                .map_err(io::Error::from)?;
+            if data.len() as u64 != end - start {
+                return Err(io::Error::other("short range"));
+            }
+            pwrite(&file, &data, *start)?;
+        }
+        file.set_len(size)?;
+        use sha2::Digest;
+        if sha2::Sha256::digest(fs::read(tmp)?).as_slice() != sha256 {
+            return Err(io::Error::other("checksum mismatch"));
+        }
+        log::info!("delta {path} ({missing} of {size} bytes fetched)");
+        Ok(size)
     }
 }

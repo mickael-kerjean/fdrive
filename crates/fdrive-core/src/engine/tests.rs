@@ -2,6 +2,8 @@
 mod cache_test;
 #[path = "conflict_test.rs"]
 mod conflict_test;
+#[path = "delta_test.rs"]
+mod delta_test;
 #[path = "download_test.rs"]
 mod download_test;
 #[path = "../engine_test.rs"]
