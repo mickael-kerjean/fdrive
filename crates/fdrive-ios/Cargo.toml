@@ -15,6 +15,7 @@ serde_json = "1"
 log = "0.4"
 
 [dev-dependencies]
+fdrive-testkit = { path = "../fdrive-testkit" }
 httpmock = "0.7"
 serde_json = "1"
 

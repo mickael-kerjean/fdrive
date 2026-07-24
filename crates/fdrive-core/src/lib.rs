@@ -4,11 +4,12 @@ use std::pin::Pin;
 use bytes::Bytes;
 use futures_core::Stream;
 
+pub mod activity;
 pub mod config;
 pub mod engine;
+pub mod model;
 pub mod path;
 pub mod port;
-pub mod scheduler;
 pub mod sdk;
 
 pub type ByteStream = Pin<Box<dyn Stream<Item = io::Result<Bytes>> + Send>>;

@@ -1,7 +1,7 @@
 use std::time::{Duration, SystemTime};
 
 use futures_util::TryStreamExt;
-use reqwest::header::{HeaderMap, AUTHORIZATION, CONTENT_TYPE, SET_COOKIE};
+use reqwest::header::{HeaderMap, ACCEPT, AUTHORIZATION, CONTENT_TYPE, RANGE, SET_COOKIE};
 use reqwest::{Body, Method, Response, StatusCode};
 use serde::Deserialize;
 use url::Url;
@@ -33,7 +33,26 @@ pub enum Error {
     Url(#[from] url::ParseError),
 }
 
+impl From<Error> for std::io::Error {
+    fn from(err: Error) -> Self {
+        match err {
+            Error::NotFound => std::io::ErrorKind::NotFound.into(),
+            Error::PermissionDenied => std::io::ErrorKind::PermissionDenied.into(),
+            err => std::io::Error::other(err),
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
+
+pub enum CatDelta {
+    Signature {
+        info: FileInfo,
+        signature: Vec<u8>,
+        sha256: [u8; 32],
+    },
+    Full(FileInfo, ByteStream),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileType {
@@ -218,6 +237,62 @@ impl Sdk {
             info,
             Box::pin(resp.bytes_stream().map_err(std::io::Error::other)),
         ))
+    }
+
+    pub async fn cat_delta(&self, path: &str) -> Result<CatDelta> {
+        let mut url = self.api(&["api", "files", "cat"]);
+        url.query_pairs_mut().append_pair("path", path);
+        let resp = self
+            .http
+            .get(url)
+            .header("X-Requested-With", "SDKHttpRequest")
+            .header(AUTHORIZATION, self.bearer()?)
+            .header(ACCEPT, DELTA_MEDIA_TYPE)
+            .send()
+            .await?;
+        let resp = check_status(resp).await?;
+        let info = FileInfo::of(path, resp.headers());
+        let is_delta = resp
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.starts_with(DELTA_MEDIA_TYPE));
+        if !is_delta {
+            return Ok(CatDelta::Full(
+                info,
+                Box::pin(resp.bytes_stream().map_err(std::io::Error::other)),
+            ));
+        }
+        let body = resp.bytes().await?;
+        if body.len() < 32 + 12 {
+            return Err(Error::Api("truncated signature".into()));
+        }
+        let (signature, trailer) = body.split_at(body.len() - 32);
+        let mut sha256 = [0u8; 32];
+        sha256.copy_from_slice(trailer);
+        Ok(CatDelta::Signature {
+            info,
+            signature: signature.to_vec(),
+            sha256,
+        })
+    }
+
+    pub async fn cat_range(&self, path: &str, start: u64, end: u64) -> Result<Vec<u8>> {
+        let mut url = self.api(&["api", "files", "cat"]);
+        url.query_pairs_mut().append_pair("path", path);
+        let resp = self
+            .http
+            .get(url)
+            .header("X-Requested-With", "SDKHttpRequest")
+            .header(AUTHORIZATION, self.bearer()?)
+            .header(RANGE, format!("bytes={start}-{end}"))
+            .send()
+            .await?;
+        let resp = check_status(resp).await?;
+        if resp.status() != StatusCode::PARTIAL_CONTENT {
+            return Err(Error::Api(format!("range ignored: {}", resp.status())));
+        }
+        Ok(resp.bytes().await?.to_vec())
     }
 
     pub async fn probe(&self) -> Result<String> {

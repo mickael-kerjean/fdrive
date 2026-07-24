@@ -1,12 +1,7 @@
 #![windows_subsystem = "windows"]
 
-mod adapter;
 mod args;
-mod config;
-mod gui;
 mod log;
-mod webview;
-mod wire;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -14,16 +9,16 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use fdrive_core::config as session;
+use fdrive_core::engine::UploadStatus;
 use fdrive_core::path::RelPath;
-use fdrive_core::scheduler::UploadStatus;
 use fdrive_core::sdk::Sdk;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::Instant;
 
-use crate::adapter::Adapter;
-use crate::config::AppConfig;
-use crate::gui::{Credentials, Status, Tray, TrayEvent, TrayState};
-use crate::wire::{shell, viewer, watcher};
+use fdrive_windows::adapter::Adapter;
+use fdrive_windows::config::AppConfig;
+use fdrive_windows::gui::{self, Credentials, Status, Tray, TrayEvent, TrayState};
+use fdrive_windows::wire::{self, shell, viewer, watcher};
 
 #[tokio::main]
 async fn main() {
@@ -211,6 +206,7 @@ async fn session(
     viewer::spawn(root, views_tx)?;
     adapter.recover().await?;
 
+    tray.attach(adapter.activity());
     tray.set_status(Status::Ok);
     let refresh_every = Duration::from_secs(config.windows.refresh_secs.max(2));
     let mut refreshed: HashMap<RelPath, Instant> = HashMap::new();
