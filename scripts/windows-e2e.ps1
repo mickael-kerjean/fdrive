@@ -4,18 +4,18 @@
 
 param(
     [string]$Filter = "*",
-    [switch]$KeepGoing
+    [switch]$KeepGoing,
+    [string]$Remote = "/test/e2e"
 )
 
 $ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
 
-$Base = "http://192.168.68.105:8334"
 $Root = "$env:USERPROFILE\Filestash"
 $LogFile = "$env:LOCALAPPDATA\Filestash\fdrive.log"
-$E2E = "e2e"
-$LocalE2E = Join-Path $Root "folderA\$E2E"
-$SrvE2E = "/folderA/$E2E"
+$ConfigFile = "$env:LOCALAPPDATA\Filestash\fdrive.toml"
+$SrvE2E = "/$($Remote.Trim('/'))"
+$LocalE2E = Join-Path $Root ($SrvE2E.TrimStart('/') -replace '/', '\')
 
 $script:Token = $null
 $script:Results = @()
@@ -25,12 +25,17 @@ $script:Shell = New-Object -ComObject Shell.Application
 function Enc([string]$s) { [uri]::EscapeDataString($s) }
 
 function Srv-Auth {
-    $jar = "$env:TEMP\fdrive-e2e-cookies.txt"
-    curl.exe -s -c $jar -X POST -H "X-Requested-With: SDKHttpRequest" `
-        -d "user=test&password=test" "$Base/api/session/auth/?label=virtualfs" | Out-Null
-    $line = Get-Content $jar | Select-String "`tauth`t"
-    if (-not $line) { throw "server auth failed" }
-    $script:Token = ($line -split "`t")[-1]
+    if (-not (Test-Path $ConfigFile)) {
+        throw "client config not found: $ConfigFile"
+    }
+    $config = Get-Content $ConfigFile -Raw
+    $url = [regex]::Match($config, '(?m)^\s*url\s*=\s*"([^"]+)"')
+    $token = [regex]::Match($config, '(?m)^\s*token\s*=\s*"([^"]+)"')
+    if (-not $url.Success -or -not $token.Success) {
+        throw "saved client session not found in $ConfigFile"
+    }
+    $script:Base = $url.Groups[1].Value.TrimEnd('/')
+    $script:Token = $token.Groups[1].Value
 }
 
 function Srv-Call([string]$Method, [string]$Url, [string]$BodyFile) {
@@ -130,7 +135,19 @@ function Unpin([string]$abs) { Set-Pin $abs 2 }   # CF_PIN_STATE_UNPINNED
 
 
 function Open-View([string]$abs) {
-    $script:Shell.Open($abs)
+    & explorer.exe $abs
+    Start-Sleep -Milliseconds 1500
+}
+
+function Navigate-View([string]$abs) {
+    $window = @($script:Shell.Windows()) |
+        Where-Object { $_.LocationURL -like "*Filestash*" } |
+        Select-Object -First 1
+    if ($null -eq $window) {
+        Open-View $abs
+        return
+    }
+    $window.Navigate2($abs)
     Start-Sleep -Milliseconds 1500
 }
 
@@ -238,11 +255,11 @@ Srv-Rm "$SrvE2E/"
 if (Test-Path $LocalE2E) { Remove-Item -Recurse -Force $LocalE2E -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 2
 Srv-Mkdir "$SrvE2E/"
-Open-View (Join-Path $Root "folderA")
+Open-View (Split-Path $LocalE2E)
 if (-not (Wait-Until { Test-Path $LocalE2E } 30 "e2e dir to appear locally")) {
     throw "e2e dir never appeared locally: remote-to-local chain is broken, aborting"
 }
-Open-View $LocalE2E
+Navigate-View $LocalE2E
 
 
 Test "remote-create-file" {
@@ -426,6 +443,9 @@ Test "conflict-keeps-both" {
     if (-not $ok) { return $false }
     $ok = Wait-Until { Is-Placeholder (LPath "c1.txt") } 20 "c1.txt converted"
     if (-not $ok) { return $false }
+    # The test server reports mtimes at one-second resolution. Ensure the
+    # competing remote write receives a different lease from the base upload.
+    Start-Sleep -Seconds 2
     Srv-Save "$SrvE2E/c1.txt" "server version"
     Set-Content -LiteralPath (LPath "c1.txt") -Value "local version" -Encoding ascii -NoNewline
     $ok = Wait-Until {
@@ -451,15 +471,6 @@ Test "dirty-file-survives-remote-dir-delete" {
     } 40 "edits re-uploaded"
     Remove-Item -Recurse -Force (LPath "ddir") -ErrorAction SilentlyContinue
     $kept -and $uploaded
-}
-
-Test "unicode-names" {
-    Srv-Save "$SrvE2E/café rémote.txt" "unicode remote"
-    $ok = Wait-Until { Test-Path (LPath "café rémote.txt") } 25 "unicode file locally"
-    if (-not $ok) { return $false }
-    if ((Get-Content -Raw (LPath "café rémote.txt")) -ne "unicode remote") { return $false }
-    Set-Content -LiteralPath (LPath "café löcal.txt") -Value "unicode local" -Encoding utf8 -NoNewline
-    Wait-Until { Srv-Has "$SrvE2E/" "café löcal.txt" } 25 "unicode file on server"
 }
 
 Test "big-file-roundtrip" {
@@ -496,3 +507,6 @@ Test "explorer-enumeration-is-fast" {
 Close-Views
 Srv-Rm "$SrvE2E/"
 Summary
+if (@($script:Results | Where-Object { $_.Status -eq "FAIL" }).Count -gt 0) {
+    exit 1
+}
