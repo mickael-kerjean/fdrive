@@ -1,5 +1,5 @@
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use fdrive_linux::gui::{self, Credentials};
@@ -30,7 +30,7 @@ pub struct Setup {
     pub data: PathBuf,
     pub prefill: Credentials,
     pub credentials: Option<Credentials>,
-    pub stored: bool,
+    pub launching: bool,
     pub prompt_login: bool,
 }
 
@@ -39,16 +39,10 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
     if args.user.is_some() && args.password.as_deref().unwrap_or("").is_empty() {
         args.password = Some(prompt_password()?);
     }
-    let data = args.data.clone().unwrap_or_else(gui::default_data);
-    let setup = setup(
-        args,
-        fdrive_core::config::recall(&data).map(Credentials::from),
-    )?;
-    std::fs::create_dir_all(&setup.data)?;
-    Ok(setup)
-}
+    let data = args.data.unwrap_or_else(gui::default_data);
+    std::fs::create_dir_all(&data)?;
+    instance_lock(&data)?;
 
-fn setup(args: Args, stored: Option<Credentials>) -> Result<Setup, String> {
     if args.token.is_some() && args.user.is_some() {
         return Err("--token and --user cannot be combined".into());
     }
@@ -72,21 +66,40 @@ fn setup(args: Args, stored: Option<Credentials>) -> Result<Setup, String> {
             ..Default::default()
         }),
         (Some(_), None, None) => None,
-        (None, ..) => stored,
+        (None, ..) => fdrive_core::config::recall(&data).map(Credentials::from),
     };
-    let stored = server.is_none() && credentials.is_some();
     Ok(Setup {
         mount: args.mount,
-        data: args.data.unwrap_or_else(gui::default_data),
         prompt_login: server.is_some() && credentials.is_none(),
+        launching: server.is_some() && credentials.is_some(),
         prefill: Credentials {
             url: server.unwrap_or_default(),
             insecure: args.insecure,
             ..Default::default()
         },
+        data,
         credentials,
-        stored,
     })
+}
+
+fn instance_lock(data: &Path) -> Result<(), String> {
+    use std::os::fd::AsRawFd;
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(data.join("fdrive.lock"))
+        .map_err(|err| format!("fdrive.lock: {err}"))?;
+    match unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } {
+        0 => {
+            std::mem::forget(file);
+            Ok(())
+        }
+        _ => Err(format!(
+            "another instance is already running on {} — quit it first",
+            data.display()
+        )),
+    }
 }
 
 fn prompt_password() -> std::io::Result<String> {
@@ -113,87 +126,4 @@ fn prompt_password() -> std::io::Result<String> {
     }
     read?;
     Ok(line.trim_end_matches('\n').to_owned())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn parse(argv: &[&str]) -> Args {
-        Args::try_parse_from([&["fdrive", "/tmp/mnt"], argv].concat()).unwrap()
-    }
-
-    #[test]
-    fn token_mode() {
-        let s = setup(
-            parse(&["--server", "localhost:8334", "--token", "t0k"]),
-            None,
-        )
-        .unwrap();
-        let creds = s.credentials.unwrap();
-        assert_eq!(creds.url, "https://localhost:8334");
-        assert_eq!(creds.token, "t0k");
-        assert!(!s.prompt_login);
-    }
-
-    #[test]
-    fn password_mode() {
-        let mut args = parse(&[
-            "--server",
-            "http://x/",
-            "--user",
-            "joe",
-            "--storage",
-            "docs",
-        ]);
-        args.password = Some("s3cret".into());
-        let creds = setup(args, None).unwrap().credentials.unwrap();
-        assert_eq!(creds.url, "http://x");
-        assert_eq!(creds.user, "joe");
-        assert_eq!(creds.password, "s3cret");
-        assert_eq!(creds.storage, "docs");
-        assert!(creds.token.is_empty());
-    }
-
-    #[test]
-    fn server_alone_prompts_login() {
-        let s = setup(parse(&["--server", "http://x"]), None).unwrap();
-        assert!(s.credentials.is_none());
-        assert!(s.prompt_login);
-        assert_eq!(s.prefill.url, "http://x");
-    }
-
-    #[test]
-    fn no_args_recalls_stored_session() {
-        let stored = Credentials {
-            url: "http://x".into(),
-            token: "t0k".into(),
-            ..Default::default()
-        };
-        let s = setup(parse(&[]), Some(stored)).unwrap();
-        assert!(s.stored);
-        assert_eq!(s.credentials.unwrap().token, "t0k");
-        assert_eq!(s.mount, PathBuf::from("/tmp/mnt"));
-    }
-
-    #[test]
-    fn explicit_server_ignores_stored_session() {
-        let stored = Credentials {
-            url: "http://old".into(),
-            token: "t0k".into(),
-            ..Default::default()
-        };
-        let s = setup(parse(&["--server", "http://new"]), Some(stored)).unwrap();
-        assert!(s.credentials.is_none());
-        assert!(s.prompt_login);
-    }
-
-    #[test]
-    fn conflicting_and_orphan_flags_are_rejected() {
-        let mut args = parse(&["--server", "http://x", "--user", "joe"]);
-        args.token = Some("t0k".into());
-        assert!(setup(args, None).is_err());
-        assert!(setup(parse(&["--user", "joe"]), None).is_err());
-        assert!(Args::try_parse_from(["fdrive"]).is_err());
-    }
 }

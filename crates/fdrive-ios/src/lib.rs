@@ -194,7 +194,7 @@ impl Adapter {
             cache_dir: cache_dir.clone(),
             meta: Mutex::new(HashMap::new()),
         };
-        let engine = Engine::spawn(Arc::new(sdk), rt.handle().clone(), tree);
+        let engine = Engine::start(Arc::new(sdk), rt.handle().clone(), tree);
         engine.prune(&cache_dir)?;
         engine.recover();
         Ok(Arc::new(Self { rt, engine }))
@@ -318,16 +318,35 @@ impl Adapter {
         };
         let listing = match cached {
             Some(listing) => listing,
-            None => {
-                let fetched = self.rt.block_on(self.engine.sdk().ls(&dir.as_dir()))?;
-                self.engine
-                    .tree()
-                    .meta
-                    .lock()
-                    .unwrap()
-                    .insert(dir.clone(), (Instant::now(), fetched.clone()));
-                fetched
-            }
+            None => match self.rt.block_on(self.engine.sdk().ls(&dir.as_dir())) {
+                Ok(fetched) => {
+                    self.engine.listed(dir, &fetched);
+                    self.engine
+                        .tree()
+                        .meta
+                        .lock()
+                        .unwrap()
+                        .insert(dir.clone(), (Instant::now(), fetched.clone()));
+                    fetched
+                }
+                Err(err @ (sdk::Error::NotFound | sdk::Error::PermissionDenied)) => {
+                    return Err(err.into())
+                }
+                Err(err) => {
+                    let meta = self.engine.tree().meta.lock().unwrap();
+                    match meta.get(dir) {
+                        Some((_, listing)) => {
+                            log::debug!("ls {dir} unreachable, serving stale: {err}");
+                            listing.clone()
+                        }
+                        None => {
+                            drop(meta);
+                            log::debug!("ls {dir} unreachable, serving the ledger: {err}");
+                            self.engine.remembered(dir)
+                        }
+                    }
+                }
+            },
         };
         Ok(self.engine.overlay(dir, listing))
     }

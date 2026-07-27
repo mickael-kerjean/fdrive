@@ -86,6 +86,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
+name = "ascii"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
+
+[[package]]
 name = "ascii-canvas"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -562,6 +568,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "chunked_transfer"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e4de3bc4ea267985becf712dc6d9eed8b04c953b3fcfb339ebc87acd9804901"
+
+[[package]]
 name = "clap"
 version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -922,6 +934,7 @@ name = "fdrive-ios"
 version = "0.1.0"
 dependencies = [
  "fdrive-core",
+ "fdrive-testkit",
  "httpmock",
  "log",
  "serde_json",
@@ -937,15 +950,18 @@ dependencies = [
  "clap",
  "env_logger",
  "fdrive-core",
+ "fdrive-testkit",
  "fuser",
  "futures-util",
  "glib",
  "gtk",
+ "httpdate",
  "httpmock",
  "libayatana-appindicator",
  "libc",
  "log",
  "regex",
+ "rusqlite",
  "serde",
  "serde_json",
  "tokio",
@@ -958,9 +974,21 @@ version = "0.1.0"
 dependencies = [
  "env_logger",
  "fdrive-core",
+ "fdrive-testkit",
  "libc",
  "log",
  "tokio",
+]
+
+[[package]]
+name = "fdrive-testkit"
+version = "0.1.0"
+dependencies = [
+ "fast_rsync",
+ "httpdate",
+ "serde_json",
+ "sha2",
+ "tiny_http",
 ]
 
 [[package]]
@@ -971,6 +999,7 @@ dependencies = [
  "embed-resource",
  "env_logger",
  "fdrive-core",
+ "fdrive-testkit",
  "futures-util",
  "log",
  "resvg",
@@ -3124,6 +3153,18 @@ dependencies = [
  "arrayref",
  "bytemuck",
  "strict-num",
+]
+
+[[package]]
+name = "tiny_http"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "389915df6413a2e74fb181895f933386023c71110878cd0825588928e64cdc82"
+dependencies = [
+ "ascii",
+ "chunked_transfer",
+ "httpdate",
+ "log",
 ]
 
 [[package]]
