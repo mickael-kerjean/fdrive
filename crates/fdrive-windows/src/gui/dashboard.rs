@@ -5,12 +5,12 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{GetStockObject, COLOR_WINDOW, DEFAULT_GUI_FONT, HBRUSH};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
-    InitCommonControlsEx, ICC_BAR_CLASSES, ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, LVCFMT_LEFT,
-    LVCFMT_RIGHT, LVCF_FMT, LVCF_TEXT, LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVITEMW,
-    LVM_DELETEALLITEMS, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH,
-    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT,
-    LVS_EX_LABELTIP, LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, SBARS_SIZEGRIP, SB_SETPARTS,
-    SB_SETTEXTW, STATUSCLASSNAMEW, WC_LISTVIEWW,
+    InitCommonControlsEx, CCS_NOPARENTALIGN, CCS_NORESIZE, CCS_TOP, ICC_BAR_CLASSES,
+    ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, LVCFMT_LEFT, LVCFMT_RIGHT, LVCF_FMT, LVCF_TEXT,
+    LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVITEMW, LVM_DELETEALLITEMS, LVM_INSERTCOLUMNW,
+    LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW,
+    LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_EX_LABELTIP, LVS_REPORT, LVS_SHOWSELALWAYS,
+    LVS_SINGLESEL, SB_SETPARTS, SB_SETTEXTW, STATUSCLASSNAMEW, WC_LISTVIEWW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetDlgItem,
@@ -128,7 +128,9 @@ pub(super) fn show_stats() -> bool {
             Default::default(),
             STATUSCLASSNAMEW,
             PCWSTR::null(),
-            WS_CHILD | WS_VISIBLE | WINDOW_STYLE(SBARS_SIZEGRIP),
+            WS_CHILD
+                | WS_VISIBLE
+                | WINDOW_STYLE((CCS_TOP | CCS_NORESIZE | CCS_NOPARENTALIGN) as u32),
             0,
             0,
             0,
@@ -229,13 +231,14 @@ unsafe fn layout(hwnd: HWND) {
             Some(WPARAM(parts.len())),
             Some(LPARAM(parts.as_ptr() as isize)),
         );
+        let _ = MoveWindow(status, 0, 0, width + status_height, status_height, true);
     }
     if let Ok(list) = GetDlgItem(Some(hwnd), ID_STATS_LIST) {
         let list_width = (width - MARGIN * 2).max(1);
         let _ = MoveWindow(
             list,
             MARGIN,
-            MARGIN,
+            status_height + MARGIN,
             list_width,
             (height - status_height - MARGIN * 2).max(1),
             true,
@@ -299,7 +302,7 @@ fn set_rates(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
         "  Upload  {}/s",
         fdrive_core::activity::fmt_compact(up / n as u64)
     );
-    let traffic = format!("  Traffic  {}", fdrive_core::activity::sparkline(snap, 24));
+    let traffic = fdrive_core::activity::sparkline(snap, 24);
     unsafe {
         set_status_text(status, 0, &traffic);
         set_status_text(status, 1, &down);
@@ -382,8 +385,15 @@ fn transfer_detail(transfer: &fdrive_core::activity::Transfer) -> (String, Strin
     } else {
         verb.to_string()
     };
-    let size = match transfer.outcome {
-        Outcome::Running if transfer.progress > 0 => format!(
+    let size = match (transfer.direction, transfer.mode, &transfer.outcome) {
+        (Direction::Up, Mode::Delta, _) => {
+            format!(
+                "{}/{}",
+                fmt_compact(transfer.wire),
+                fmt_compact(transfer.size)
+            )
+        }
+        (_, _, Outcome::Running) if transfer.progress > 0 => format!(
             "{} / {}",
             fmt_compact(transfer.progress),
             fmt_compact(transfer.size)
