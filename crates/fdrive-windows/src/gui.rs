@@ -15,7 +15,28 @@ mod dashboard;
 mod login;
 mod tray;
 
-pub use tray::{spawn, Tray};
+pub use tray::Tray;
+
+pub fn init(
+    data: &std::path::Path,
+    prefill_url: Option<String>,
+    prompt_login: bool,
+) -> std::io::Result<(Tray, tokio::sync::mpsc::UnboundedReceiver<TrayEvent>)> {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let tray = tray::spawn(
+        Arc::new(Mutex::new(TrayState {
+            url: prefill_url,
+            ..Default::default()
+        })),
+        tx,
+        data.join("fdrive.log"),
+        data.join("autostart.off"),
+    )?;
+    if prompt_login {
+        tray.prompt_login();
+    }
+    Ok((tray, rx))
+}
 
 pub fn alert(message: &str) {
     message_box(message, MB_ICONERROR);

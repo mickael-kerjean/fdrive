@@ -21,7 +21,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::dashboard::show_stats;
 use super::login::prompt_login;
-use super::{wide_path, Ctx, Status, TrayEvent, TrayState, CTX};
+use super::{wide_path, Credentials, Ctx, Status, TrayEvent, TrayState, CTX};
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_TRAY_REFRESH: u32 = WM_APP + 2;
@@ -57,6 +57,13 @@ impl Tray {
         unsafe {
             let _ = PostThreadMessageW(self.thread, WM_TRAY_REFRESH, WPARAM(0), LPARAM(0));
         }
+    }
+
+    pub fn account(&self, creds: &Credentials) {
+        let mut state = self.state.lock().unwrap();
+        state.url = Some(creds.url.clone());
+        state.user = creds.user.clone();
+        state.storage = creds.storage.clone();
     }
 
     pub fn attach(&self, activity: Arc<fdrive_core::activity::Activity>) {
