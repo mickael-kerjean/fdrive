@@ -1,28 +1,34 @@
 use std::cell::RefCell;
 
-use windows::core::{w, PCWSTR};
+use windows::core::{w, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::{
-    CreateFontW, CLIP_DEFAULT_PRECIS, COLOR_WINDOW, DEFAULT_CHARSET, DEFAULT_QUALITY, FIXED_PITCH,
-    FW_NORMAL, HBRUSH, OUT_DEFAULT_PRECIS,
-};
+use windows::Win32::Graphics::Gdi::{GetStockObject, COLOR_WINDOW, DEFAULT_GUI_FONT, HBRUSH};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::{
+    InitCommonControlsEx, ICC_BAR_CLASSES, ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, LVCFMT_LEFT,
+    LVCFMT_RIGHT, LVCF_FMT, LVCF_TEXT, LVCF_WIDTH, LVCOLUMNW, LVIF_TEXT, LVITEMW,
+    LVM_DELETEALLITEMS, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH,
+    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT,
+    LVS_EX_LABELTIP, LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, SBARS_SIZEGRIP, SB_SETPARTS,
+    SB_SETTEXTW, STATUSCLASSNAMEW, WC_LISTVIEWW,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, KillTimer, LoadIconW,
-    RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, SystemParametersInfoW, HMENU,
-    SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_CLOSE, WM_DESTROY, WM_SETFONT,
-    WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_SYSMENU, WS_VISIBLE,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetDlgItem,
+    GetWindowRect, KillTimer, LoadIconW, MoveWindow, RegisterClassW, SendMessageW,
+    SetForegroundWindow, SetTimer, SystemParametersInfoW, HMENU, SPI_GETWORKAREA,
+    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_STYLE, WM_CLOSE, WM_DESTROY, WM_SETFONT, WM_SIZE,
+    WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE, WS_SYSMENU, WS_TABSTOP,
+    WS_THICKFRAME, WS_VISIBLE,
 };
 
-use super::{set_text, CTX};
+use super::CTX;
 
-const ID_STATS_HEADER: i32 = 201;
+const ID_STATS_STATUS: i32 = 201;
 const ID_STATS_LIST: i32 = 202;
 const STATS_TIMER: usize = 1;
-const STATS_COLS: usize = 46;
-const STATS_LINES: usize = 20;
-const STATS_W: i32 = 380;
-const STATS_H: i32 = 420;
+const STATS_W: i32 = 560;
+const STATS_H: i32 = 430;
+const MARGIN: i32 = 8;
 
 thread_local! {
     static STATS: RefCell<Option<(HWND, u64)>> = const { RefCell::new(None) };
@@ -44,6 +50,13 @@ pub(super) fn show_stats() -> bool {
         return true;
     }
     unsafe {
+        let controls = INITCOMMONCONTROLSEX {
+            dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
+            dwICC: ICC_LISTVIEW_CLASSES | ICC_BAR_CLASSES,
+        };
+        if !InitCommonControlsEx(&controls).as_bool() {
+            return false;
+        }
         let Ok(instance) = GetModuleHandleW(None) else {
             return false;
         };
@@ -60,8 +73,8 @@ pub(super) fn show_stats() -> bool {
         let Ok(hwnd) = CreateWindowExW(
             Default::default(),
             w!("fdrive_stats"),
-            w!("Filestash"),
-            WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+            w!("Filestash — Transfers"),
+            WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_VISIBLE,
             x,
             y,
             STATS_W,
@@ -73,53 +86,98 @@ pub(super) fn show_stats() -> bool {
         ) else {
             return false;
         };
-        let font = CreateFontW(
-            -14,
+        let font = GetStockObject(DEFAULT_GUI_FONT);
+        let list_style = WS_CHILD
+            | WS_VISIBLE
+            | WS_TABSTOP
+            | WINDOW_STYLE(LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL);
+        let Ok(list) = CreateWindowExW(
+            WS_EX_CLIENTEDGE,
+            WC_LISTVIEWW,
+            PCWSTR::null(),
+            list_style,
             0,
             0,
             0,
-            FW_NORMAL.0 as i32,
             0,
-            0,
-            0,
-            DEFAULT_CHARSET,
-            OUT_DEFAULT_PRECIS,
-            CLIP_DEFAULT_PRECIS,
-            DEFAULT_QUALITY,
-            FIXED_PITCH.0 as u32,
-            w!("Consolas"),
-        );
-        let child = |text: PCWSTR, x: i32, y: i32, w: i32, h: i32, id: i32| {
-            if let Ok(ctl) = CreateWindowExW(
-                Default::default(),
-                w!("STATIC"),
-                text,
-                WS_CHILD | WS_VISIBLE,
-                x,
-                y,
-                w,
-                h,
-                Some(hwnd),
-                Some(HMENU(id as _)),
-                Some(instance.into()),
-                None,
-            ) {
-                SendMessageW(
-                    ctl,
-                    WM_SETFONT,
-                    Some(WPARAM(font.0 as usize)),
-                    Some(LPARAM(1)),
-                );
-            }
+            Some(hwnd),
+            Some(HMENU(ID_STATS_LIST as _)),
+            Some(instance.into()),
+            None,
+        ) else {
+            let _ = DestroyWindow(hwnd);
+            return false;
         };
-        child(PCWSTR::null(), 10, 10, STATS_W - 28, 20, ID_STATS_HEADER);
-        child(PCWSTR::null(), 10, 38, STATS_W - 28, STATS_H - 80, ID_STATS_LIST);
-        SetTimer(Some(hwnd), STATS_TIMER, 300, None);
-        STATS.with_borrow_mut(|stats| *stats = Some((hwnd, 0)));
+        SendMessageW(
+            list,
+            WM_SETFONT,
+            Some(WPARAM(font.0 as usize)),
+            Some(LPARAM(1)),
+        );
+        let list_ex = LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP;
+        SendMessageW(
+            list,
+            LVM_SETEXTENDEDLISTVIEWSTYLE,
+            Some(WPARAM(list_ex as usize)),
+            Some(LPARAM(list_ex as isize)),
+        );
+        insert_column(list, 0, "Name", 300, LVCFMT_LEFT);
+        insert_column(list, 1, "Status", 130, LVCFMT_LEFT);
+        insert_column(list, 2, "Size", 90, LVCFMT_RIGHT);
+        let Ok(status) = CreateWindowExW(
+            Default::default(),
+            STATUSCLASSNAMEW,
+            PCWSTR::null(),
+            WS_CHILD | WS_VISIBLE | WINDOW_STYLE(SBARS_SIZEGRIP),
+            0,
+            0,
+            0,
+            0,
+            Some(hwnd),
+            Some(HMENU(ID_STATS_STATUS as _)),
+            Some(instance.into()),
+            None,
+        ) else {
+            let _ = DestroyWindow(hwnd);
+            return false;
+        };
+        SendMessageW(
+            status,
+            WM_SETFONT,
+            Some(WPARAM(font.0 as usize)),
+            Some(LPARAM(1)),
+        );
+
+        STATS.with_borrow_mut(|stats| *stats = Some((hwnd, u64::MAX)));
+        layout(hwnd);
         refresh_stats(hwnd);
+        SetTimer(Some(hwnd), STATS_TIMER, 300, None);
         let _ = SetForegroundWindow(hwnd);
     }
     true
+}
+
+unsafe fn insert_column(
+    list: HWND,
+    index: usize,
+    title: &str,
+    width: i32,
+    format: windows::Win32::UI::Controls::LVCOLUMNW_FORMAT,
+) {
+    let mut title: Vec<u16> = title.encode_utf16().chain([0]).collect();
+    let column = LVCOLUMNW {
+        mask: LVCF_TEXT | LVCF_WIDTH | LVCF_FMT,
+        fmt: format,
+        cx: width,
+        pszText: PWSTR(title.as_mut_ptr()),
+        ..Default::default()
+    };
+    SendMessageW(
+        list,
+        LVM_INSERTCOLUMNW,
+        Some(WPARAM(index)),
+        Some(LPARAM((&column as *const LVCOLUMNW) as isize)),
+    );
 }
 
 unsafe extern "system" fn stats_wndproc(
@@ -131,6 +189,10 @@ unsafe extern "system" fn stats_wndproc(
     match msg {
         WM_TIMER => {
             refresh_stats(hwnd);
+            LRESULT(0)
+        }
+        WM_SIZE => {
+            layout(hwnd);
             LRESULT(0)
         }
         WM_CLOSE => {
@@ -146,6 +208,56 @@ unsafe extern "system" fn stats_wndproc(
     }
 }
 
+unsafe fn layout(hwnd: HWND) {
+    let mut client = RECT::default();
+    if GetClientRect(hwnd, &mut client).is_err() {
+        return;
+    }
+    let width = (client.right - client.left).max(1);
+    let height = (client.bottom - client.top).max(1);
+    let mut status_height = 22;
+    if let Ok(status) = GetDlgItem(Some(hwnd), ID_STATS_STATUS) {
+        SendMessageW(status, WM_SIZE, Some(WPARAM(0)), Some(LPARAM(0)));
+        let mut status_rect = RECT::default();
+        if GetWindowRect(status, &mut status_rect).is_ok() {
+            status_height = (status_rect.bottom - status_rect.top).max(status_height);
+        }
+        let parts = [width * 45 / 100, width * 73 / 100, -1];
+        SendMessageW(
+            status,
+            SB_SETPARTS,
+            Some(WPARAM(parts.len())),
+            Some(LPARAM(parts.as_ptr() as isize)),
+        );
+    }
+    if let Ok(list) = GetDlgItem(Some(hwnd), ID_STATS_LIST) {
+        let list_width = (width - MARGIN * 2).max(1);
+        let _ = MoveWindow(
+            list,
+            MARGIN,
+            MARGIN,
+            list_width,
+            (height - status_height - MARGIN * 2).max(1),
+            true,
+        );
+        let activity_width = 120;
+        let size_width = 90;
+        let name_width = (list_width - activity_width - size_width - 6).max(120);
+        set_column_width(list, 0, name_width);
+        set_column_width(list, 1, activity_width);
+        set_column_width(list, 2, size_width);
+    }
+}
+
+unsafe fn set_column_width(list: HWND, column: usize, width: i32) {
+    SendMessageW(
+        list,
+        LVM_SETCOLUMNWIDTH,
+        Some(WPARAM(column)),
+        Some(LPARAM(width as isize)),
+    );
+}
+
 fn refresh_stats(hwnd: HWND) {
     let activity = CTX.with_borrow(|ctx| {
         let ctx = ctx.as_ref().expect("tray ctx");
@@ -154,7 +266,7 @@ fn refresh_stats(hwnd: HWND) {
     });
     let Some(activity) = activity else { return };
     let snap = activity.snapshot();
-    set_text(hwnd, ID_STATS_HEADER, &stats_header(&snap));
+    set_rates(hwnd, &snap);
     let stale = STATS.with_borrow_mut(|stats| match stats {
         Some((_, shown)) if *shown != snap.version => {
             *shown = snap.version;
@@ -163,63 +275,122 @@ fn refresh_stats(hwnd: HWND) {
         _ => false,
     });
     if stale {
-        set_text(hwnd, ID_STATS_LIST, &stats_list(&snap));
+        unsafe {
+            render_transfers(hwnd, &snap);
+        }
     }
 }
 
-fn stats_header(snap: &fdrive_core::activity::Snapshot) -> String {
-    let spark = fdrive_core::activity::sparkline(snap, 24);
-    let rate = fdrive_core::activity::rate_line(snap);
-    let pad = STATS_COLS.saturating_sub(24 + rate.chars().count());
-    format!("{spark}{}{rate}", " ".repeat(pad))
+fn set_rates(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
+    let Ok(status) = (unsafe { GetDlgItem(Some(hwnd), ID_STATS_STATUS) }) else {
+        return;
+    };
+    let n = 5.min(snap.meter.len()).max(1);
+    let (up, down) = snap.meter[snap.meter.len() - n..]
+        .iter()
+        .fold((0, 0), |(up, down), (bucket_up, bucket_down)| {
+            (up + bucket_up, down + bucket_down)
+        });
+    let down = format!(
+        "  Download  {}/s",
+        fdrive_core::activity::fmt_compact(down / n as u64)
+    );
+    let up = format!(
+        "  Upload  {}/s",
+        fdrive_core::activity::fmt_compact(up / n as u64)
+    );
+    let traffic = format!("  Traffic  {}", fdrive_core::activity::sparkline(snap, 24));
+    unsafe {
+        set_status_text(status, 0, &traffic);
+        set_status_text(status, 1, &down);
+        set_status_text(status, 2, &up);
+    }
 }
 
-fn stats_list(snap: &fdrive_core::activity::Snapshot) -> String {
-    use fdrive_core::activity::{fmt_compact, Direction, Mode, Outcome};
+unsafe fn set_status_text(status: HWND, part: usize, text: &str) {
+    let wide: Vec<u16> = text.encode_utf16().chain([0]).collect();
+    SendMessageW(
+        status,
+        SB_SETTEXTW,
+        Some(WPARAM(part)),
+        Some(LPARAM(wide.as_ptr() as isize)),
+    );
+}
+
+unsafe fn render_transfers(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
+    let Ok(list) = GetDlgItem(Some(hwnd), ID_STATS_LIST) else {
+        return;
+    };
+    SendMessageW(list, LVM_DELETEALLITEMS, Some(WPARAM(0)), Some(LPARAM(0)));
     if snap.transfers.is_empty() {
-        return format!("\r\n\r\n\r\n{:^width$}", "⊘", width = STATS_COLS);
+        insert_row(list, 0, ["No recent transfers", "Idle", ""]);
+        return;
     }
-    snap.transfers
-        .iter()
-        .take(STATS_LINES)
-        .map(|t| {
-            let arrow = match t.direction {
-                Direction::Down => '↓',
-                Direction::Up => '↑',
-            };
-            let extra = match &t.outcome {
-                Outcome::Done if t.mode == Mode::Delta => format!(" (⇄{})", fmt_compact(t.wire)),
-                _ => String::new(),
-            };
-            let detail = match &t.outcome {
-                Outcome::Running => String::new(),
-                Outcome::Failed(_) => "✕".to_string(),
-                Outcome::Done => fmt_compact(t.size),
-            };
-            let avail = STATS_COLS
-                .saturating_sub(3 + extra.chars().count() + detail.chars().count() + 1);
-            let name = truncate_middle(t.path.trim_start_matches('/'), avail);
-            let left = format!("{arrow} {name}{extra}");
-            let pad = STATS_COLS.saturating_sub(left.chars().count() + detail.chars().count());
-            format!("{left}{}{detail}", " ".repeat(pad))
-        })
-        .collect::<Vec<_>>()
-        .join("\r\n")
+    for (index, transfer) in snap.transfers.iter().enumerate() {
+        let (activity, size) = transfer_detail(transfer);
+        insert_row(
+            list,
+            index,
+            [transfer.path.trim_start_matches('/'), &activity, &size],
+        );
+    }
 }
 
-fn truncate_middle(name: &str, max: usize) -> String {
-    let chars: Vec<char> = name.chars().collect();
-    if chars.len() <= max {
-        return name.to_string();
+unsafe fn insert_row(list: HWND, index: usize, columns: [&str; 3]) {
+    let mut name: Vec<u16> = columns[0].encode_utf16().chain([0]).collect();
+    let item = LVITEMW {
+        mask: LVIF_TEXT,
+        iItem: index as i32,
+        pszText: PWSTR(name.as_mut_ptr()),
+        ..Default::default()
+    };
+    SendMessageW(
+        list,
+        LVM_INSERTITEMW,
+        Some(WPARAM(0)),
+        Some(LPARAM((&item as *const LVITEMW) as isize)),
+    );
+    for (subitem, text) in columns.iter().enumerate().skip(1) {
+        let mut text: Vec<u16> = text.encode_utf16().chain([0]).collect();
+        let item = LVITEMW {
+            mask: LVIF_TEXT,
+            iItem: index as i32,
+            iSubItem: subitem as i32,
+            pszText: PWSTR(text.as_mut_ptr()),
+            ..Default::default()
+        };
+        SendMessageW(
+            list,
+            LVM_SETITEMTEXTW,
+            Some(WPARAM(index)),
+            Some(LPARAM((&item as *const LVITEMW) as isize)),
+        );
     }
-    let keep = max.saturating_sub(1);
-    let head = keep / 2 + keep % 2;
-    let tail = keep / 2;
-    chars[..head]
-        .iter()
-        .chain(std::iter::once(&'…'))
-        .chain(chars[chars.len() - tail..].iter())
-        .collect()
+}
+
+fn transfer_detail(transfer: &fdrive_core::activity::Transfer) -> (String, String) {
+    use fdrive_core::activity::{fmt_compact, Direction, Mode, Outcome};
+    let verb = match (&transfer.outcome, transfer.direction) {
+        (Outcome::Running, Direction::Down) => "Downloading",
+        (Outcome::Running, Direction::Up) => "Uploading",
+        (Outcome::Done, Direction::Down) => "Downloaded",
+        (Outcome::Done, Direction::Up) => "Uploaded",
+        (Outcome::Failed(_), _) => "Failed",
+    };
+    let activity = if transfer.mode == Mode::Delta {
+        format!("{verb} (delta)")
+    } else {
+        verb.to_string()
+    };
+    let size = match transfer.outcome {
+        Outcome::Running if transfer.progress > 0 => format!(
+            "{} / {}",
+            fmt_compact(transfer.progress),
+            fmt_compact(transfer.size)
+        ),
+        _ => fmt_compact(transfer.size),
+    };
+    (activity, size)
 }
 
 fn flyout_position(w: i32, h: i32) -> (i32, i32) {
