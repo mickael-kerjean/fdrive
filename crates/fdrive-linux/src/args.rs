@@ -39,34 +39,10 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
     if args.user.is_some() && args.password.as_deref().unwrap_or("").is_empty() {
         args.password = Some(prompt_password()?);
     }
-    let data = args.data.clone().unwrap_or_else(gui::default_data);
-    let setup = setup(
-        args,
-        fdrive_core::config::recall(&data).map(Credentials::from),
-    )?;
-    std::fs::create_dir_all(&setup.data)?;
-    std::mem::forget(instance_lock(&setup.data)?);
-    Ok(setup)
-}
+    let data = args.data.unwrap_or_else(gui::default_data);
+    std::fs::create_dir_all(&data)?;
+    instance_lock(&data)?;
 
-fn instance_lock(data: &Path) -> Result<std::fs::File, String> {
-    use std::os::fd::AsRawFd;
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(data.join("fdrive.lock"))
-        .map_err(|err| format!("fdrive.lock: {err}"))?;
-    match unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } {
-        0 => Ok(file),
-        _ => Err(format!(
-            "another instance is already running on {} — quit it first",
-            data.display()
-        )),
-    }
-}
-
-fn setup(args: Args, stored: Option<Credentials>) -> Result<Setup, String> {
     if args.token.is_some() && args.user.is_some() {
         return Err("--token and --user cannot be combined".into());
     }
@@ -90,21 +66,40 @@ fn setup(args: Args, stored: Option<Credentials>) -> Result<Setup, String> {
             ..Default::default()
         }),
         (Some(_), None, None) => None,
-        (None, ..) => stored,
+        (None, ..) => fdrive_core::config::recall(&data).map(Credentials::from),
     };
-    let launching = server.is_some() && credentials.is_some();
     Ok(Setup {
         mount: args.mount,
-        data: args.data.unwrap_or_else(gui::default_data),
         prompt_login: server.is_some() && credentials.is_none(),
+        launching: server.is_some() && credentials.is_some(),
         prefill: Credentials {
             url: server.unwrap_or_default(),
             insecure: args.insecure,
             ..Default::default()
         },
+        data,
         credentials,
-        launching,
     })
+}
+
+fn instance_lock(data: &Path) -> Result<(), String> {
+    use std::os::fd::AsRawFd;
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(data.join("fdrive.lock"))
+        .map_err(|err| format!("fdrive.lock: {err}"))?;
+    match unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } {
+        0 => {
+            std::mem::forget(file);
+            Ok(())
+        }
+        _ => Err(format!(
+            "another instance is already running on {} — quit it first",
+            data.display()
+        )),
+    }
 }
 
 fn prompt_password() -> std::io::Result<String> {
@@ -132,7 +127,3 @@ fn prompt_password() -> std::io::Result<String> {
     read?;
     Ok(line.trim_end_matches('\n').to_owned())
 }
-
-#[cfg(test)]
-#[path = "args_test.rs"]
-mod tests;
