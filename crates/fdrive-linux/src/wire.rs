@@ -141,7 +141,7 @@ impl Filesystem for MountFs {
 
     fn readdir(
         &self,
-        _req: &Request,
+        req: &Request,
         ino: INodeNo,
         _fh: FileHandle,
         offset: u64,
@@ -150,8 +150,14 @@ impl Filesystem for MountFs {
         let Some(dir) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
+        let pid = req.pid();
         self.go(move |wire| {
-            log::debug!("ls path={dir} offset={offset}");
+            log::debug!(
+                "ls path={dir} offset={offset} by={}#{pid}",
+                std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                    .unwrap_or_default()
+                    .trim()
+            );
             let listing = match wire.adapter.ls(&dir) {
                 Ok(listing) => listing,
                 Err(err) => return reply.error(Errno::from(err)),

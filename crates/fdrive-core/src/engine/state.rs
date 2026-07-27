@@ -38,6 +38,40 @@ pub(super) struct View {
     pub(super) dirty: BTreeSet<RelPath>,
 }
 
+#[derive(Clone, Copy)]
+enum Release {
+    Now,
+    At(Instant),
+    OnEvent,
+}
+
+impl Release {
+    fn and(self, other: Release) -> Release {
+        match (self, other) {
+            (Release::OnEvent, _) | (_, Release::OnEvent) => Release::OnEvent,
+            (Release::At(a), Release::At(b)) => Release::At(a.max(b)),
+            (Release::At(t), Release::Now) | (Release::Now, Release::At(t)) => Release::At(t),
+            (Release::Now, Release::Now) => Release::Now,
+        }
+    }
+}
+
+struct Wake(Option<Instant>);
+
+impl Wake {
+    fn note(&mut self, release: Release) {
+        if let Release::At(t) = release {
+            self.0 = Some(self.0.map_or(t, |w| w.min(t)));
+        }
+    }
+}
+
+pub(super) struct Step {
+    pub(super) plans: Vec<(i64, Plan)>,
+    pub(super) wake: Option<Instant>,
+    pub(super) idle: bool,
+}
+
 impl State {
     pub(super) fn open(file: &std::path::Path) -> Self {
         let ledger = match Ledger::open(file) {
@@ -100,13 +134,31 @@ impl State {
         j.window.push((Instant::now(), op));
     }
 
-    pub(super) fn compact(
+    pub(super) fn step(
+        &mut self,
+        slots: usize,
+        force: bool,
+        ignore: &crate::config::Ignore,
+        empty: impl Fn(&RelPath) -> bool,
+    ) -> Step {
+        let mut wake = Wake(None);
+        self.compact(force, ignore, empty, &mut wake);
+        let plans = self.schedule(slots, &mut wake);
+        Step {
+            plans,
+            wake: wake.0,
+            idle: self.idle(),
+        }
+    }
+
+    fn compact(
         &mut self,
         force: bool,
         ignore: &crate::config::Ignore,
         empty: impl Fn(&RelPath) -> bool,
+        wake: &mut Wake,
     ) {
-        let drained = self.drain(force, empty);
+        let drained = self.drain(force, empty, wake);
         if drained.is_empty() {
             return;
         }
@@ -144,20 +196,23 @@ impl State {
         self.refresh();
     }
 
-    fn drain(&mut self, force: bool, empty: impl Fn(&RelPath) -> bool) -> Vec<Operation> {
+    fn drain(
+        &mut self,
+        force: bool,
+        empty: impl Fn(&RelPath) -> bool,
+        wake: &mut Wake,
+    ) -> Vec<Operation> {
         let stalled =
             |p: &RelPath| self.ledger.observations.get(p).is_some_and(|o| o.size > 0) && empty(p);
         let j = &mut self.journal;
         let now = Instant::now();
-        let quiet = j
-            .window
-            .last()
-            .is_some_and(|(at, _)| now - *at >= WINDOW_QUIET);
-        let aged = j
-            .window
-            .first()
-            .is_some_and(|(at, _)| now - *at >= WINDOW_MAX);
-        if j.window.is_empty() || !(force || quiet || aged) {
+        let Some(&(newest, _)) = j.window.last() else {
+            return Vec::new();
+        };
+        let oldest = j.window.first().map_or(newest, |(at, _)| *at);
+        let opens = (newest + WINDOW_QUIET).min(oldest + WINDOW_MAX);
+        if !force && now < opens {
+            wake.note(Release::At(opens));
             return Vec::new();
         }
         let inflight: Vec<Plan> = j
@@ -166,36 +221,44 @@ impl State {
             .filter_map(|s| j.pending.get(s).map(|e| e.plan.clone()))
             .collect();
         let mut held: Vec<(Instant, Operation)> = Vec::new();
-        let mut held_paths: Vec<RelPath> = Vec::new();
+        let mut held_paths: Vec<(RelPath, Release)> = Vec::new();
         let mut drained: Vec<Operation> = Vec::new();
         for (at, op) in std::mem::take(&mut j.window) {
-            let age = now - at;
-            let blocked = op_paths(&op).iter().any(|p| {
-                let with_inflight = inflight.iter().any(|i| i.touches(p));
-                let with_held = held_paths
-                    .iter()
-                    .any(|h| h == *p || p.is_descendant_of(h) || h.is_descendant_of(p));
-                let still_open = !force && age < OPEN_QUIET && j.writing.contains_key(*p);
-                let mid_rewrite = !force && age < WINDOW_MAX && stalled(p);
-                with_inflight || with_held || still_open || mid_rewrite
-            });
-            if blocked {
-                held_paths.extend(op_paths(&op).into_iter().cloned());
-                held.push((at, op));
-            } else {
+            let mut release = Release::Now;
+            for p in op_paths(&op) {
+                if inflight.iter().any(|i| i.touches(p)) {
+                    release = release.and(Release::OnEvent);
+                }
+                for (h, blocker) in &held_paths {
+                    if h == p || p.is_descendant_of(h) || h.is_descendant_of(p) {
+                        release = release.and(*blocker);
+                    }
+                }
+                if !force && j.writing.contains_key(p) && now < at + OPEN_QUIET {
+                    release = release.and(Release::At(at + OPEN_QUIET));
+                }
+                if !force && stalled(p) && now < at + WINDOW_MAX {
+                    release = release.and(Release::At(at + WINDOW_MAX));
+                }
+            }
+            if let Release::Now = release {
                 drained.push(op);
+            } else {
+                wake.note(release);
+                held_paths.extend(op_paths(&op).into_iter().cloned().map(|p| (p, release)));
+                held.push((at, op));
             }
         }
         j.window = held;
         drained
     }
 
-    pub(super) fn next(&mut self) -> Option<(i64, Plan)> {
+    fn schedule(&mut self, slots: usize, wake: &mut Wake) -> Vec<(i64, Plan)> {
         let j = &mut self.journal;
         let now = Instant::now();
-        let mut pick: Option<i64> = None;
+        let mut plans: Vec<(i64, Plan)> = Vec::new();
         'candidates: for (seq, entry) in &j.pending {
-            if j.inflight.contains(seq) || entry.due > now {
+            if j.inflight.contains(seq) {
                 continue;
             }
             for (_, earlier) in j.pending.range(..seq) {
@@ -203,12 +266,16 @@ impl State {
                     continue 'candidates;
                 }
             }
-            pick = Some(*seq);
-            break;
+            if entry.due > now {
+                wake.note(Release::At(entry.due));
+            } else if plans.len() < slots {
+                plans.push((*seq, entry.plan.clone()));
+            }
         }
-        let seq = pick?;
-        j.inflight.insert(seq);
-        Some((seq, j.pending.get(&seq).unwrap().plan.clone()))
+        for (seq, _) in &plans {
+            j.inflight.insert(*seq);
+        }
+        plans
     }
 
     pub(super) fn settle(&mut self, seq: i64, outcome: Outcome) -> (bool, Option<Conflict>) {
@@ -328,21 +395,6 @@ impl State {
 
     pub(super) fn idle(&self) -> bool {
         self.journal.window.is_empty() && self.journal.pending.is_empty()
-    }
-
-    pub(super) fn wait(&self) -> Option<Instant> {
-        let j = &self.journal;
-        let window = j.window.last().map(|(at, _)| *at + WINDOW_QUIET);
-        let due = j
-            .pending
-            .iter()
-            .filter(|(seq, _)| !j.inflight.contains(seq))
-            .map(|(_, e)| e.due)
-            .min();
-        match (window, due) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
     }
 
     pub(super) fn rush(&mut self) {

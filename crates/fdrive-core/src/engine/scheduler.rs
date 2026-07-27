@@ -78,16 +78,14 @@ async fn run<T: LocalTree>(
     let mut spawned: HashMap<tokio::task::Id, i64> = HashMap::new();
     let mut flushes: Vec<oneshot::Sender<()>> = Vec::new();
     let mut failing = false;
+    let mut rushed = false;
     loop {
-        let deadline = {
+        let wake = {
             let Some(engine) = engine.upgrade() else {
                 return;
             };
-            engine.compact(false);
-            while running.len() < CONCURRENCY {
-                let Some((seq, plan)) = engine.next() else {
-                    break;
-                };
+            let step = engine.step(CONCURRENCY - running.len(), std::mem::take(&mut rushed));
+            for (seq, plan) in step.plans {
                 let engine = engine.clone();
                 let handle = running.spawn(async move {
                     let result = engine.replay(&plan).await;
@@ -95,18 +93,21 @@ async fn run<T: LocalTree>(
                 });
                 spawned.insert(handle.id(), seq);
             }
-            let idle = engine.idle() && running.is_empty();
+            let idle = step.idle && running.is_empty();
             if idle {
                 for reply in flushes.drain(..) {
                     let _ = reply.send(());
                 }
             }
-            let _ = status.send(match (failing, idle) {
+            let next = match (failing, idle) {
                 (true, _) => UploadStatus::Error,
                 (false, true) => UploadStatus::Idle,
                 (false, false) => UploadStatus::Busy,
-            });
-            engine.wait()
+            };
+            if *status.borrow() != next {
+                let _ = status.send(next);
+            }
+            step.wake
         };
         tokio::select! {
             msg = rx.recv() => match msg {
@@ -116,6 +117,7 @@ async fn run<T: LocalTree>(
                     if let Some(engine) = engine.upgrade() {
                         engine.rush();
                     }
+                    rushed = true;
                     flushes.push(reply);
                 }
             },
@@ -136,7 +138,7 @@ async fn run<T: LocalTree>(
                     failing = engine.settle(seq, outcome);
                 }
             },
-            _ = tokio::time::sleep_until(deadline.map(Instant::from_std).unwrap_or_else(Instant::now)), if deadline.is_some() => {}
+            _ = tokio::time::sleep_until(wake.map(Instant::from_std).unwrap_or_else(Instant::now)), if wake.is_some() => {}
         }
     }
 }
