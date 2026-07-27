@@ -5,7 +5,7 @@ mod log;
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use fdrive_core::config as session;
@@ -17,45 +17,33 @@ use tokio::time::Instant;
 
 use fdrive_windows::adapter::Adapter;
 use fdrive_windows::config::AppConfig;
-use fdrive_windows::gui::{self, Credentials, Status, Tray, TrayEvent, TrayState};
+use fdrive_windows::gui::{self, Credentials, Status, Tray, TrayEvent};
 use fdrive_windows::wire::{self, shell, viewer, watcher};
 
-#[tokio::main]
-async fn main() {
-    if let Err(err) = run().await {
-        log::error!("fatal: {err}");
-        gui::alert(&err.to_string());
-        std::process::exit(1);
-    }
-}
-
+#[derive(Debug, Clone, Copy)]
 enum SessionEnd {
     Logout,
     Restart,
     Quit,
-    Failed,
 }
 
-async fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let Some(setup) = args::init()? else {
-        return Ok(());
-    };
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args::Setup {
         root,
         data,
-        config_path,
+        config,
         unregister,
         prefill_url,
         mut credentials,
         prompt_login,
-        fresh_credentials,
-    } = setup;
+        mut fresh_credentials,
+    } = args::init();
     log::init(&data)?;
     std::panic::set_hook(Box::new(|info| {
         log::error!("panic: {info}");
     }));
     log::info!("fdrive-windows {} starting", env!("CARGO_PKG_VERSION"));
-    let config = AppConfig::load(&config_path)?;
 
     if unregister {
         shell::vacuum(&config.windows.provider_name, "");
@@ -66,102 +54,43 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let instance_lock = instance_lock(&data, &root)?;
-
     shell::ensure_autostart(&data.join("autostart.off"));
+    let (tray, mut events) = gui::init(&data, prefill_url, prompt_login)?;
 
-    let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
-    let tray = gui::spawn(
-        Arc::new(Mutex::new(TrayState {
-            url: prefill_url,
-            ..Default::default()
-        })),
-        events_tx.clone(),
-        data.join("fdrive.log"),
-        data.join("autostart.off"),
-    )?;
-    if prompt_login {
-        tray.prompt_login();
-    }
-
-    let mut browse_on_connect = fresh_credentials;
-    let restart = loop {
-        set_tray(&tray, credentials.as_ref());
-        let end = match &credentials {
-            Some(creds) => {
-                let browse = std::mem::take(&mut browse_on_connect);
-                session(creds, &config, &root, &data, &mut events, &tray, browse)
-                    .await
-                    .unwrap_or_else(|err| {
-                        log::error!("session: {err}");
-                        SessionEnd::Failed
-                    })
+    'app: loop {
+        if let Some(creds) = credentials.as_ref() {
+            tray.account(creds);
+            tray.set_status(Status::Syncing);
+            match run(creds, &config, &root, &data, &mut events, &tray, fresh_credentials).await {
+                Ok(SessionEnd::Quit) => break 'app,
+                Ok(SessionEnd::Logout) => {
+                    credentials = None;
+                    tray.set_status(Status::LoggedOut);
+                }
+                Ok(SessionEnd::Restart) => {}
+                Err(err) => {
+                    log::error!("session: {err}");
+                    credentials = None;
+                    tray.set_status(Status::Error);
+                }
             }
-            None => match events.recv().await {
-                None => SessionEnd::Quit,
-                Some(TrayEvent::Login(creds)) => {
-                    credentials = Some(creds);
-                    browse_on_connect = true;
-                    continue;
-                }
-                Some(TrayEvent::Browse) => {
-                    gui::open_folder(&root);
-                    continue;
-                }
-                Some(TrayEvent::Restart) => SessionEnd::Restart,
-                Some(TrayEvent::Quit) => SessionEnd::Quit,
-                Some(TrayEvent::Logout) | Some(TrayEvent::Refresh) => continue,
-            },
-        };
-        match end {
-            SessionEnd::Quit => break false,
-            SessionEnd::Restart => break true,
-            SessionEnd::Logout | SessionEnd::Failed => credentials = None,
+            fresh_credentials = false;
+            continue;
         }
-    };
-
-    if restart {
-        drop(instance_lock);
-        let exe = std::env::current_exe()?;
-        let args: Vec<String> = std::env::args().skip(1).collect();
-        log::info!("restarting");
-        std::process::Command::new(exe).args(args).spawn()?;
+        match events.recv().await {
+            None | Some(TrayEvent::Quit) => break 'app,
+            Some(TrayEvent::Login(creds)) => {
+                credentials = Some(creds);
+                fresh_credentials = true;
+            }
+            Some(TrayEvent::Browse) => gui::open_folder(&root),
+            Some(TrayEvent::Restart | TrayEvent::Logout | TrayEvent::Refresh) => {}
+        }
     }
     Ok(())
 }
 
-fn instance_lock(data: &Path, root: &Path) -> Result<std::fs::File, String> {
-    use std::os::windows::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .share_mode(0)
-        .open(data.join("instance.lock"))
-        .map_err(|_| {
-            format!(
-                "another instance is already running on {} — quit it first",
-                root.display()
-            )
-        })
-}
-
-fn set_tray(tray: &Tray, credentials: Option<&Credentials>) {
-    {
-        let mut state = tray.state().lock().unwrap();
-        if let Some(creds) = credentials {
-            state.url = Some(creds.url.clone());
-            state.user = creds.user.clone();
-            state.storage = creds.storage.clone();
-        }
-    }
-    tray.set_status(match credentials {
-        Some(_) => Status::Syncing,
-        None => Status::LoggedOut,
-    });
-}
-
-async fn session(
+async fn run(
     creds: &Credentials,
     config: &AppConfig,
     root: &Path,
@@ -193,7 +122,31 @@ async fn session(
     )?;
     let mut upload_status = adapter.upload_status();
 
-    let sync_root_id = register_sync_root(config, creds, root)?;
+    let rest = creds
+        .url
+        .split_once("://")
+        .map_or(creds.url.as_str(), |(_, rest)| rest);
+    let host = rest.split(['/', '?']).next().unwrap_or(rest);
+    let account = match creds.user.is_empty() {
+        true => host.to_string(),
+        false => format!("{}@{host}/{}", creds.user, creds.storage),
+    };
+    let sync_root_id = shell::sync_root_id(&config.windows.provider_name, &account, root)?;
+    shell::vacuum(&config.windows.provider_name, &sync_root_id);
+    shell::register(
+        root,
+        &shell::Registration {
+            id: sync_root_id.clone(),
+            display_name: config.windows.provider_name.clone(),
+            icon: config
+                .windows
+                .icon
+                .clone()
+                .unwrap_or_else(shell::default_icon),
+            allow_pinning: config.windows.allow_pinning,
+            provider_id: wire::PROVIDER_ID,
+        },
+    )?;
     let connection = adapter.connect(root)?;
     log::info!("sync root {} connected", root.display());
     if browse {
@@ -297,37 +250,4 @@ async fn session(
         connection.disconnect();
     }
     Ok(end)
-}
-
-fn register_sync_root(
-    config: &AppConfig,
-    creds: &Credentials,
-    root: &Path,
-) -> std::io::Result<String> {
-    let account = match creds.user.is_empty() {
-        true => host_of(&creds.url).to_string(),
-        false => format!("{}@{}/{}", creds.user, host_of(&creds.url), creds.storage),
-    };
-    let id = shell::sync_root_id(&config.windows.provider_name, &account, root)?;
-    shell::vacuum(&config.windows.provider_name, &id);
-    shell::register(
-        root,
-        &shell::Registration {
-            id: id.clone(),
-            display_name: config.windows.provider_name.clone(),
-            icon: config
-                .windows
-                .icon
-                .clone()
-                .unwrap_or_else(shell::default_icon),
-            allow_pinning: config.windows.allow_pinning,
-            provider_id: wire::PROVIDER_ID,
-        },
-    )?;
-    Ok(id)
-}
-
-fn host_of(url: &str) -> &str {
-    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
-    rest.split(['/', '?']).next().unwrap_or(rest)
 }
