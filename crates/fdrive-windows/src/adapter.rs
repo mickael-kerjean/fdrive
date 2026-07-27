@@ -259,32 +259,52 @@ impl Adapter {
                 "{path}: size changed on the server; healing the placeholder"
             )));
         }
-        let mut sent: u64 = 0;
-        let mut buf: Vec<u8> = Vec::with_capacity(FLUSH_AT + ALIGN);
-        self.engine.rt().block_on(async {
-            let (_, mut stream) = sdk.cat(&api).await?;
-            while let Some(chunk) = stream.try_next().await? {
-                buf.extend_from_slice(&chunk);
-                if buf.len() >= FLUSH_AT {
-                    let aligned = buf.len() & !(ALIGN - 1);
-                    sink(sent, &buf[..aligned])?;
-                    sent += aligned as u64;
-                    buf.drain(..aligned);
+        let activity = self.engine.activity();
+        let act = activity.begin(
+            &path.as_file(),
+            fdrive_core::activity::Direction::Down,
+            size,
+        );
+        let result = (|| {
+            let mut sent: u64 = 0;
+            let mut buf: Vec<u8> = Vec::with_capacity(FLUSH_AT + ALIGN);
+            self.engine.rt().block_on(async {
+                let (_, mut stream) = sdk.cat(&api).await?;
+                while let Some(chunk) = stream.try_next().await? {
+                    buf.extend_from_slice(&chunk);
+                    if buf.len() >= FLUSH_AT {
+                        let aligned = buf.len() & !(ALIGN - 1);
+                        sink(sent, &buf[..aligned])?;
+                        sent += aligned as u64;
+                        activity.wire(act, aligned as u64);
+                        activity.progress(act, sent);
+                        buf.drain(..aligned);
+                    }
                 }
+                Ok::<(), io::Error>(())
+            })?;
+            if !buf.is_empty() {
+                sink(sent, &buf)?;
+                sent += buf.len() as u64;
+                activity.wire(act, buf.len() as u64);
+                activity.progress(act, sent);
             }
-            Ok::<(), io::Error>(())
-        })?;
-        if !buf.is_empty() {
-            sink(sent, &buf)?;
-            sent += buf.len() as u64;
-        }
-        if sent != size {
-            return Err(io::Error::other(format!(
-                "{path}: short download ({sent} of {size} bytes)"
-            )));
-        }
-        self.engine.ledger().observe(path, Observation::of(&info));
-        Ok(sent)
+            if sent != size {
+                return Err(io::Error::other(format!(
+                    "{path}: short download ({sent} of {size} bytes)"
+                )));
+            }
+            self.engine.ledger().observe(path, Observation::of(&info));
+            Ok(sent)
+        })();
+        activity.finish(
+            act,
+            result
+                .as_ref()
+                .map(|_| ())
+                .map_err(std::string::ToString::to_string),
+        );
+        result
     }
 
     pub fn populate(&self, dir: &RelPath) -> io::Result<()> {
