@@ -1,8 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use fdrive_core::sdk::normalize_server;
 
+use fdrive_windows::config::AppConfig;
 use fdrive_windows::gui::{self, Credentials};
 
 #[derive(Parser)]
@@ -29,7 +30,7 @@ struct Args {
 pub struct Setup {
     pub root: PathBuf,
     pub data: PathBuf,
-    pub config_path: PathBuf,
+    pub config: AppConfig,
     pub unregister: bool,
     pub prefill_url: Option<String>,
     pub credentials: Option<Credentials>,
@@ -37,7 +38,7 @@ pub struct Setup {
     pub fresh_credentials: bool,
 }
 
-pub fn init() -> Result<Option<Setup>, Box<dyn std::error::Error>> {
+pub fn init() -> Setup {
     let args = match Args::try_parse() {
         Ok(args) => args,
         Err(err)
@@ -47,33 +48,53 @@ pub fn init() -> Result<Option<Setup>, Box<dyn std::error::Error>> {
             ) =>
         {
             gui::info(&err.to_string());
-            return Ok(None);
+            std::process::exit(0);
         }
-        Err(err) => {
-            gui::alert(&err.to_string());
-            std::process::exit(2);
-        }
+        Err(err) => fail(&err.to_string()),
     };
 
-    let root = PathBuf::from(std::env::var("USERPROFILE").map_err(|_| "no %USERPROFILE%")?)
-        .join("Filestash");
-    let data = PathBuf::from(std::env::var("LOCALAPPDATA").map_err(|_| "no %LOCALAPPDATA%")?)
-        .join("Filestash");
-    std::fs::create_dir_all(&data)?;
+    let root = std::env::var("USERPROFILE")
+        .map(|home| PathBuf::from(home).join("Filestash"))
+        .unwrap_or_else(|_| fail("no %USERPROFILE%"));
+    let data = std::env::var("LOCALAPPDATA")
+        .map(|local| PathBuf::from(local).join("Filestash"))
+        .unwrap_or_else(|_| fail("no %LOCALAPPDATA%"));
+    if let Err(err) = std::fs::create_dir_all(&data) {
+        fail(&format!("{}: {err}", data.display()));
+    }
+    std::mem::forget(instance_lock(&data, &root).unwrap_or_else(|err| fail(&err)));
+    let config_path = args.config.clone().unwrap_or_else(|| data.join("fdrive.toml"));
+    let config = AppConfig::load(&config_path).unwrap_or_else(|err| fail(&err.to_string()));
 
     let stored = fdrive_core::config::recall(&data).map(Credentials::from);
     let stored_server = fdrive_core::config::recall_server(&data);
-    match setup(args, stored, stored_server, root, data) {
-        Ok(setup) => Ok(Some(setup)),
-        Err(err) => {
-            gui::alert(&err);
-            std::process::exit(2);
-        }
-    }
+    setup(args, config, stored, stored_server, root, data).unwrap_or_else(|err| fail(&err))
+}
+
+fn fail(message: &str) -> ! {
+    gui::alert(message);
+    std::process::exit(2)
+}
+
+fn instance_lock(data: &Path, root: &Path) -> Result<std::fs::File, String> {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .share_mode(0)
+        .open(data.join("instance.lock"))
+        .map_err(|_| {
+            format!(
+                "another instance is already running on {} — quit it first",
+                root.display()
+            )
+        })
 }
 
 fn setup(
     args: Args,
+    config: AppConfig,
     stored: Option<Credentials>,
     stored_server: Option<String>,
     root: PathBuf,
@@ -108,11 +129,10 @@ fn setup(
         (None, ..) => stored,
     };
     let fresh_credentials = server.is_some() && credentials.is_some();
-    let config_path = args.config.unwrap_or_else(|| data.join("fdrive.toml"));
     Ok(Setup {
         root,
         data,
-        config_path,
+        config,
         unregister: args.unregister,
         prompt_login: server.is_some() && credentials.is_none(),
         prefill_url: server.or(stored_server),

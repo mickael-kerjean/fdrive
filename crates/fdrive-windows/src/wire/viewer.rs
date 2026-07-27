@@ -29,6 +29,9 @@ fn view_loop(root: PathBuf, on_view: tokio::sync::mpsc::UnboundedSender<(RelPath
     }
     let mut last: BTreeSet<RelPath> = BTreeSet::new();
     loop {
+        if on_view.is_closed() {
+            return;
+        }
         let current = viewed_dirs(&root).unwrap_or_default();
         for dir in &current {
             if on_view.send((dir.clone(), !last.contains(dir))).is_err() {

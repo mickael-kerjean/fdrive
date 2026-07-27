@@ -5,7 +5,7 @@ use std::path::Path;
 use fdrive_core::path::RelPath;
 use tokio::sync::mpsc::UnboundedSender;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, ReadDirectoryChangesW, FILE_ACTION_RENAMED_OLD_NAME, FILE_FLAG_BACKUP_SEMANTICS,
     FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_CHANGE_DIR_NAME,
@@ -41,7 +41,10 @@ pub fn spawn(root: &Path, changes: UnboundedSender<RelPath>) -> std::io::Result<
 
 fn watch_loop(handle: HANDLE, changes: UnboundedSender<RelPath>) {
     let mut buf = vec![0u8; 64 * 1024];
-    loop {
+    'watch: loop {
+        if changes.is_closed() {
+            break 'watch;
+        }
         let mut returned = 0u32;
         let ok = unsafe {
             ReadDirectoryChangesW(
@@ -61,7 +64,7 @@ fn watch_loop(handle: HANDLE, changes: UnboundedSender<RelPath>) {
         };
         if let Err(err) = ok {
             log::error!("ReadDirectoryChangesW: {err}; local change detection stopped");
-            return;
+            break 'watch;
         }
         if returned == 0 {
             log::warn!("watch buffer overflow: some local changes may be missed");
@@ -82,7 +85,7 @@ fn watch_loop(handle: HANDLE, changes: UnboundedSender<RelPath>) {
                         .send(RelPath::new(&name.replace('\\', "/")))
                         .is_err()
                     {
-                        return;
+                        break 'watch;
                     }
                 }
             }
@@ -92,4 +95,5 @@ fn watch_loop(handle: HANDLE, changes: UnboundedSender<RelPath>) {
             offset += info.NextEntryOffset as usize;
         }
     }
+    let _ = unsafe { CloseHandle(handle) };
 }
