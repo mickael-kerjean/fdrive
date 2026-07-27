@@ -3,11 +3,11 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use tokio::sync::watch;
 
-use crate::model::{Operation, Plan};
+use crate::model::Operation;
 use crate::path::RelPath;
 use crate::port::LocalTree;
 use crate::sdk::{Error as SdkError, Sdk};
@@ -15,7 +15,7 @@ use crate::sdk::{Error as SdkError, Sdk};
 use super::conflict::Conflicts;
 use super::gates::Transfers;
 use super::spawner::Spawner;
-use super::state::{LedgerGuard, State};
+use super::state::{LedgerGuard, State, Step};
 use super::{scheduler, Engine, Frozen, Outcome, UploadStatus};
 
 impl<T: LocalTree> Engine<T> {
@@ -123,14 +123,10 @@ impl<T: LocalTree> Engine<T> {
         self.pin_sweep();
     }
 
-    pub(super) fn compact(&self, force: bool) {
-        self.state().compact(force, &self.ignore, |p| {
+    pub(super) fn step(&self, slots: usize, force: bool) -> Step {
+        self.state().step(slots, force, &self.ignore, |p| {
             fs::metadata(self.tree.backing(p)).is_ok_and(|md| md.len() == 0)
-        });
-    }
-
-    pub(super) fn next(&self) -> Option<(i64, Plan)> {
-        self.state().next()
+        })
     }
 
     pub(super) fn settle(&self, seq: i64, outcome: Outcome) -> bool {
@@ -141,16 +137,7 @@ impl<T: LocalTree> Engine<T> {
         failing
     }
 
-    pub(super) fn idle(&self) -> bool {
-        self.state().idle()
-    }
-
-    pub(super) fn wait(&self) -> Option<Instant> {
-        self.state().wait()
-    }
-
     pub(super) fn rush(&self) {
-        self.compact(true);
         self.state().rush();
     }
 

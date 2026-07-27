@@ -236,7 +236,7 @@ async fn an_offline_dir_rename_is_refused_before_touching_anything() {
         "nothing was remapped"
     );
     assert!(engine.fates().is_empty(), "nothing is pending");
-    assert!(engine.idle(), "nothing was queued to replay later");
+    assert!(engine.state.lock().unwrap().idle(), "nothing was queued to replay later");
 }
 
 #[tokio::test]

@@ -5,6 +5,31 @@ use httpmock::{Method, MockServer};
 use super::testkit::*;
 use crate::path::RelPath;
 
+#[test]
+fn a_held_window_wakes_at_its_release_not_before() {
+    use crate::engine::state::State;
+    use crate::model::Operation;
+    use crate::port::LocalTree;
+
+    let tree = TempTree::new();
+    let mut state = State::open(&tree.ledger());
+    let path = RelPath::new("f");
+    state.write_opened(&path);
+    state.record(Operation::Create(path.clone()));
+    std::thread::sleep(Duration::from_millis(300));
+
+    let step = state.step(4, false, &crate::config::ignore(&tree.ledger()), |_| false);
+
+    assert!(step.plans.is_empty());
+    assert!(!step.idle);
+    let wake = step.wake.expect("a held op schedules its release");
+    let from_now = wake.saturating_duration_since(std::time::Instant::now());
+    assert!(
+        from_now > Duration::from_secs(3) && from_now <= Duration::from_secs(5),
+        "wake should land at the open-file grace, got {from_now:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_file_open_for_writing_holds_its_save() {
     let server = MockServer::start();
