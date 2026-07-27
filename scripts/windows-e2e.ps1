@@ -316,6 +316,7 @@ Test "remote-tree-populates-on-first-enumeration" {
 }
 
 Test "remote-delete-clean-dir" {
+    New-Item -ItemType Directory -Path (LPath "rtree\empty-local-dir") | Out-Null
     Srv-Rm "$SrvE2E/rtree/"
     Wait-Until { -not (Test-Path (LPath "rtree")) } 30 "rtree to vanish locally"
 }

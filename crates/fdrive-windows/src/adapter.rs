@@ -580,7 +580,7 @@ impl Adapter {
     fn drop_stale(&self, path: &RelPath, is_dir: bool) {
         let abs = self.abs(path);
         if is_dir {
-            if !self.tree_is_clean(&abs, path) {
+            if !self.tree_is_clean(&abs, path, true) {
                 if self.kept.lock().unwrap().insert(path.clone()) {
                     log::info!("{path} gone remotely but holds local edits; keeping");
                 }
@@ -623,14 +623,14 @@ impl Adapter {
             )
     }
 
-    fn tree_is_clean(&self, abs: &Path, path: &RelPath) -> bool {
+    fn tree_is_clean(&self, abs: &Path, path: &RelPath, root: bool) -> bool {
         let Ok(state) = wire::placeholder_state(abs) else {
             return false;
         };
-        if !state.placeholder {
+        if root && !state.placeholder {
             return false;
         }
-        if state.partial {
+        if state.placeholder && state.partial {
             return true;
         }
         let Ok(read) = fs::read_dir(abs) else {
@@ -643,7 +643,7 @@ impl Adapter {
             let child = path.join(&name);
             let child_abs = entry.path();
             let clean = match entry.metadata() {
-                Ok(md) if md.is_dir() => self.tree_is_clean(&child_abs, &child),
+                Ok(md) if md.is_dir() => self.tree_is_clean(&child_abs, &child, false),
                 Ok(_) => self.file_is_clean(&child_abs, &child),
                 Err(_) => false,
             };
