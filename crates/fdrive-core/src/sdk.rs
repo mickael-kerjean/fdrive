@@ -538,3 +538,7 @@ fn extract_token(headers: &HeaderMap) -> String {
     }
     token
 }
+
+#[cfg(test)]
+#[path = "sdk_test.rs"]
+mod tests;

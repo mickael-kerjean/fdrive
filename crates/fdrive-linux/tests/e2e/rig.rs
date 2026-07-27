@@ -9,7 +9,7 @@ use fdrive_linux::adapter::Adapter;
 use fdrive_linux::wire::MountFs;
 use fuser::{Config, MountOption};
 
-use fdrive_testkit::FakeServer;
+use fdrive_core::testkit::FakeServer;
 
 pub struct Rig {
     pub mnt: PathBuf,

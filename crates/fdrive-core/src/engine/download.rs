@@ -196,7 +196,9 @@ impl<T: LocalTree> Engine<T> {
         tx: watch::Sender<(u64, DownloadStatus)>,
         expected: Observation,
     ) {
-        let act = self.activity.begin(&path.as_file(), Direction::Down, expected.size);
+        let act = self
+            .activity
+            .begin(&path.as_file(), Direction::Down, expected.size);
         let fail = |err: &dyn std::fmt::Display| {
             log::warn!("hydrate {path}: {err}");
             self.activity.finish(act, Err(err.to_string()));
@@ -273,7 +275,16 @@ impl<T: LocalTree> Engine<T> {
             }) => {
                 self.activity.wire(act, signature.len() as u64 + 32);
                 let assembled = self
-                    .assemble(path, upstream, tmp, expected.size, &base, signature, sha256, act)
+                    .assemble(
+                        path,
+                        upstream,
+                        tmp,
+                        expected.size,
+                        &base,
+                        signature,
+                        sha256,
+                        act,
+                    )
                     .await;
                 match assembled {
                     Ok(size) => {
@@ -326,7 +337,9 @@ impl<T: LocalTree> Engine<T> {
         let ranges = super::delta::missing_ranges(&copies, size, 64 * 1024);
         let missing: u64 = ranges.iter().map(|(start, end)| end - start).sum();
         if missing * 10 > size * 6 {
-            return Err(io::Error::other(format!("{missing} of {size} bytes missing")));
+            return Err(io::Error::other(format!(
+                "{missing} of {size} bytes missing"
+            )));
         }
         let file = fs::File::options().write(true).open(tmp)?;
         for (server, local, len) in &copies {

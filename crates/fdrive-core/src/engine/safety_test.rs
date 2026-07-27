@@ -79,7 +79,10 @@ async fn garbage_plans_in_the_db_never_reach_the_server() {
     rm.assert_hits(0);
     mv.assert_hits(0);
     save.assert_hits(0);
-    assert!(engine.state.lock().unwrap().idle(), "the garbage is retired, not retried");
+    assert!(
+        engine.state.lock().unwrap().idle(),
+        "the garbage is retired, not retried"
+    );
 }
 
 #[tokio::test]
@@ -110,7 +113,10 @@ async fn a_stale_save_landing_on_a_file_turned_directory_uploads_nothing() {
     rm.assert_hits(0);
     mv.assert_hits(0);
     save.assert_hits(0);
-    assert!(engine.state.lock().unwrap().idle(), "the stale save is retired, not retried");
+    assert!(
+        engine.state.lock().unwrap().idle(),
+        "the stale save is retired, not retried"
+    );
 }
 
 #[tokio::test]
@@ -160,5 +166,8 @@ async fn a_dead_server_leaves_no_mark_anywhere() {
 
     engine.flush(Duration::from_secs(1)).await;
 
-    assert!(!engine.state.lock().unwrap().idle(), "the debt is still owed, nothing was dropped");
+    assert!(
+        !engine.state.lock().unwrap().idle(),
+        "the debt is still owed, nothing was dropped"
+    );
 }

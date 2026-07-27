@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use fdrive_ios::Adapter;
-use fdrive_testkit::FakeServer;
+use fdrive_core::testkit::FakeServer;
 
 struct Rig {
     server: FakeServer,

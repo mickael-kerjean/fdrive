@@ -912,6 +912,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "fast_rsync",
+ "fdrive-core",
  "futures-core",
  "futures-util",
  "httpdate",
@@ -923,6 +924,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 2.0.18",
+ "tiny_http",
  "tokio",
  "tokio-util",
  "toml 1.1.2+spec-1.1.0",
@@ -934,7 +936,6 @@ name = "fdrive-ios"
 version = "0.1.0"
 dependencies = [
  "fdrive-core",
- "fdrive-testkit",
  "httpmock",
  "log",
  "serde_json",
@@ -950,7 +951,6 @@ dependencies = [
  "clap",
  "env_logger",
  "fdrive-core",
- "fdrive-testkit",
  "fuser",
  "futures-util",
  "glib",
@@ -974,21 +974,9 @@ version = "0.1.0"
 dependencies = [
  "env_logger",
  "fdrive-core",
- "fdrive-testkit",
  "libc",
  "log",
  "tokio",
-]
-
-[[package]]
-name = "fdrive-testkit"
-version = "0.1.0"
-dependencies = [
- "fast_rsync",
- "httpdate",
- "serde_json",
- "sha2",
- "tiny_http",
 ]
 
 [[package]]
@@ -999,7 +987,6 @@ dependencies = [
  "embed-resource",
  "env_logger",
  "fdrive-core",
- "fdrive-testkit",
  "futures-util",
  "log",
  "resvg",
