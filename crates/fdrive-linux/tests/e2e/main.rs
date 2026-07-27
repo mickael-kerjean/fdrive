@@ -6,7 +6,7 @@ use std::fs;
 use std::os::unix::fs::FileExt;
 use std::time::{Duration, SystemTime};
 
-use fdrive_testkit::FakeServer;
+use fdrive_core::testkit::FakeServer;
 use rig::Rig;
 
 #[test]

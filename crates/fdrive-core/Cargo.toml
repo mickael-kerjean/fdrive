@@ -20,8 +20,13 @@ tokio-util = { version = "0.7", default-features = false, features = ["io"] }
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 fast_rsync = "0.2.0"
 sha2 = "0.11.0"
+tiny_http = { version = "0.12", optional = true }
+
+[features]
+testkit = ["dep:tiny_http"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 httpmock = "0.7"
 futures-util = "0.3"
+fdrive-core = { path = ".", features = ["testkit"] }

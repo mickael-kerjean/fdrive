@@ -195,7 +195,10 @@ async fn a_second_hydrate_travels_as_ranges() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.hydrate(&path, Some(at(MTIME, v1.len()))).await.unwrap();
+    engine
+        .hydrate(&path, Some(at(MTIME, v1.len())))
+        .await
+        .unwrap();
     assert_eq!(engine.tree().read("f").unwrap(), v1);
     full.delete();
 
@@ -216,7 +219,10 @@ async fn a_second_hydrate_travels_as_ranges() {
             .header("range", "bytes=1048576-1052671");
         then.status(206).body(v2[1048576..1052672].to_vec());
     });
-    engine.hydrate(&path, Some(at(MTIME2, v2.len()))).await.unwrap();
+    engine
+        .hydrate(&path, Some(at(MTIME2, v2.len())))
+        .await
+        .unwrap();
     sig.assert_hits(1);
     range.assert_hits(1);
     assert_eq!(engine.tree().read("f").unwrap(), v2);
@@ -238,7 +244,10 @@ async fn a_rewritten_file_falls_back_to_the_full_download() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.hydrate(&path, Some(at(MTIME, v1.len()))).await.unwrap();
+    engine
+        .hydrate(&path, Some(at(MTIME, v1.len())))
+        .await
+        .unwrap();
     full.delete();
 
     server.mock(|when, then| {
@@ -259,7 +268,10 @@ async fn a_rewritten_file_falls_back_to_the_full_download() {
             .body(v2.clone())
             .header("last-modified", MTIME2);
     });
-    engine.hydrate(&path, Some(at(MTIME2, v2.len()))).await.unwrap();
+    engine
+        .hydrate(&path, Some(at(MTIME2, v2.len())))
+        .await
+        .unwrap();
     full2.assert_hits(1);
     assert_eq!(engine.tree().read("f").unwrap(), v2);
 }

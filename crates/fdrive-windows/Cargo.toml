@@ -56,4 +56,4 @@ windows = { version = "0.62", features = [
 ] }
 
 [dev-dependencies]
-fdrive-testkit = { path = "../fdrive-testkit" }
+fdrive-core = { path = "../fdrive-core", features = ["testkit"] }

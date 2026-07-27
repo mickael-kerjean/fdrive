@@ -34,4 +34,4 @@ glib = { version = "0.15", features = ["v2_50"] }
 httpmock = "0.7"
 httpdate = "1"
 rusqlite = { version = "0.40.1", features = ["bundled"] }
-fdrive-testkit = { path = "../fdrive-testkit" }
+fdrive-core = { path = "../fdrive-core", features = ["testkit"] }

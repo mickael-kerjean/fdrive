@@ -42,7 +42,10 @@ fn an_edit_maps_to_its_blocks() {
     let copies = copy_map(&diff_of(&server, &local)).unwrap();
     let missing = missing_ranges(&copies, server_size as u64, 0);
     let missing_bytes: u64 = missing.iter().map(|(a, b)| b - a).sum();
-    assert!(missing_bytes >= 4 * 1024 && missing_bytes <= 12 * 1024, "{missing:?}");
+    assert!(
+        missing_bytes >= 4 * 1024 && missing_bytes <= 12 * 1024,
+        "{missing:?}"
+    );
     for (start, end) in &missing {
         assert!(*start >= 96 * 1024 && *end <= 108 * 1024, "{missing:?}");
     }

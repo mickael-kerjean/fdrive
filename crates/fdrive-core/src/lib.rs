@@ -11,6 +11,9 @@ pub mod model;
 pub mod path;
 pub mod port;
 pub mod sdk;
+#[cfg(feature = "testkit")]
+#[path = "../tests/testkit/mod.rs"]
+pub mod testkit;
 
 pub type ByteStream = Pin<Box<dyn Stream<Item = io::Result<Bytes>> + Send>>;
 
