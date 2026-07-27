@@ -386,7 +386,7 @@ fn transfer_detail(transfer: &fdrive_core::activity::Transfer) -> (String, Strin
         verb.to_string()
     };
     let size = match (transfer.direction, transfer.mode, &transfer.outcome) {
-        (Direction::Up, Mode::Delta, _) => {
+        (_, Mode::Delta, _) => {
             format!(
                 "{}/{}",
                 fmt_compact(transfer.wire),
