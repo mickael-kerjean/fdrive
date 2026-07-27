@@ -1,11 +1,28 @@
 use std::path::PathBuf;
 
+use tokio::sync::mpsc::UnboundedReceiver;
+
 mod dashboard;
 mod login;
 mod tray;
 
 pub use fdrive_core::sdk::normalize_server;
 pub use tray::Tray;
+
+pub async fn init(
+    data: PathBuf,
+    mount: PathBuf,
+    prompt_login: bool,
+) -> std::io::Result<(Tray, UnboundedReceiver<TrayEvent>)> {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    if prompt_login {
+        let _ = tx.send(TrayEvent::Login);
+    }
+    let tray = Tray::spawn(tx, data, mount)
+        .await
+        .map_err(|err| std::io::Error::other(format!("could not start the tray: {err}")))?;
+    Ok((tray, rx))
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Credentials {

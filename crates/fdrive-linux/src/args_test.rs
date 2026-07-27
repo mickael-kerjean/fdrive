@@ -14,6 +14,7 @@ fn token_mode() {
     let creds = s.credentials.unwrap();
     assert_eq!(creds.url, "https://localhost:8334");
     assert_eq!(creds.token, "t0k");
+    assert!(s.launching);
     assert!(!s.prompt_login);
 }
 
@@ -52,7 +53,7 @@ fn no_args_recalls_stored_session() {
         ..Default::default()
     };
     let s = setup(parse(&[]), Some(stored)).unwrap();
-    assert!(s.stored);
+    assert!(!s.launching);
     assert_eq!(s.credentials.unwrap().token, "t0k");
     assert_eq!(s.mount, PathBuf::from("/tmp/mnt"));
 }
