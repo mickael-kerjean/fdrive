@@ -408,8 +408,14 @@ Test "pin-hydrates" {
 Test "unpin-dehydrates" {
     Unpin (LPath "pin1.txt")
     $ok = Wait-Until { Is-Offline (LPath "pin1.txt") } 45 "bytes released"
+    $window = @($script:Shell.Windows()) |
+        Where-Object { $_.LocationURL -like "*Filestash*" } |
+        Select-Object -First 1
+    if ($null -ne $window) { $window.Refresh() }
+    Start-Sleep -Seconds 5
+    $stayed = Is-Offline (LPath "pin1.txt")
     Srv-Rm "$SrvE2E/pin1.txt"
-    $ok
+    $ok -and $stayed
 }
 
 Test "pinned-file-stays-pinned-across-refreshes" {
@@ -435,6 +441,36 @@ Test "pinned-file-tracks-remote-change" {
     $attrs = [int](Get-Item -Force (LPath "pinstay.txt")).Attributes
     Srv-Rm "$SrvE2E/pinstay.txt"
     ($content -eq "pinned v2 now much longer") -and (($attrs -band 0x80000) -ne 0)
+}
+
+Test "pinned-file-remote-delta" {
+    $source = "$env:TEMP\fdrive-e2e-pinned-delta.bin"
+    $bytes = New-Object byte[] (5MB)
+    (New-Object Random 42).NextBytes($bytes)
+    [IO.File]::WriteAllBytes($source, $bytes)
+    Srv-SaveFile "$SrvE2E/pinned-delta.bin" $source
+    $ok = Wait-Until { Test-Path (LPath "pinned-delta.bin") } 25 "pinned delta file locally"
+    if (-not $ok) { return $false }
+    Pin (LPath "pinned-delta.bin")
+    $ok = Wait-Until { -not (Is-Offline (LPath "pinned-delta.bin")) } 45 "pinned delta file hydrated"
+    if (-not $ok) { return $false }
+    for ($i = 0; $i -lt 4096; $i++) {
+        $at = 2MB + $i
+        $bytes[$at] = $bytes[$at] -bxor 0xff
+    }
+    [IO.File]::WriteAllBytes($source, $bytes)
+    $expected = (Get-FileHash $source -Algorithm SHA256).Hash
+    $mark = Log-Mark
+    Srv-SaveFile "$SrvE2E/pinned-delta.bin" $source
+    $ok = Wait-Until {
+        @(Log-Since $mark) -match "refreshed pinned .*pinned-delta.bin"
+    } 60 "pinned delta refresh"
+    $actual = (Get-FileHash (LPath "pinned-delta.bin") -Algorithm SHA256).Hash
+    $attrs = [int](Get-Item -Force (LPath "pinned-delta.bin")).Attributes
+    $delta = @(Log-Since $mark) -match "delta .*pinned-delta.bin"
+    Srv-Rm "$SrvE2E/pinned-delta.bin"
+    Remove-Item -LiteralPath $source -Force -ErrorAction SilentlyContinue
+    $ok -and ($actual -eq $expected) -and (($attrs -band 0x80000) -ne 0) -and [bool]$delta
 }
 
 
