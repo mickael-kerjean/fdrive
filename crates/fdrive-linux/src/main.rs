@@ -6,13 +6,20 @@ mod args;
 mod log;
 
 use fdrive_core::config as session;
-use fdrive_core::scheduler::UploadStatus;
+use fdrive_core::engine::UploadStatus;
 use fdrive_core::sdk::Sdk;
 use fdrive_linux::adapter::Adapter;
-use fdrive_linux::gui::{Credentials, Status, Tray, TrayEvent};
+use fdrive_linux::gui::{self, Credentials, Status, Tray, TrayEvent};
 use fdrive_linux::wire::MountFs;
 use fuser::{Config, MountOption};
 use tokio::sync::mpsc::UnboundedReceiver;
+
+#[derive(Debug, Clone, Copy)]
+enum SessionEnd {
+    Logout,
+    Restart,
+    Quit,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,34 +28,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         data,
         prefill,
         mut credentials,
-        stored,
+        mut launching,
         prompt_login,
     } = args::init()?;
     log::init(&data)?;
-    let _instance_lock = instance_lock(&data)?;
+    let (tray, mut events) = gui::init(data.clone(), mount.clone(), prompt_login).await?;
 
-    let (events_tx, mut events) = tokio::sync::mpsc::unbounded_channel();
-    if prompt_login {
-        let _ = events_tx.send(TrayEvent::Login);
-    }
-    let tray = Tray::spawn(events_tx, data.clone(), mount.clone())
-        .await
-        .map_err(|err| format!("could not start the tray: {err}"))?;
-
-    let mut last_status = Status::LoggedOut;
-    let mut launching = credentials.is_some() && !stored;
     'app: loop {
         if let Some(creds) = credentials.as_ref() {
             tray.set(Status::Syncing, true).await;
-            match run_session(creds, &mount, &data, &mut events, &tray).await {
+            match run(creds, &mount, &data, &mut events, &tray).await {
                 Ok(SessionEnd::Quit) => break 'app,
                 Ok(SessionEnd::Logout) => {
                     credentials = None;
-                    last_status = Status::LoggedOut;
+                    tray.set(Status::LoggedOut, false).await;
                 }
-                Ok(SessionEnd::Restart) => {
-                    last_status = Status::Syncing;
-                }
+                Ok(SessionEnd::Restart) => {}
                 Err(err) if launching => {
                     log::error!("session: {err}");
                     tray.shutdown().await;
@@ -57,20 +52,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(err) => {
                     log::error!("session: {err}");
                     credentials = None;
-                    last_status = Status::Error;
+                    tray.set(Status::Error, false).await;
                 }
             }
             launching = false;
             continue;
         }
-        tray.set(last_status, false).await;
         tokio::select! {
             event = events.recv() => match event {
                 None | Some(TrayEvent::Quit) => break 'app,
                 Some(TrayEvent::Login) => {
                     if let Some(creds) = tray.login(prefill.clone()).await {
                         credentials = Some(creds);
-                        last_status = Status::Syncing;
                     }
                 }
                 Some(TrayEvent::Logout | TrayEvent::Restart) => {}
@@ -82,21 +75,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy)]
-enum SessionEnd {
-    Logout,
-    Restart,
-    Quit,
-}
-
-async fn run_session(
+async fn run(
     creds: &Credentials,
     mount: &Path,
     data: &Path,
     events: &mut UnboundedReceiver<TrayEvent>,
     tray: &Tray,
 ) -> Result<SessionEnd, Box<dyn std::error::Error>> {
-    prepare_mount(mount)?;
+    if let Err(err) = std::fs::symlink_metadata(mount) {
+        if err.raw_os_error() == Some(libc::ENOTCONN) {
+            log::warn!("stale mount at {}, detaching", mount.display());
+            let _ = std::process::Command::new("fusermount3")
+                .arg("-uz")
+                .arg(mount)
+                .status();
+        }
+    }
+    std::fs::create_dir_all(mount)?;
     let builder = Sdk::builder(&creds.url).insecure(creds.insecure);
     let sdk = if creds.token.is_empty() {
         builder
@@ -128,6 +123,7 @@ async fn run_session(
     let mut unmounted = false;
 
     log::info!("mounted {}", mount.display());
+    tray.attach(adapter.activity()).await;
     tray.set(Status::Ok, true).await;
     let end = loop {
         tokio::select! {
@@ -169,38 +165,4 @@ async fn run_session(
         let _ = sdk.logout().await;
     }
     Ok(end)
-}
-
-fn instance_lock(data: &Path) -> Result<std::fs::File, String> {
-    use std::os::fd::AsRawFd;
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(data.join("fdrive.lock"))
-        .map_err(|err| format!("fdrive.lock: {err}"))?;
-    match unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } {
-        0 => Ok(file),
-        _ => Err(format!(
-            "another instance is already running on {} — quit it first",
-            data.display()
-        )),
-    }
-}
-
-fn prepare_mount(mount: &Path) -> std::io::Result<()> {
-    if let Err(err) = std::fs::symlink_metadata(mount) {
-        if err.raw_os_error() == Some(libc::ENOTCONN) {
-            log::warn!("stale mount at {}, detaching", mount.display());
-            let _ = detach_mount(mount);
-        }
-    }
-    std::fs::create_dir_all(mount)
-}
-
-fn detach_mount(mount: &Path) -> std::io::Result<std::process::ExitStatus> {
-    std::process::Command::new("fusermount3")
-        .arg("-uz")
-        .arg(mount)
-        .status()
 }

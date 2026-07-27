@@ -29,6 +29,9 @@ fn view_loop(root: PathBuf, on_view: tokio::sync::mpsc::UnboundedSender<(RelPath
     }
     let mut last: BTreeSet<RelPath> = BTreeSet::new();
     loop {
+        if on_view.is_closed() {
+            return;
+        }
         let current = viewed_dirs(&root).unwrap_or_default();
         for dir in &current {
             if on_view.send((dir.clone(), !last.contains(dir))).is_err() {
@@ -100,12 +103,5 @@ fn percent_decode(s: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn percent_decoding() {
-        assert_eq!(super::percent_decode("My%20Docs"), "My Docs");
-        assert_eq!(super::percent_decode("plain"), "plain");
-        assert_eq!(super::percent_decode("bad%2"), "bad%2");
-        assert_eq!(super::percent_decode("caf%C3%A9"), "café");
-    }
-}
+#[path = "viewer_test.rs"]
+mod tests;

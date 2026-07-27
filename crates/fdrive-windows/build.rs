@@ -32,8 +32,15 @@ fn main() {
         .map(|&size| (size, rasterize(&base, size)))
         .collect();
     write_ico(Path::new(&out_dir).join("app.ico"), &frames);
-    std::fs::write(Path::new(&out_dir).join("app.rc"), "1 ICON \"app.ico\"\n")
-        .expect("write app.rc");
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("app.manifest");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    std::fs::copy(&manifest, Path::new(&out_dir).join("app.manifest"))
+        .expect("copy app manifest");
+    std::fs::write(
+        Path::new(&out_dir).join("app.rc"),
+        "1 ICON \"app.ico\"\n1 24 \"app.manifest\"\n",
+    )
+    .expect("write app.rc");
     embed_resource::compile(Path::new(&out_dir).join("app.rc"), embed_resource::NONE)
         .manifest_optional()
         .expect("compile app.rc");
