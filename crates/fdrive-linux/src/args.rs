@@ -1,5 +1,5 @@
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use fdrive_linux::gui::{self, Credentials};
@@ -30,7 +30,7 @@ pub struct Setup {
     pub data: PathBuf,
     pub prefill: Credentials,
     pub credentials: Option<Credentials>,
-    pub stored: bool,
+    pub launching: bool,
     pub prompt_login: bool,
 }
 
@@ -45,7 +45,25 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
         fdrive_core::config::recall(&data).map(Credentials::from),
     )?;
     std::fs::create_dir_all(&setup.data)?;
+    std::mem::forget(instance_lock(&setup.data)?);
     Ok(setup)
+}
+
+fn instance_lock(data: &Path) -> Result<std::fs::File, String> {
+    use std::os::fd::AsRawFd;
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(data.join("fdrive.lock"))
+        .map_err(|err| format!("fdrive.lock: {err}"))?;
+    match unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } {
+        0 => Ok(file),
+        _ => Err(format!(
+            "another instance is already running on {} — quit it first",
+            data.display()
+        )),
+    }
 }
 
 fn setup(args: Args, stored: Option<Credentials>) -> Result<Setup, String> {
@@ -74,7 +92,7 @@ fn setup(args: Args, stored: Option<Credentials>) -> Result<Setup, String> {
         (Some(_), None, None) => None,
         (None, ..) => stored,
     };
-    let stored = server.is_none() && credentials.is_some();
+    let launching = server.is_some() && credentials.is_some();
     Ok(Setup {
         mount: args.mount,
         data: args.data.unwrap_or_else(gui::default_data),
@@ -85,7 +103,7 @@ fn setup(args: Args, stored: Option<Credentials>) -> Result<Setup, String> {
             ..Default::default()
         },
         credentials,
-        stored,
+        launching,
     })
 }
 
