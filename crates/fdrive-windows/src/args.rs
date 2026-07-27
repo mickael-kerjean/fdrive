@@ -62,53 +62,20 @@ pub fn init() -> Setup {
     if let Err(err) = std::fs::create_dir_all(&data) {
         fail(&format!("{}: {err}", data.display()));
     }
-    std::mem::forget(instance_lock(&data, &root).unwrap_or_else(|err| fail(&err)));
-    let config_path = args.config.clone().unwrap_or_else(|| data.join("fdrive.toml"));
+    instance_lock(&data, &root).unwrap_or_else(|err| fail(&err));
+    let config_path = args.config.unwrap_or_else(|| data.join("fdrive.toml"));
     let config = AppConfig::load(&config_path).unwrap_or_else(|err| fail(&err.to_string()));
 
-    let stored = fdrive_core::config::recall(&data).map(Credentials::from);
-    let stored_server = fdrive_core::config::recall_server(&data);
-    setup(args, config, stored, stored_server, root, data).unwrap_or_else(|err| fail(&err))
-}
-
-fn fail(message: &str) -> ! {
-    gui::alert(message);
-    std::process::exit(2)
-}
-
-fn instance_lock(data: &Path, root: &Path) -> Result<std::fs::File, String> {
-    use std::os::windows::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .share_mode(0)
-        .open(data.join("instance.lock"))
-        .map_err(|_| {
-            format!(
-                "another instance is already running on {} — quit it first",
-                root.display()
-            )
-        })
-}
-
-fn setup(
-    args: Args,
-    config: AppConfig,
-    stored: Option<Credentials>,
-    stored_server: Option<String>,
-    root: PathBuf,
-    data: PathBuf,
-) -> Result<Setup, String> {
     if args.token.is_some() && args.user.is_some() {
-        return Err("--token and --user cannot be combined".into());
+        fail("--token and --user cannot be combined");
     }
     if args.server.is_none() && (args.token.is_some() || args.user.is_some()) {
-        return Err("--token and --user need --server".into());
+        fail("--token and --user need --server");
     }
     if args.user.is_some() && args.password.as_deref().unwrap_or("").is_empty() {
-        return Err("--user needs --password (or FILESTASH_PASSWORD)".into());
+        fail("--user needs --password (or FILESTASH_PASSWORD)");
     }
+    let stored = fdrive_core::config::recall(&data).map(Credentials::from);
     let server = args.server.as_deref().map(normalize_server);
     let credentials = match (&server, args.token, &args.user) {
         (Some(url), Some(token), _) => Some(Credentials {
@@ -129,7 +96,8 @@ fn setup(
         (None, ..) => stored,
     };
     let fresh_credentials = server.is_some() && credentials.is_some();
-    Ok(Setup {
+    let stored_server = fdrive_core::config::recall_server(&data);
+    Setup {
         root,
         data,
         config,
@@ -138,5 +106,28 @@ fn setup(
         prefill_url: server.or(stored_server),
         credentials,
         fresh_credentials,
-    })
+    }
 }
+
+fn fail(message: &str) -> ! {
+    gui::alert(message);
+    std::process::exit(2)
+}
+
+fn instance_lock(data: &Path, root: &Path) -> Result<(), String> {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .share_mode(0)
+        .open(data.join("instance.lock"))
+        .map(std::mem::forget)
+        .map_err(|_| {
+            format!(
+                "another instance is already running on {} — quit it first",
+                root.display()
+            )
+        })
+}
+
