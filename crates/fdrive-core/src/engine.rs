@@ -7,7 +7,6 @@ mod gates;
 mod ledger;
 mod play;
 mod scheduler;
-mod spawner;
 mod state;
 mod upload;
 mod view;
@@ -24,7 +23,7 @@ use crate::path::RelPath;
 use crate::port::LocalStore;
 use crate::sdk::Sdk;
 
-use self::{conflict::Conflicts, gates::Transfers, spawner::Spawner, state::State};
+use self::{conflict::Conflicts, gates::Transfers, state::State};
 
 pub struct Engine<T: LocalStore> {
     local: T,
@@ -38,7 +37,7 @@ pub struct Engine<T: LocalStore> {
     conflicts: Conflicts,
 
     scheduler: scheduler::Handle,
-    spawner: Spawner<T>,
+    rt: tokio::runtime::Handle,
     activity: Arc<Activity>,
 }
 

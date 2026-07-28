@@ -44,7 +44,7 @@ pub(super) fn show_login(prefill: Credentials) -> Option<Credentials> {
         ));
         return None;
     }
-    match crate::webview::login(&url, prefill.insecure) {
+    match super::webview::login(&url, prefill.insecure) {
         Ok(Some(token)) => Some(Credentials {
             url,
             token,

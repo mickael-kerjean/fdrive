@@ -345,7 +345,7 @@ impl Adapter {
             .strip_suffix(".part")
             .and_then(|path| path.rsplit_once('.'))
             .is_some_and(|(_, sequence)| sequence.parse::<u64>().is_ok());
-        if internal || self.engine.tree().is_suppressed(path) {
+        if internal || self.engine.local().is_suppressed(path) {
             return;
         }
         let abs = self.abs(path);
@@ -559,7 +559,7 @@ impl Adapter {
             let rt = engine.rt().clone();
             rt.spawn(async move {
                 *engine
-                    .tree()
+                    .local()
                     .suppressed
                     .lock()
                     .unwrap()
@@ -568,7 +568,7 @@ impl Adapter {
                 let result = match engine.hydrate(&what, Some(remote_rec)).await {
                     Ok(()) => {
                         let done = what.clone();
-                        let done_abs = engine.tree().backing(&done);
+                        let done_abs = engine.local().backing(&done);
                         tokio::task::spawn_blocking(move || {
                             let mut result = Err(io::Error::other("pinned refresh incomplete"));
                             for _ in 0..20 {
@@ -588,7 +588,7 @@ impl Adapter {
                     Err(err) => Err(err),
                 };
                 {
-                    let mut suppressed = engine.tree().suppressed.lock().unwrap();
+                    let mut suppressed = engine.local().suppressed.lock().unwrap();
                     if let Some(n) = suppressed.get_mut(&what) {
                         *n -= 1;
                         if *n == 0 {
