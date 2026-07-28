@@ -53,7 +53,7 @@ impl<T: LocalStore> Engine<T> {
     }
 
     async fn replay_remove_dir(&self, path: &RelPath) -> Outcome {
-        if self.is_frozen(path) || self.state().busy_under(path) {
+        if self.is_frozen(path) || self.state().breaker_holds() || self.state().busy_under(path) {
             return Outcome::Busy;
         }
         match self.subtree_holds_files(path).await {
@@ -129,7 +129,7 @@ impl<T: LocalStore> Engine<T> {
     }
 
     async fn replay_remove(&self, path: &RelPath, removes: Observation) -> Outcome {
-        if self.is_frozen(path) {
+        if self.is_frozen(path) || self.state().breaker_holds() {
             return Outcome::Busy;
         }
         match self.sdk.stat(&path.as_file()).await {

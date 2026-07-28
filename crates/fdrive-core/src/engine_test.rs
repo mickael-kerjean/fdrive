@@ -3,7 +3,7 @@ use std::time::Duration;
 use httpmock::{Method, MockServer};
 
 use super::testkit::*;
-use crate::engine::{Engine, Observation};
+use crate::engine::{Deletions, Engine, Observation};
 use crate::path::RelPath;
 use crate::sdk::Sdk;
 use std::sync::Arc;
@@ -222,6 +222,100 @@ async fn dir_delete_removes_observed_files_under_lease_then_the_dir() {
 }
 
 #[tokio::test]
+async fn mass_deletion_trips_the_breaker() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(Method::HEAD).path("/api/files/cat");
+        then.status(200)
+            .header("content-length", "1")
+            .header("last-modified", MTIME);
+    });
+    let rm = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/rm");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    let save = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/cat")
+            .query_param("path", "/alive");
+        then.status(200).header("Last-Modified", MTIME);
+    });
+    let engine = engine(&server);
+    let paths: Vec<RelPath> = (0..60).map(|i| RelPath::new(&format!("f{i}"))).collect();
+    for path in &paths {
+        engine
+            .ledger()
+            .observations
+            .insert(path.clone(), observed(1));
+    }
+    for path in &paths {
+        engine.delete(path, false).await.unwrap();
+    }
+    engine.flush(Duration::from_secs(3)).await;
+
+    rm.assert_hits(0);
+    assert_eq!(
+        engine.ledger().observations.len(),
+        60,
+        "the whole wave is held before anything lands"
+    );
+    assert_eq!(engine.deletions_held(), 60);
+
+    let alive = RelPath::new("alive");
+    engine.local().write("alive", b"x");
+    engine.created(&alive);
+    engine.modified(&alive);
+    engine.flush(Duration::from_secs(3)).await;
+    save.assert_hits(1);
+
+    engine.deletions_cancel();
+    engine.flush(Duration::from_secs(3)).await;
+    assert_eq!(engine.deletions_held(), 0);
+    rm.assert_hits(0);
+    assert_eq!(
+        engine.ledger().observations.len(),
+        61,
+        "cancelled files keep their lease so reconcile can restore them, plus the alive save"
+    );
+}
+
+#[tokio::test]
+async fn released_deletions_finish_the_wave() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(Method::HEAD).path("/api/files/cat");
+        then.status(200)
+            .header("content-length", "1")
+            .header("last-modified", MTIME);
+    });
+    let rm = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/rm");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    let engine = engine(&server);
+    let paths: Vec<RelPath> = (0..60).map(|i| RelPath::new(&format!("f{i}"))).collect();
+    for path in &paths {
+        engine
+            .ledger()
+            .observations
+            .insert(path.clone(), observed(1));
+    }
+    for path in &paths {
+        engine.delete(path, false).await.unwrap();
+    }
+    engine.flush(Duration::from_secs(3)).await;
+    assert!(engine.deletions_held() > 0);
+
+    engine.deletions_release();
+    engine.flush(Duration::from_secs(3)).await;
+    assert_eq!(rm.hits(), 60, "the whole wave lands after release");
+    assert_eq!(engine.deletions_held(), 0);
+    assert!(engine.ledger().observations.is_empty());
+}
+
+#[tokio::test]
 async fn dir_delete_spares_files_it_never_saw() {
     let server = MockServer::start();
     let ls = server.mock(|when, then| {
@@ -291,7 +385,7 @@ async fn rename_of_an_unuploaded_file_stays_local() {
 async fn an_offline_dir_rename_is_refused_before_touching_anything() {
     let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
     let rt = tokio::runtime::Handle::current();
-    let engine = Engine::start(Arc::new(sdk), rt, TempTree::new());
+    let engine = Engine::start(Arc::new(sdk), rt, TempTree::new(), Deletions::Inferred);
     engine
         .ledger()
         .observations
