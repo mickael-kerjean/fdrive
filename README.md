@@ -66,3 +66,4 @@ Inside the core, sync is a journal: filesystem events are recorded, coalesced in
 - [ ] Support for delta download: same as the existing upload but for download. Awaiting for server support
 - [ ] MDM integration: preconfigure the client and roll it out across a fleet
 - [ ] full POSIX compliance
+- [ ] Ransomware protection
