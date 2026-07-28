@@ -115,9 +115,16 @@ impl State {
                 if self.ledger.dirty.remove(a) {
                     self.ledger.dirty.insert(b.clone());
                 }
+                if j.marks.remove(a) {
+                    j.marks.insert(b.clone());
+                    self.ledger.mark_move(a, b);
+                }
             }
             Operation::Delete(p) => {
                 self.ledger.dirty.remove(p);
+                if j.marks.remove(p) {
+                    self.ledger.unmark(p);
+                }
             }
         }
         j.window.push((Instant::now(), op));

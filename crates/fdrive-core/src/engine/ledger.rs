@@ -20,8 +20,8 @@ const SUBTREE: &str = "path = ?1 OR (path >= ?1 || '/' AND path < ?1 || '0')";
 fn open_db(file: &Path, schema: &str) -> rusqlite::Result<rusqlite::Connection> {
     let db = rusqlite::Connection::open(file)?;
     db.busy_timeout(Duration::from_secs(5))?;
-    db.pragma_update(None, "synchronous", "OFF")?;
-    let _: String = db.query_row("PRAGMA journal_mode=MEMORY", [], |row| row.get(0))?;
+    db.pragma_update(None, "synchronous", "FULL")?;
+    let _: String = db.query_row("PRAGMA journal_mode=TRUNCATE", [], |row| row.get(0))?;
     db.execute_batch(schema)?;
     Ok(db)
 }
@@ -105,6 +105,20 @@ impl Ledger {
     pub(super) fn mark(&self, path: &RelPath) {
         self.exec(
             "INSERT INTO journal(op, path) VALUES ('w', ?1)",
+            [path.as_str()],
+        );
+    }
+
+    pub(super) fn mark_move(&self, from: &RelPath, to: &RelPath) {
+        self.exec(
+            "UPDATE journal SET path = ?2 WHERE op = 'w' AND path = ?1",
+            [from.as_str(), to.as_str()],
+        );
+    }
+
+    pub(super) fn unmark(&self, path: &RelPath) {
+        self.exec(
+            "DELETE FROM journal WHERE op = 'w' AND path = ?1",
             [path.as_str()],
         );
     }

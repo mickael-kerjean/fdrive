@@ -32,11 +32,12 @@ impl<T: LocalStore> Engine<T> {
             Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), format!(".{ext}")),
             _ => (path.name().to_string(), String::new()),
         };
+        let device = self.local.device();
         let dir = path.parent_or_root();
         for n in 0..10 {
             let name = match n {
-                0 => format!("{stem} (conflicted copy){ext}"),
-                n => format!("{stem} (conflicted copy {}){ext}", n + 1),
+                0 => format!("{stem} (conflicted copy from {device}){ext}"),
+                n => format!("{stem} (conflicted copy from {device} {}){ext}", n + 1),
             };
             let candidate = dir.join(&name);
             if self.sdk.stat(&candidate.as_file()).await.is_err()
@@ -45,7 +46,7 @@ impl<T: LocalStore> Engine<T> {
                 return candidate;
             }
         }
-        dir.join(&format!("{stem} (conflicted copy){ext}"))
+        dir.join(&format!("{stem} (conflicted copy from {device}){ext}"))
     }
 
     pub(super) async fn replay_save(
@@ -145,7 +146,7 @@ impl<T: LocalStore> Engine<T> {
         };
         let copy = self.conflict_target(path).await;
         log::warn!("conflict on {path}: uploading as {copy}");
-        let mtime = match self.upload_full(&copy, abs, None, act).await {
+        let mtime = match self.upload_full(&copy, abs, Some(UNIX_EPOCH), act).await {
             Ok(Saved::Done(mtime)) => mtime,
             Ok(Saved::Conflict) => {
                 self.activity
