@@ -82,13 +82,14 @@ fn rmdir_of_an_empty_directory_deletes_it() {
     let adapter = adapter(&server, &data, &rt);
 
     adapter.rmdir(&RelPath::new("d")).unwrap();
+    rt.block_on(adapter.flush(std::time::Duration::from_secs(10)));
     rm.assert_hits(1);
 }
 
 #[test]
-fn a_delete_storm_lists_once_plus_the_rmdir_recheck() {
+fn a_delete_storm_lists_once_plus_the_veto_and_replay_rechecks() {
     let server = MockServer::start();
-    let ls = ls_mock(
+    let mut ls = ls_mock(
         &server,
         "/d/",
         r#"{"name": "a.txt", "size": 1, "time": 0, "type": "file"},
@@ -113,6 +114,10 @@ fn a_delete_storm_lists_once_plus_the_rmdir_recheck() {
     }
     adapter.rmdir(&RelPath::new("d")).unwrap();
     ls.assert_hits(2);
+    ls.delete();
+    let emptied = ls_mock(&server, "/d/", "");
+    rt.block_on(adapter.flush(std::time::Duration::from_secs(10)));
+    emptied.assert_hits(1);
     rm.assert_hits(4);
 }
 

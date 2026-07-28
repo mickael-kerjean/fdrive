@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use fdrive_core::engine::{Engine, Resolution, UploadStatus};
+use fdrive_core::engine::{Deletions, Engine, Resolution, UploadStatus};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::Sdk;
@@ -66,7 +66,7 @@ impl LocalStore for Platform {
 fn connect(server: &FakeServer, platform: Platform) -> Arc<Engine<Platform>> {
     let mut sdk = Sdk::new(server.url()).unwrap();
     sdk.set_token("TOKEN".into());
-    Engine::start(Arc::new(sdk), tokio::runtime::Handle::current(), platform)
+    Engine::start(Arc::new(sdk), tokio::runtime::Handle::current(), platform, Deletions::Authoritative)
 }
 
 fn create(engine: &Engine<Platform>, path: &str, bytes: &[u8]) -> RelPath {
@@ -206,6 +206,30 @@ async fn a_restart_replays_what_was_never_acknowledged() {
     settle(&engine).await;
 
     assert_eq!(server.get("/draft.txt").unwrap(), b"unsent");
+}
+
+#[tokio::test]
+async fn a_restart_finishes_a_dir_delete() {
+    let server = FakeServer::start();
+    let platform = Platform::fresh();
+    let engine = connect(&server, platform.reopen());
+    fs::create_dir_all(engine.local().backing(&RelPath::new("d"))).unwrap();
+    create(&engine, "d/f", b"x");
+    settle(&engine).await;
+    assert!(server.get("/d/f").is_some());
+
+    server.offline(true);
+    engine.delete(&RelPath::new("d"), true).await.unwrap();
+    engine.flush(Duration::from_secs(1)).await;
+    drop(engine);
+
+    server.offline(false);
+    let engine = connect(&server, platform.reopen());
+    engine.recover();
+    settle(&engine).await;
+
+    assert_eq!(server.get("/d/f"), None);
+    assert!(server.names("/").is_empty());
 }
 
 #[tokio::test]
