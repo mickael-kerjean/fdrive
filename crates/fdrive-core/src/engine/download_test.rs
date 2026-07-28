@@ -1,7 +1,7 @@
 use httpmock::{Method, MockServer};
 
 use super::testkit::*;
-use crate::engine::{Engine, Observation};
+use crate::engine::{Deletions, Engine, Observation};
 use crate::path::RelPath;
 use crate::sdk::Sdk;
 use std::sync::Arc;
@@ -107,7 +107,7 @@ async fn a_deleted_file_stops_hydrating() {
 async fn a_cached_file_opens_when_the_server_is_unreachable() {
     let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
     let rt = tokio::runtime::Handle::current();
-    let engine = Engine::start(Arc::new(sdk), rt, TempTree::new());
+    let engine = Engine::start(Arc::new(sdk), rt, TempTree::new(), Deletions::Inferred);
     let path = RelPath::new("f");
     engine.local().write("f", b"cached");
     engine.ledger().observe(&path, Observation::new(6, None));

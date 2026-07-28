@@ -12,10 +12,13 @@ const WINDOW_MAX: Duration = Duration::from_secs(2);
 const OPEN_QUIET: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(10);
 const RETRY_CAP: Duration = Duration::from_secs(300);
+const BREAKER_BUDGET: u64 = 50;
 
 pub(super) struct State {
     pub(super) journal: Journal,
     pub(super) ledger: Ledger,
+    removed: u64,
+    tripped: bool,
 }
 
 pub(super) struct Journal {
@@ -93,7 +96,12 @@ impl State {
             inflight: BTreeSet::new(),
         };
         journal.admit(plans);
-        Self { journal, ledger }
+        Self {
+            journal,
+            ledger,
+            removed: 0,
+            tripped: false,
+        }
     }
 
     pub(super) fn record(&mut self, op: Operation) {
@@ -405,6 +413,60 @@ impl State {
         let rows = self.ledger.journal_swap(&[], &[], &[plan]);
         self.journal.admit(rows);
         self.refresh();
+    }
+
+    pub(super) fn breaker_note(&mut self) {
+        self.removed += 1;
+        if !self.tripped && self.removed >= BREAKER_BUDGET {
+            self.tripped = true;
+            log::error!(
+                "{} deletions this session; further server-side deletions are held",
+                self.removed
+            );
+        }
+    }
+
+    pub(super) fn breaker_holds(&self) -> bool {
+        self.tripped
+    }
+
+    pub(super) fn breaker_tripped(&self) -> bool {
+        self.tripped
+    }
+
+    pub(super) fn held_deletes(&self) -> usize {
+        self.journal
+            .pending
+            .values()
+            .filter(|e| matches!(e.plan, Plan::Remove { .. } | Plan::RemoveDir { .. }))
+            .count()
+    }
+
+    pub(super) fn breaker_release(&mut self) {
+        self.tripped = false;
+        self.removed = 0;
+    }
+
+    pub(super) fn breaker_cancel(&mut self) -> usize {
+        self.journal
+            .window
+            .retain(|(_, op)| !matches!(op, Operation::Delete(_)));
+        let doomed: Vec<i64> = self
+            .journal
+            .pending
+            .iter()
+            .filter(|(seq, e)| {
+                !self.journal.inflight.contains(seq)
+                    && matches!(e.plan, Plan::Remove { .. } | Plan::RemoveDir { .. })
+            })
+            .map(|(seq, _)| *seq)
+            .collect();
+        let cancelled = doomed.len();
+        for seq in doomed {
+            self.retire(seq);
+        }
+        self.breaker_release();
+        cancelled
     }
 
     pub(super) fn busy_under(&self, dir: &RelPath) -> bool {

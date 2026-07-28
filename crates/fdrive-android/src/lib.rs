@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use fdrive_core::engine::{Engine, Observation};
+use fdrive_core::engine::{Deletions, Engine, Observation};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, Sdk};
@@ -171,7 +171,7 @@ impl Adapter {
             cache_dir: cache_dir.clone(),
             meta: Mutex::new(HashMap::new()),
         };
-        let engine = Engine::start(Arc::new(sdk), rt.handle().clone(), tree);
+        let engine = Engine::start(Arc::new(sdk), rt.handle().clone(), tree, Deletions::Authoritative);
         engine.prune(&cache_dir)?;
         engine.recover();
         Ok(Arc::new(Self { rt, engine }))

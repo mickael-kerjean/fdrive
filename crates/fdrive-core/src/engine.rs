@@ -25,10 +25,17 @@ use crate::sdk::Sdk;
 
 use self::{conflict::Conflicts, gates::Transfers, state::State};
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum Deletions {
+    Authoritative,
+    Inferred,
+}
+
 pub struct Engine<T: LocalStore> {
     local: T,
     sdk: Arc<Sdk>,
     ignore: crate::config::Ignore,
+    deletions: Deletions,
 
     state: Mutex<State>,
 
