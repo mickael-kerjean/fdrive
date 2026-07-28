@@ -85,7 +85,7 @@ async fn a_move_follows_a_vanished_source_with_a_save() {
     let engine = engine(&server);
     let (a, b) = (RelPath::new("a"), RelPath::new("b"));
     engine.ledger().observations.insert(a.clone(), observed(5));
-    engine.tree().write("b", b"moved");
+    engine.local().write("b", b"moved");
 
     engine.rename(&a, &b, false).await.unwrap();
     settle(&engine).await;

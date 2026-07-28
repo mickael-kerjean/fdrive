@@ -12,7 +12,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use fdrive_core::engine::{Engine, Observation};
 use fdrive_core::path::RelPath;
-use fdrive_core::port::LocalTree;
+use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, Sdk};
 use tokio::runtime::Runtime;
 
@@ -143,7 +143,7 @@ impl IosTree {
     }
 }
 
-impl LocalTree for IosTree {
+impl LocalStore for IosTree {
     fn backing(&self, path: &RelPath) -> PathBuf {
         self.cache_dir.join(path.as_str())
     }
@@ -244,13 +244,13 @@ impl Adapter {
 
     pub fn create(&self, path: String) -> Result<String, FsError> {
         let rel = rel(&path);
-        let abs = self.engine.tree().backing(&rel);
+        let abs = self.engine.local().backing(&rel);
         if let Some(parent) = abs.parent() {
             fs::create_dir_all(parent)?;
         }
         fs::File::create(&abs)?;
         self.engine.created(&rel);
-        self.engine.tree().invalidate(&rel.parent_or_root());
+        self.engine.local().invalidate(&rel.parent_or_root());
         Ok(self.local(&rel))
     }
 
@@ -263,7 +263,7 @@ impl Adapter {
     pub fn mkdir(&self, path: String) -> Result<(), FsError> {
         let rel = rel(&path);
         self.rt.block_on(self.engine.sdk().mkdir(&rel.as_dir()))?;
-        self.engine.tree().invalidate(&rel.parent_or_root());
+        self.engine.local().invalidate(&rel.parent_or_root());
         Ok(())
     }
 
@@ -271,14 +271,14 @@ impl Adapter {
         let is_dir = path.ends_with('/');
         let rel = rel(&path);
         self.rt.block_on(self.engine.delete(&rel, is_dir))?;
-        let abs = self.engine.tree().backing(&rel);
+        let abs = self.engine.local().backing(&rel);
         let _ = if is_dir {
             fs::remove_dir_all(&abs)
         } else {
             fs::remove_file(&abs)
         };
-        self.engine.tree().invalidate(&rel);
-        self.engine.tree().invalidate(&rel.parent_or_root());
+        self.engine.local().invalidate(&rel);
+        self.engine.local().invalidate(&rel.parent_or_root());
         Ok(())
     }
 
@@ -286,12 +286,12 @@ impl Adapter {
         let is_dir = from.ends_with('/');
         let (from, to) = (rel(&from), rel(&to));
         self.rt.block_on(self.engine.rename(&from, &to, is_dir))?;
-        let from_abs = self.engine.tree().backing(&from);
+        let from_abs = self.engine.local().backing(&from);
         if from_abs.exists() {
-            let _ = self.engine.tree().relocate(&from, &to);
+            let _ = self.engine.local().relocate(&from, &to);
         }
-        self.engine.tree().invalidate(&from.parent_or_root());
-        self.engine.tree().invalidate(&to.parent_or_root());
+        self.engine.local().invalidate(&from.parent_or_root());
+        self.engine.local().invalidate(&to.parent_or_root());
         Ok(())
     }
 
@@ -311,7 +311,7 @@ impl Adapter {
 impl Adapter {
     fn listing(&self, dir: &RelPath) -> Result<Vec<sdk::FileInfo>, FsError> {
         let cached = {
-            let meta = self.engine.tree().meta.lock().unwrap();
+            let meta = self.engine.local().meta.lock().unwrap();
             meta.get(dir)
                 .filter(|(at, _)| at.elapsed() < META_TTL)
                 .map(|(_, listing)| listing.clone())
@@ -322,7 +322,7 @@ impl Adapter {
                 Ok(fetched) => {
                     self.engine.listed(dir, &fetched);
                     self.engine
-                        .tree()
+                        .local()
                         .meta
                         .lock()
                         .unwrap()
@@ -333,7 +333,7 @@ impl Adapter {
                     return Err(err.into())
                 }
                 Err(err) => {
-                    let meta = self.engine.tree().meta.lock().unwrap();
+                    let meta = self.engine.local().meta.lock().unwrap();
                     match meta.get(dir) {
                         Some((_, listing)) => {
                             log::debug!("ls {dir} unreachable, serving stale: {err}");
@@ -353,7 +353,7 @@ impl Adapter {
 
     fn local(&self, path: &RelPath) -> String {
         self.engine
-            .tree()
+            .local()
             .backing(path)
             .to_string_lossy()
             .into_owned()

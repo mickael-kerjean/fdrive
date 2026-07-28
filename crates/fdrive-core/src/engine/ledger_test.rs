@@ -1,7 +1,7 @@
 use super::testkit::*;
 use crate::engine::{Ledger, Observation, Plan};
 use crate::path::RelPath;
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 
 #[test]
 fn forget_drops_the_subtree_and_nothing_else() {

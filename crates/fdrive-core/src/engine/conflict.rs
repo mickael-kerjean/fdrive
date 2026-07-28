@@ -6,7 +6,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use tokio::sync::watch;
 
 use crate::path::RelPath;
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 
 use super::Engine;
 use crate::model::{Conflict, Observation, Operation, Resolution};
@@ -85,7 +85,7 @@ impl Conflicts {
     }
 }
 
-impl<T: LocalTree> Engine<T> {
+impl<T: LocalStore> Engine<T> {
     pub(super) fn conflicted(&self, mut c: Conflict) {
         log::warn!("conflict on {}", c.op);
         c.seq = self.ledger().conflict_add(&c);
@@ -107,7 +107,7 @@ impl<T: LocalTree> Engine<T> {
             Resolution::Both => {}
             Resolution::Theirs => {
                 if let Some(ours) = &conflict.ours {
-                    let _ = fs::remove_file(self.tree.backing(ours));
+                    let _ = fs::remove_file(self.local.backing(ours));
                     self.record(Operation::Delete(ours.clone()));
                 }
             }
@@ -119,7 +119,7 @@ impl<T: LocalTree> Engine<T> {
                 }
                 match (&conflict.ours, &conflict.op) {
                     (Some(ours), Operation::Write(path)) => {
-                        self.tree.relocate(ours, path)?;
+                        self.local.relocate(ours, path)?;
                         self.record(Operation::Rename(ours.clone(), path.clone()));
                     }
                     _ => {

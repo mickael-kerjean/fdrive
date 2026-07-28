@@ -9,7 +9,7 @@ use tokio::sync::watch;
 
 use crate::model::Operation;
 use crate::path::RelPath;
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 use crate::sdk::{Error as SdkError, Sdk};
 
 use super::conflict::Conflicts;
@@ -18,15 +18,15 @@ use super::spawner::Spawner;
 use super::state::{LedgerGuard, State, Step};
 use super::{scheduler, Engine, Frozen, Outcome, UploadStatus};
 
-impl<T: LocalTree> Engine<T> {
-    pub fn start(sdk: Arc<Sdk>, rt: tokio::runtime::Handle, tree: T) -> Arc<Self> {
-        let ledger_file = tree.ledger();
+impl<T: LocalStore> Engine<T> {
+    pub fn start(sdk: Arc<Sdk>, rt: tokio::runtime::Handle, local: T) -> Arc<Self> {
+        let ledger_file = local.ledger();
         let ignore = crate::config::ignore(ledger_file.parent().unwrap_or(Path::new("")));
         let state = State::open(&ledger_file);
         let conflicts = Conflicts::load(state.ledger.conflicts_load());
         let (scheduler, driver) = scheduler::prepare();
         let engine = Arc::new_cyclic(|weak| Self {
-            tree,
+            local,
             sdk,
             ignore,
             state: Mutex::new(state),
@@ -125,7 +125,7 @@ impl<T: LocalTree> Engine<T> {
 
     pub(super) fn step(&self, slots: usize, force: bool) -> Step {
         self.state().step(slots, force, &self.ignore, |p| {
-            fs::metadata(self.tree.backing(p)).is_ok_and(|md| md.len() == 0)
+            fs::metadata(self.local.backing(p)).is_ok_and(|md| md.len() == 0)
         })
     }
 
@@ -197,8 +197,8 @@ impl<T: LocalTree> Engine<T> {
         &self.spawner.rt
     }
 
-    pub fn tree(&self) -> &T {
-        &self.tree
+    pub fn local(&self) -> &T {
+        &self.local
     }
 
     pub fn ledger(&self) -> LedgerGuard<'_> {

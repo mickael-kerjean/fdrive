@@ -56,7 +56,7 @@ async fn the_vim_dance_is_one_save() {
     let engine = engine(&server);
     let (a, backup) = (RelPath::new("a"), RelPath::new("a~"));
     engine.ledger().observations.insert(a.clone(), observed(2));
-    engine.tree().write("a", b"v2");
+    engine.local().write("a", b"v2");
 
     engine.rename(&a, &backup, false).await.unwrap();
     engine.created(&a);
@@ -103,7 +103,7 @@ async fn the_backup_dance_moves_then_saves() {
         RelPath::new("x_original"),
     );
     engine.ledger().observations.insert(x.clone(), observed(5));
-    engine.tree().write("x", b"newer");
+    engine.local().write("x", b"newer");
 
     engine.created(&tmp);
     engine.modified(&tmp);
@@ -134,7 +134,7 @@ async fn a_file_deleted_in_the_window_never_touches_the_server() {
     });
     let engine = engine(&server);
     let path = RelPath::new("db-journal");
-    engine.tree().write("db-journal", b"tmp");
+    engine.local().write("db-journal", b"tmp");
     engine.created(&path);
     engine.modified(&path);
     engine.released(&path);
@@ -164,7 +164,7 @@ async fn dir_delete_drains_the_journal_first() {
     });
     let engine = engine(&server);
     let (dir, child) = (RelPath::new("d"), RelPath::new("d/f"));
-    engine.tree().write("d/f", b"x");
+    engine.local().write("d/f", b"x");
     engine.created(&child);
     engine.modified(&child);
 
@@ -207,7 +207,7 @@ async fn rename_of_an_unuploaded_file_stays_local() {
     let server = MockServer::start();
     let engine = engine(&server);
     let (from, to) = (RelPath::new("f"), RelPath::new("g"));
-    engine.tree().write("f", b"bytes");
+    engine.local().write("f", b"bytes");
     engine.modified(&from);
     engine.rename(&from, &to, false).await.unwrap();
     assert!(engine.ledger().dirty.contains(&to));
@@ -251,7 +251,7 @@ async fn a_failed_save_lands_when_the_server_recovers() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.tree().write("f", b"precious");
+    engine.local().write("f", b"precious");
     engine.created(&path);
     engine.modified(&path);
     engine.flush(Duration::from_millis(1200)).await;

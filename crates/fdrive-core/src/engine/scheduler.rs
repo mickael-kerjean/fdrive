@@ -8,7 +8,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use super::{Engine, Outcome};
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 
 const CONCURRENCY: usize = 4;
 
@@ -52,7 +52,7 @@ pub(super) struct Driver {
 }
 
 impl Driver {
-    pub(super) fn spawn<T: LocalTree>(self, rt: &tokio::runtime::Handle, engine: Weak<Engine<T>>) {
+    pub(super) fn spawn<T: LocalStore>(self, rt: &tokio::runtime::Handle, engine: Weak<Engine<T>>) {
         rt.spawn(run(engine, self.rx, self.status));
     }
 }
@@ -69,7 +69,7 @@ pub(super) fn prepare() -> (Handle, Driver) {
     )
 }
 
-async fn run<T: LocalTree>(
+async fn run<T: LocalStore>(
     engine: Weak<Engine<T>>,
     mut rx: mpsc::UnboundedReceiver<Msg>,
     status: watch::Sender<UploadStatus>,

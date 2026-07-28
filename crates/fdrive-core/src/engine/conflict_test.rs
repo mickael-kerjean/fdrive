@@ -21,7 +21,7 @@ async fn a_save_conflict_keeps_both_versions() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.tree().write("f", b"ours");
+    engine.local().write("f", b"ours");
     engine
         .ledger()
         .observations
@@ -31,9 +31,9 @@ async fn a_save_conflict_keeps_both_versions() {
     settle(&engine).await;
     save.assert_hits(1);
     reject.assert_hits(1);
-    assert_eq!(engine.tree().read("f"), None);
+    assert_eq!(engine.local().read("f"), None);
     assert_eq!(
-        engine.tree().read("f (conflicted copy)").as_deref(),
+        engine.local().read("f (conflicted copy)").as_deref(),
         Some(b"ours".as_slice())
     );
     assert!(engine.ledger().dirty.is_empty());
@@ -66,7 +66,7 @@ async fn resolving_theirs_removes_our_copy() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.tree().write("f", b"ours");
+    engine.local().write("f", b"ours");
     engine
         .ledger()
         .observations
@@ -87,7 +87,7 @@ async fn resolving_theirs_removes_our_copy() {
     settle(&engine).await;
     rm.assert_hits(1);
     assert!(engine.conflicts().is_empty());
-    assert_eq!(engine.tree().read("f (conflicted copy)"), None);
+    assert_eq!(engine.local().read("f (conflicted copy)"), None);
 }
 
 #[tokio::test]
@@ -107,8 +107,8 @@ async fn conflicts_never_clobber_a_local_copy() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.tree().write("f", b"ours");
-    engine.tree().write("f (conflicted copy)", b"precious");
+    engine.local().write("f", b"ours");
+    engine.local().write("f (conflicted copy)", b"precious");
     engine
         .ledger()
         .observations
@@ -118,11 +118,11 @@ async fn conflicts_never_clobber_a_local_copy() {
     settle(&engine).await;
     save.assert_hits(1);
     assert_eq!(
-        engine.tree().read("f (conflicted copy)").as_deref(),
+        engine.local().read("f (conflicted copy)").as_deref(),
         Some(b"precious".as_slice())
     );
     assert_eq!(
-        engine.tree().read("f (conflicted copy 2)").as_deref(),
+        engine.local().read("f (conflicted copy 2)").as_deref(),
         Some(b"ours".as_slice())
     );
 }

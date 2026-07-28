@@ -45,7 +45,7 @@ async fn overlay_keeps_local_only_files_visible() {
     let server = MockServer::start();
     let engine = engine(&server);
     let path = RelPath::new("web/node_modules/left-pad/index.js");
-    engine.tree().write(path.as_str(), b"junk");
+    engine.local().write(path.as_str(), b"junk");
     engine.modified(&path);
 
     settle(&engine).await;
@@ -72,8 +72,8 @@ async fn listed_observes_only_what_the_replica_mirrors() {
     };
 
     let mirrored = RelPath::new("mirrored");
-    engine.tree().write("mirrored", b"12345");
-    backdate(&engine.tree().dir.join("mirrored"), mtime);
+    engine.local().write("mirrored", b"12345");
+    backdate(&engine.local().dir.join("mirrored"), mtime);
     let phantom = RelPath::new("phantom");
 
     engine.listed(&dir, &[entry("mirrored", 5), entry("phantom", 9)]);
@@ -114,7 +114,7 @@ async fn content_current_is_the_freshness_rule() {
         !engine.content_current(&path, version),
         "observed but no bytes"
     );
-    engine.tree().write("f", b"bytes");
+    engine.local().write("f", b"bytes");
     assert!(engine.content_current(&path, version));
     assert!(
         !engine.content_current(&path, Observation::new(9, None)),

@@ -8,7 +8,7 @@ use futures_util::TryStreamExt;
 use tokio::sync::watch;
 
 use crate::path::RelPath;
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 
 use crate::activity::{Direction, Mode};
 use crate::sdk::{CatDelta, Error as SdkError, FileInfo};
@@ -108,7 +108,7 @@ fn pwrite(file: &fs::File, mut buf: &[u8], mut offset: u64) -> io::Result<()> {
     Ok(())
 }
 
-impl<T: LocalTree> Engine<T> {
+impl<T: LocalStore> Engine<T> {
     pub async fn hydrate(&self, path: &RelPath, current: Option<Observation>) -> io::Result<()> {
         self.hydrate_start(path, current).await?;
         let download = self.transfers.downloads.lock().unwrap().get(path).cloned();
@@ -154,7 +154,7 @@ impl<T: LocalTree> Engine<T> {
             Some(Fate::Arrived { from, .. }) => from.clone(),
             None => path.clone(),
         };
-        let abs = self.tree.backing(path);
+        let abs = self.local.backing(path);
         let current = match current {
             Some(current) => current,
             None => match self.sdk.stat(&upstream.as_file()).await {
@@ -234,12 +234,12 @@ impl<T: LocalTree> Engine<T> {
         if self.ledger().dirty.contains(&path) {
             return fail(&"superseded by a local edit");
         }
-        if let Err(err) = fs::rename(&tmp, self.tree.backing(&path)) {
+        if let Err(err) = fs::rename(&tmp, self.local.backing(&path)) {
             return fail(&err);
         }
         self.ledger()
             .observe(&path, Observation::new(size, info.mtime));
-        if let Ok(data) = fs::read(self.tree.backing(&path)) {
+        if let Ok(data) = fs::read(self.local.backing(&path)) {
             self.ledger()
                 .sign_set(&path, &super::upload::signature(&data));
         }
@@ -261,7 +261,7 @@ impl<T: LocalTree> Engine<T> {
         if expected.size < 1 << 20 {
             return Ok(None);
         }
-        let Ok(base) = fs::read(self.tree.backing(path)) else {
+        let Ok(base) = fs::read(self.local.backing(path)) else {
             return Ok(None);
         };
         if base.is_empty() {

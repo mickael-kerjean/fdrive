@@ -21,13 +21,13 @@ use std::sync::{Arc, Mutex};
 
 use crate::activity::Activity;
 use crate::path::RelPath;
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 use crate::sdk::Sdk;
 
 use self::{conflict::Conflicts, gates::Transfers, spawner::Spawner, state::State};
 
-pub struct Engine<T: LocalTree> {
-    tree: T,
+pub struct Engine<T: LocalStore> {
+    local: T,
     sdk: Arc<Sdk>,
     ignore: crate::config::Ignore,
 

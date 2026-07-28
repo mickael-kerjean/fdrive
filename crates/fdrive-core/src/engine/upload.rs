@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::path::RelPath;
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 use crate::sdk::{Error as SdkError, Sdk};
 
 use super::{Engine, Outcome};
@@ -26,7 +26,7 @@ pub(super) fn signature(data: &[u8]) -> Vec<u8> {
     .into_serialized()
 }
 
-impl<T: LocalTree> Engine<T> {
+impl<T: LocalStore> Engine<T> {
     async fn conflict_target(&self, path: &RelPath) -> RelPath {
         let (stem, ext) = match path.name().rsplit_once('.') {
             Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), format!(".{ext}")),
@@ -40,7 +40,7 @@ impl<T: LocalTree> Engine<T> {
             };
             let candidate = dir.join(&name);
             if self.sdk.stat(&candidate.as_file()).await.is_err()
-                && !self.tree.backing(&candidate).exists()
+                && !self.local.backing(&candidate).exists()
             {
                 return candidate;
             }
@@ -59,7 +59,7 @@ impl<T: LocalTree> Engine<T> {
         if self.is_frozen(path) {
             return Outcome::Busy;
         }
-        let abs = self.tree.backing(path);
+        let abs = self.local.backing(path);
         let md = match fs::symlink_metadata(&abs) {
             Ok(md) if md.is_file() => md,
             Ok(_) => {
@@ -104,7 +104,7 @@ impl<T: LocalTree> Engine<T> {
                 let obs = mtime.map(|m| Observation::new(md.len(), Some(m)));
                 let sig = fs::read(&abs).ok().map(|d| signature(&d));
                 let after = fs::metadata(&abs).ok().and_then(|md| md.modified().ok());
-                self.tree.settled(path, after);
+                self.local.settled(path, after);
                 log::info!("uploaded {path} ({} bytes)", md.len());
                 Outcome::Saved {
                     obs,
@@ -171,13 +171,13 @@ impl<T: LocalTree> Engine<T> {
         };
         self.activity.finish(act, Ok(()));
         let after = fs::metadata(abs).ok().and_then(|md| md.modified().ok());
-        if let Err(err) = self.tree.relocate(path, &copy) {
+        if let Err(err) = self.local.relocate(path, &copy) {
             log::warn!("move conflicted copy {path} -> {copy}: {err}");
         }
-        let sig = fs::read(self.tree.backing(&copy))
+        let sig = fs::read(self.local.backing(&copy))
             .ok()
             .map(|d| signature(&d));
-        self.tree.settled(&copy, after);
+        self.local.settled(&copy, after);
         log::info!("uploaded {copy} ({len} bytes)");
         Outcome::Diverted {
             theirs,
