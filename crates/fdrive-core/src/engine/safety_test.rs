@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use httpmock::{Method, Mock, MockServer};
 
-use crate::engine::{Engine, Observation};
+use crate::engine::{Deletions, Engine, Observation};
 use crate::path::RelPath;
 use crate::sdk::Sdk;
 
@@ -157,7 +157,7 @@ async fn a_crash_with_a_pending_remove_replays_it_exactly_once() {
 async fn a_dead_server_leaves_no_mark_anywhere() {
     let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
     let rt = tokio::runtime::Handle::current();
-    let engine = Engine::start(Arc::new(sdk), rt, TempTree::new());
+    let engine = Engine::start(Arc::new(sdk), rt, TempTree::new(), Deletions::Inferred);
     let path = RelPath::new("doc.txt");
     engine.ledger().observe(&path, Observation::new(1, None));
     engine.created(&path);

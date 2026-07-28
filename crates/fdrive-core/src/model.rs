@@ -110,6 +110,9 @@ pub enum Plan {
         path: RelPath,
         removes: Observation,
     },
+    RemoveDir {
+        path: RelPath,
+    },
 }
 
 impl Plan {
@@ -118,6 +121,7 @@ impl Plan {
             Plan::Save { path, reuses, .. } => std::iter::once(path).chain(reuses).collect(),
             Plan::Move { from, to, .. } => vec![from, to],
             Plan::Remove { path, .. } => vec![path],
+            Plan::RemoveDir { path } => vec![path],
         }
     }
 
@@ -151,6 +155,7 @@ impl fmt::Display for Plan {
             }
             Plan::Move { from, to, .. } => write!(f, "move {from}->{to}"),
             Plan::Remove { path, .. } => write!(f, "remove {path}"),
+            Plan::RemoveDir { path } => write!(f, "rmdir {path}"),
         }
     }
 }
@@ -169,6 +174,7 @@ pub(crate) fn coalesce<'a>(
 ) -> Vec<Plan> {
     let mut origs: Vec<RelPath> = Vec::new();
     let mut content: BTreeMap<RelPath, Content> = BTreeMap::new();
+    let mut dirs: Vec<RelPath> = Vec::new();
     for plan in pending {
         match plan {
             Plan::Save {
@@ -194,6 +200,7 @@ pub(crate) fn coalesce<'a>(
                 }
                 content.insert(path.clone(), Content::Gone);
             }
+            Plan::RemoveDir { path } => dirs.push(path.clone()),
         }
     }
     let known = |p: &RelPath| know(p).is_some();
@@ -289,6 +296,9 @@ pub(crate) fn coalesce<'a>(
                 });
             }
         }
+    }
+    for path in dirs {
+        out.push(Plan::RemoveDir { path });
     }
     out
 }

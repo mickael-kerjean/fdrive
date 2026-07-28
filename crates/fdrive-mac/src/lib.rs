@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use fdrive_core::engine::{Engine, Observation};
+use fdrive_core::engine::{Deletions, Engine, Observation};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, FileInfo, FileType, Sdk};
@@ -346,7 +346,7 @@ pub unsafe extern "C" fn fsx_connect(
         ledger: data.join("fdrive.db"),
         meta: Mutex::new(HashMap::new()),
     };
-    let engine = Engine::start(Arc::new(sdk), rt.handle().clone(), tree);
+    let engine = Engine::start(Arc::new(sdk), rt.handle().clone(), tree, Deletions::Authoritative);
     if engine.prune(&engine.local().cache_dir).is_err() {
         return std::ptr::null_mut();
     }
