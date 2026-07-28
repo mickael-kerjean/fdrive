@@ -32,11 +32,10 @@ use windows::Win32::Storage::CloudFilters::{
     CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
     CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE, CF_OPERATION_TYPE, CF_OPERATION_TYPE_ACK_DELETE,
     CF_OPERATION_TYPE_ACK_RENAME, CF_OPERATION_TYPE_TRANSFER_DATA,
-    CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS, CF_PIN_STATE_UNSPECIFIED,
-    CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC, CF_PLACEHOLDER_CREATE_INFO, CF_PLACEHOLDER_STATE,
-    CF_PLACEHOLDER_STATE_IN_SYNC, CF_PLACEHOLDER_STATE_PARTIAL,
-    CF_PLACEHOLDER_STATE_PARTIALLY_ON_DISK, CF_PLACEHOLDER_STATE_PLACEHOLDER,
-    CF_SET_IN_SYNC_FLAG_NONE, CF_SET_PIN_FLAG_NONE,
+    CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS, CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC,
+    CF_PLACEHOLDER_CREATE_INFO, CF_PLACEHOLDER_STATE, CF_PLACEHOLDER_STATE_IN_SYNC,
+    CF_PLACEHOLDER_STATE_PARTIAL, CF_PLACEHOLDER_STATE_PARTIALLY_ON_DISK,
+    CF_PLACEHOLDER_STATE_PLACEHOLDER, CF_SET_IN_SYNC_FLAG_NONE, CF_SET_PIN_FLAG_NONE,
 };
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FileAttributeTagInfo, GetFileInformationByHandleEx, FILE_ATTRIBUTE_DIRECTORY,
@@ -352,13 +351,6 @@ pub fn set_hydration(abs: &Path, wanted: bool) -> io::Result<()> {
     } else {
         unsafe { CfDehydratePlaceholder(handle, 0, -1, CF_DEHYDRATE_FLAG_NONE, None) }
             .map_err(|err| io::Error::other(format!("CfDehydratePlaceholder: {err}")))
-            .map(|()| {
-                if let Err(err) = unsafe {
-                    CfSetPinState(handle, CF_PIN_STATE_UNSPECIFIED, CF_SET_PIN_FLAG_NONE, None)
-                } {
-                    log::debug!("clear pin state: {err}");
-                }
-            })
     };
     unsafe { CfCloseHandle(handle) };
     result
