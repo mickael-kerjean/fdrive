@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use fdrive_core::engine::{Engine, Resolution, UploadStatus};
+use fdrive_core::engine::{Deletions, Engine, Resolution, UploadStatus};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::Sdk;
@@ -66,7 +66,7 @@ impl LocalStore for Platform {
 fn connect(server: &FakeServer, platform: Platform) -> Arc<Engine<Platform>> {
     let mut sdk = Sdk::new(server.url()).unwrap();
     sdk.set_token("TOKEN".into());
-    Engine::start(Arc::new(sdk), tokio::runtime::Handle::current(), platform)
+    Engine::start(Arc::new(sdk), tokio::runtime::Handle::current(), platform, Deletions::Authoritative)
 }
 
 fn create(engine: &Engine<Platform>, path: &str, bytes: &[u8]) -> RelPath {
