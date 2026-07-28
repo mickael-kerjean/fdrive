@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::path::RelPath;
 use crate::port::LocalStore;
-use crate::sdk::{Error as SdkError, Sdk};
+use crate::sdk::Error as SdkError;
 
 use super::{Engine, Outcome};
 use crate::model::{Conflict, Observation, Operation};
@@ -87,15 +87,13 @@ impl<T: LocalStore> Engine<T> {
             .begin(&path.as_file(), crate::activity::Direction::Up, md.len());
         let attempt = match self.try_delta(path, &abs, replaces, reuses, act).await {
             Some(saved) => saved,
-            None => {
-                match upload_full(&self.sdk, path, &abs, Some(since), &self.activity, act).await {
-                    Ok(saved) => saved,
-                    Err(err) => {
-                        self.activity.finish(act, Err(err.to_string()));
-                        return Outcome::Failed(err);
-                    }
+            None => match self.upload_full(path, &abs, Some(since), act).await {
+                Ok(saved) => saved,
+                Err(err) => {
+                    self.activity.finish(act, Err(err.to_string()));
+                    return Outcome::Failed(err);
                 }
-            }
+            },
         };
         match attempt {
             Saved::Conflict => self.divert(path, replaces, &abs, md.len(), act).await,
@@ -130,17 +128,7 @@ impl<T: LocalStore> Engine<T> {
             None => replaces.map(|r| r.time),
         }?;
         let since = UNIX_EPOCH + Duration::from_secs(time);
-        upload_delta(
-            &self.sdk,
-            path,
-            abs,
-            sig,
-            reuses,
-            since,
-            &self.activity,
-            act,
-        )
-        .await
+        self.upload_delta(path, abs, sig, reuses, since, act).await
     }
 
     async fn divert(
@@ -157,7 +145,7 @@ impl<T: LocalStore> Engine<T> {
         };
         let copy = self.conflict_target(path).await;
         log::warn!("conflict on {path}: uploading as {copy}");
-        let mtime = match upload_full(&self.sdk, &copy, abs, None, &self.activity, act).await {
+        let mtime = match self.upload_full(&copy, abs, None, act).await {
             Ok(Saved::Done(mtime)) => mtime,
             Ok(Saved::Conflict) => {
                 self.activity
@@ -187,83 +175,82 @@ impl<T: LocalStore> Engine<T> {
             conflict: Conflict::new(Operation::Write(path.clone()), replaces, theirs, Some(copy)),
         }
     }
-}
 
-#[allow(clippy::too_many_arguments)]
-async fn upload_delta(
-    sdk: &Sdk,
-    target: &RelPath,
-    source: &Path,
-    sig: Vec<u8>,
-    base: Option<&RelPath>,
-    since: SystemTime,
-    activity: &crate::activity::Activity,
-    act: u64,
-) -> Option<Saved> {
-    if !sdk.delta_supported().await {
-        return None;
-    }
-    let sig = fast_rsync::Signature::deserialize(sig).ok()?;
-    let data = fs::read(source).ok()?;
-    let mut body = Vec::new();
-    fast_rsync::diff(&sig.index(), &data, &mut body).ok()?;
-    if body.len() >= data.len() {
-        return None;
-    }
-    use sha2::Digest;
-    body.extend_from_slice(&sha2::Sha256::digest(&data));
-    let (sent, size) = (body.len(), data.len());
-    activity.mode(act, crate::activity::Mode::Delta);
-    activity.wire(act, sent as u64);
-    match sdk
-        .save_delta(&target.as_file(), body, since, base.map(|b| b.as_file()))
-        .await
-    {
-        Ok(mtime) => {
-            log::info!("delta {target} ({sent} bytes for {size})");
-            Some(Saved::Done(mtime))
+    async fn upload_delta(
+        &self,
+        target: &RelPath,
+        source: &Path,
+        sig: Vec<u8>,
+        base: Option<&RelPath>,
+        since: SystemTime,
+        act: u64,
+    ) -> Option<Saved> {
+        if !self.sdk.delta_supported().await {
+            return None;
         }
-        Err(SdkError::PreconditionFailed) => Some(Saved::Conflict),
-        Err(err) => {
-            log::debug!("delta {target}: {err}");
-            None
+        let sig = fast_rsync::Signature::deserialize(sig).ok()?;
+        let data = fs::read(source).ok()?;
+        let mut body = Vec::new();
+        fast_rsync::diff(&sig.index(), &data, &mut body).ok()?;
+        if body.len() >= data.len() {
+            return None;
         }
-    }
-}
-
-async fn upload_full(
-    sdk: &Sdk,
-    target: &RelPath,
-    source: &Path,
-    since: Option<SystemTime>,
-    activity: &crate::activity::Activity,
-    act: u64,
-) -> io::Result<Saved> {
-    let stream = crate::file_stream(source).await?;
-    activity.mode(act, crate::activity::Mode::Full);
-    activity.wire(act, fs::metadata(source).map(|md| md.len()).unwrap_or(0));
-    match sdk.save(&target.as_file(), stream, since).await {
-        Ok(mtime) => Ok(Saved::Done(mtime)),
-        Err(SdkError::PreconditionFailed) => Ok(Saved::Conflict),
-        Err(SdkError::NotFound | SdkError::PermissionDenied) => {
-            let mut ancestors = vec![];
-            let mut cur = target.parent_or_root();
-            while !cur.is_root() {
-                ancestors.push(cur.clone());
-                cur = cur.parent_or_root();
+        use sha2::Digest;
+        body.extend_from_slice(&sha2::Sha256::digest(&data));
+        let (sent, size) = (body.len(), data.len());
+        self.activity.mode(act, crate::activity::Mode::Delta);
+        self.activity.wire(act, sent as u64);
+        match self
+            .sdk
+            .save_delta(&target.as_file(), body, since, base.map(|b| b.as_file()))
+            .await
+        {
+            Ok(mtime) => {
+                log::info!("delta {target} ({sent} bytes for {size})");
+                Some(Saved::Done(mtime))
             }
-            for dir in ancestors.iter().rev() {
-                if let Err(err) = sdk.mkdir(&dir.as_dir()).await {
-                    log::debug!("mkdirs {dir}: {err}");
+            Err(SdkError::PreconditionFailed) => Some(Saved::Conflict),
+            Err(err) => {
+                log::debug!("delta {target}: {err}");
+                None
+            }
+        }
+    }
+
+    async fn upload_full(
+        &self,
+        target: &RelPath,
+        source: &Path,
+        since: Option<SystemTime>,
+        act: u64,
+    ) -> io::Result<Saved> {
+        let stream = crate::file_stream(source).await?;
+        self.activity.mode(act, crate::activity::Mode::Full);
+        self.activity
+            .wire(act, fs::metadata(source).map(|md| md.len()).unwrap_or(0));
+        match self.sdk.save(&target.as_file(), stream, since).await {
+            Ok(mtime) => Ok(Saved::Done(mtime)),
+            Err(SdkError::PreconditionFailed) => Ok(Saved::Conflict),
+            Err(SdkError::NotFound | SdkError::PermissionDenied) => {
+                let mut ancestors = vec![];
+                let mut cur = target.parent_or_root();
+                while !cur.is_root() {
+                    ancestors.push(cur.clone());
+                    cur = cur.parent_or_root();
+                }
+                for dir in ancestors.iter().rev() {
+                    if let Err(err) = self.sdk.mkdir(&dir.as_dir()).await {
+                        log::debug!("mkdirs {dir}: {err}");
+                    }
+                }
+                let stream = crate::file_stream(source).await?;
+                match self.sdk.save(&target.as_file(), stream, since).await {
+                    Ok(mtime) => Ok(Saved::Done(mtime)),
+                    Err(SdkError::PreconditionFailed) => Ok(Saved::Conflict),
+                    Err(err) => Err(err.into()),
                 }
             }
-            let stream = crate::file_stream(source).await?;
-            match sdk.save(&target.as_file(), stream, since).await {
-                Ok(mtime) => Ok(Saved::Done(mtime)),
-                Err(SdkError::PreconditionFailed) => Ok(Saved::Conflict),
-                Err(err) => Err(err.into()),
-            }
+            Err(err) => Err(err.into()),
         }
-        Err(err) => Err(err.into()),
     }
 }
