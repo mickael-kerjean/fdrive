@@ -31,6 +31,9 @@ pub(super) enum Outcome {
         theirs: Observation,
         conflict: Conflict,
     },
+    RemoveDirLost {
+        conflict: Conflict,
+    },
     Busy,
     Failed(io::Error),
 }
@@ -45,7 +48,43 @@ impl<T: LocalStore> Engine<T> {
             } => self.replay_save(path, *replaces, reuses.as_ref()).await,
             Plan::Move { from, to, moves } => self.replay_move(from, to, *moves).await,
             Plan::Remove { path, removes } => self.replay_remove(path, *removes).await,
+            Plan::RemoveDir { path } => self.replay_remove_dir(path).await,
         }
+    }
+
+    async fn replay_remove_dir(&self, path: &RelPath) -> Outcome {
+        if self.is_frozen(path) || self.state().busy_under(path) {
+            return Outcome::Busy;
+        }
+        match self.subtree_holds_files(path).await {
+            Err(SdkError::NotFound) => Outcome::Removed,
+            Err(err) => Outcome::Failed(err.into()),
+            Ok(true) => Outcome::RemoveDirLost {
+                conflict: Conflict::new(Operation::Delete(path.clone()), None, None, None),
+            },
+            Ok(false) => match self.sdk.rm(&path.as_dir()).await {
+                Ok(()) | Err(SdkError::NotFound) => Outcome::Removed,
+                Err(err) => Outcome::Failed(err.into()),
+            },
+        }
+    }
+
+    async fn subtree_holds_files(&self, path: &RelPath) -> Result<bool, SdkError> {
+        let mut stack = vec![path.clone()];
+        while let Some(dir) = stack.pop() {
+            let listing = match self.sdk.ls(&dir.as_dir()).await {
+                Ok(listing) => listing,
+                Err(SdkError::NotFound) if dir != *path => continue,
+                Err(err) => return Err(err),
+            };
+            for entry in listing {
+                match entry.kind {
+                    crate::sdk::FileType::File => return Ok(true),
+                    crate::sdk::FileType::Directory => stack.push(dir.join(&entry.name)),
+                }
+            }
+        }
+        Ok(false)
     }
 
     async fn replay_move(&self, from: &RelPath, to: &RelPath, moves: Observation) -> Outcome {

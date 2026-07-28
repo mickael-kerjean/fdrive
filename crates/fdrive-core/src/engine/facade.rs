@@ -54,15 +54,23 @@ impl<T: LocalStore> Engine<T> {
 
     pub async fn delete(&self, path: &RelPath, is_dir: bool) -> io::Result<()> {
         if is_dir {
-            self.flush(Duration::from_secs(60)).await;
-            let _frozen = self.freeze(&[path]);
-            self.wait_uploads(path, true).await;
-            match self.sdk.rm(&path.as_dir()).await {
-                Ok(()) | Err(SdkError::NotFound) => {}
-                Err(err) => return Err(err.into()),
+            let doomed: BTreeSet<RelPath> = {
+                let ledger = self.ledger();
+                ledger
+                    .observations
+                    .keys()
+                    .chain(ledger.dirty.iter())
+                    .filter(|p| p.is_descendant_of(path))
+                    .cloned()
+                    .collect()
+            };
+            for p in doomed {
+                self.record(Operation::Delete(p));
             }
-            self.ledger().forget(path);
-            log::info!("deleted {path}/");
+            self.step(0, true);
+            self.state().plan_remove_dir(path);
+            self.kick();
+            log::info!("journaled rmdir {path}/");
             return Ok(());
         }
         self.record(Operation::Delete(path.clone()));

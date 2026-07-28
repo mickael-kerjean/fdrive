@@ -209,6 +209,30 @@ async fn a_restart_replays_what_was_never_acknowledged() {
 }
 
 #[tokio::test]
+async fn a_restart_finishes_a_dir_delete() {
+    let server = FakeServer::start();
+    let platform = Platform::fresh();
+    let engine = connect(&server, platform.reopen());
+    fs::create_dir_all(engine.local().backing(&RelPath::new("d"))).unwrap();
+    create(&engine, "d/f", b"x");
+    settle(&engine).await;
+    assert!(server.get("/d/f").is_some());
+
+    server.offline(true);
+    engine.delete(&RelPath::new("d"), true).await.unwrap();
+    engine.flush(Duration::from_secs(1)).await;
+    drop(engine);
+
+    server.offline(false);
+    let engine = connect(&server, platform.reopen());
+    engine.recover();
+    settle(&engine).await;
+
+    assert_eq!(server.get("/d/f"), None);
+    assert!(server.names("/").is_empty());
+}
+
+#[tokio::test]
 async fn simultaneous_edits_conflict_and_resolve() {
     let server = FakeServer::start();
     let engine = connect(&server, Platform::fresh());
