@@ -54,6 +54,10 @@ impl LocalStore for Platform {
 
     fn settled(&self, _target: &RelPath, _mtime: Option<SystemTime>) {}
 
+    fn device(&self) -> String {
+        "testkit".into()
+    }
+
     fn ledger(&self) -> PathBuf {
         self.root.join("fdrive.db")
     }
@@ -222,12 +226,12 @@ async fn simultaneous_edits_conflict_and_resolve() {
     assert_eq!(server.get("/report.txt").unwrap(), b"theirs");
     assert_eq!(
         server.names("/"),
-        ["report (conflicted copy).txt", "report.txt"]
+        ["report (conflicted copy from testkit).txt", "report.txt"]
     );
     let conflict = &engine.conflicts()[0];
     assert_eq!(
         conflict.ours.as_ref().unwrap().as_str(),
-        "report (conflicted copy).txt"
+        "report (conflicted copy from testkit).txt"
     );
 
     engine.resolve(conflict.seq, Resolution::Ours).unwrap();

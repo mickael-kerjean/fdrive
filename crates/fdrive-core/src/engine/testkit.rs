@@ -77,6 +77,10 @@ impl LocalStore for TempTree {
         self.settled.lock().unwrap().push(target.clone());
     }
 
+    fn device(&self) -> String {
+        "testkit".into()
+    }
+
     fn ledger(&self) -> PathBuf {
         self.state.clone()
     }
