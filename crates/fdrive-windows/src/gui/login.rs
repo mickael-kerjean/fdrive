@@ -178,7 +178,7 @@ fn login_dialog(prefill: Credentials) -> Option<Credentials> {
                         .expect("data dir")
                         .to_path_buf()
                 });
-                return match crate::webview::login(&url, prefill.insecure, &data) {
+                return match super::webview::login(&url, prefill.insecure, &data) {
                     Ok(Some(token)) => Some(Credentials {
                         url,
                         token,

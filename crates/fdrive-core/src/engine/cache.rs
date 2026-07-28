@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::path::RelPath;
@@ -30,12 +31,14 @@ impl<T: LocalStore> Engine<T> {
     }
 
     pub(super) fn pin_sweep(&self) {
-        self.spawner.spawn(|engine| async move {
-            let roots: Vec<RelPath> = engine.ledger().pins.iter().cloned().collect();
-            for root in roots {
-                engine.hydrate_subtree(&root).await;
-            }
-        });
+        self.scheduler.sweep();
+    }
+
+    pub(super) async fn sweep_pins(self: Arc<Self>) {
+        let roots: Vec<RelPath> = self.ledger().pins.iter().cloned().collect();
+        for root in roots {
+            self.hydrate_subtree(&root).await;
+        }
     }
 
     pub(super) async fn hydrate_subtree(&self, root: &RelPath) {

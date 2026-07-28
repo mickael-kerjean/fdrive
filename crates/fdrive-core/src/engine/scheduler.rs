@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io;
+use std::path::PathBuf;
 use std::sync::Weak;
 use std::time::Duration;
 
@@ -7,7 +8,10 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
+use super::download::DownloadStatus;
 use super::{Engine, Outcome};
+use crate::model::Observation;
+use crate::path::RelPath;
 use crate::port::LocalStore;
 
 const CONCURRENCY: usize = 4;
@@ -22,6 +26,8 @@ pub enum UploadStatus {
 enum Msg {
     Kick,
     Flush(oneshot::Sender<()>),
+    Sweep,
+    Stream(RelPath, PathBuf, watch::Sender<(u64, DownloadStatus)>, Observation),
 }
 
 pub(super) struct Handle {
@@ -43,6 +49,20 @@ impl Handle {
 
     pub(super) fn status(&self) -> watch::Receiver<UploadStatus> {
         self.status.clone()
+    }
+
+    pub(super) fn sweep(&self) {
+        let _ = self.queue.send(Msg::Sweep);
+    }
+
+    pub(super) fn stream(
+        &self,
+        path: RelPath,
+        tmp: PathBuf,
+        tx: watch::Sender<(u64, DownloadStatus)>,
+        current: Observation,
+    ) {
+        let _ = self.queue.send(Msg::Stream(path, tmp, tx, current));
     }
 }
 
@@ -119,6 +139,16 @@ async fn run<T: LocalStore>(
                     }
                     rushed = true;
                     flushes.push(reply);
+                }
+                Some(Msg::Sweep) => {
+                    if let Some(engine) = engine.upgrade() {
+                        tokio::spawn(engine.sweep_pins());
+                    }
+                }
+                Some(Msg::Stream(path, tmp, tx, current)) => {
+                    if let Some(engine) = engine.upgrade() {
+                        tokio::spawn(engine.stream(path, tmp, tx, current));
+                    }
                 }
             },
             Some(joined) = running.join_next_with_id(), if !running.is_empty() => {

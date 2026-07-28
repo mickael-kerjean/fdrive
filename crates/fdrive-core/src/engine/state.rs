@@ -85,25 +85,14 @@ impl State {
         };
         let (recovered, plans) = ledger.journal_load();
         let now = Instant::now();
-        let journal = Journal {
+        let mut journal = Journal {
             marks: recovered.iter().flat_map(op_paths).cloned().collect(),
             window: recovered.into_iter().map(|op| (now, op)).collect(),
-            pending: plans
-                .into_iter()
-                .map(|(seq, plan)| {
-                    (
-                        seq,
-                        Entry {
-                            plan,
-                            attempts: 0,
-                            due: now,
-                        },
-                    )
-                })
-                .collect(),
+            pending: BTreeMap::new(),
             writing: BTreeMap::new(),
             inflight: BTreeSet::new(),
         };
+        journal.admit(plans);
         Self { journal, ledger }
     }
 

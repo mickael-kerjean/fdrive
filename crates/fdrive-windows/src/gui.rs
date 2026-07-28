@@ -14,6 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 mod dashboard;
 mod login;
 mod tray;
+mod webview;
 
 pub use tray::Tray;
 
