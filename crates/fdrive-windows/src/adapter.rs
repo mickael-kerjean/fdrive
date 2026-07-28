@@ -340,6 +340,14 @@ impl Adapter {
     }
 
     pub async fn on_change(self: &Arc<Self>, path: &RelPath) {
+        let internal = path
+            .as_str()
+            .strip_suffix(".part")
+            .and_then(|path| path.rsplit_once('.'))
+            .is_some_and(|(_, sequence)| sequence.parse::<u64>().is_ok());
+        if internal || self.engine.tree().is_suppressed(path) {
+            return;
+        }
         let abs = self.abs(path);
         let Ok(md) = fs::symlink_metadata(&abs) else {
             return;
@@ -539,6 +547,60 @@ impl Adapter {
             None => Observation::of_local(md) == remote_rec,
         };
         if unchanged {
+            return;
+        }
+        let abs = self.abs(path);
+        if matches!(
+            self.classify(&abs, path),
+            Ok(FileState::Cached(Pin::Pinned))
+        ) {
+            let engine = self.engine.clone();
+            let what = path.clone();
+            let rt = engine.rt().clone();
+            rt.spawn(async move {
+                *engine
+                    .tree()
+                    .suppressed
+                    .lock()
+                    .unwrap()
+                    .entry(what.clone())
+                    .or_insert(0) += 1;
+                let result = match engine.hydrate(&what, Some(remote_rec)).await {
+                    Ok(()) => {
+                        let done = what.clone();
+                        let done_abs = engine.tree().backing(&done);
+                        tokio::task::spawn_blocking(move || {
+                            let mut result = Err(io::Error::other("pinned refresh incomplete"));
+                            for _ in 0..20 {
+                                result = wire::mark_in_sync(&done_abs, &done)
+                                    .and_then(|()| wire::set_pinned(&done_abs));
+                                if result.is_ok() {
+                                    break;
+                                }
+                                std::thread::sleep(Duration::from_millis(100));
+                            }
+                            result
+                        })
+                        .await
+                        .map_err(io::Error::other)
+                        .and_then(|result| result)
+                    }
+                    Err(err) => Err(err),
+                };
+                {
+                    let mut suppressed = engine.tree().suppressed.lock().unwrap();
+                    if let Some(n) = suppressed.get_mut(&what) {
+                        *n -= 1;
+                        if *n == 0 {
+                            suppressed.remove(&what);
+                        }
+                    }
+                }
+                match result {
+                    Ok(()) => log::info!("refreshed pinned {what}"),
+                    Err(err) => log::warn!("refresh pinned {what}: {err}"),
+                }
+            });
             return;
         }
         match self.replace_placeholder(
