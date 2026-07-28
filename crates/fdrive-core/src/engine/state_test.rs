@@ -30,6 +30,39 @@ fn a_held_window_wakes_at_its_release_not_before() {
     );
 }
 
+#[test]
+fn a_dirty_rename_keeps_its_mark_across_a_crash() {
+    use crate::engine::state::State;
+    use crate::model::Operation;
+    use crate::port::LocalStore;
+
+    let tree = TempTree::new();
+    {
+        let mut state = State::open(&tree.ledger());
+        state.record(Operation::Write(RelPath::new("a")));
+        state.record(Operation::Rename(RelPath::new("a"), RelPath::new("b")));
+    }
+    let state = State::open(&tree.ledger());
+    let dirty: Vec<&str> = state.ledger.dirty.iter().map(|p| p.as_str()).collect();
+    assert_eq!(dirty, ["b"], "the edit must be owed at its new name");
+}
+
+#[test]
+fn a_delete_clears_the_mark_it_supersedes() {
+    use crate::engine::state::State;
+    use crate::model::Operation;
+    use crate::port::LocalStore;
+
+    let tree = TempTree::new();
+    {
+        let mut state = State::open(&tree.ledger());
+        state.record(Operation::Write(RelPath::new("a")));
+        state.record(Operation::Delete(RelPath::new("a")));
+    }
+    let state = State::open(&tree.ledger());
+    assert!(state.ledger.dirty.is_empty());
+}
+
 #[tokio::test]
 async fn a_file_open_for_writing_holds_its_save() {
     let server = MockServer::start();

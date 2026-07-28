@@ -15,5 +15,9 @@ pub trait LocalStore: Send + Sync + 'static {
 
     fn settled(&self, target: &RelPath, mtime: Option<SystemTime>);
 
+    fn device(&self) -> String {
+        gethostname::gethostname().to_string_lossy().into_owned()
+    }
+
     fn ledger(&self) -> PathBuf;
 }
