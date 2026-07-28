@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 use crate::path::RelPath;
 
-pub trait LocalTree: Send + Sync + 'static {
+pub trait LocalStore: Send + Sync + 'static {
     fn backing(&self, path: &RelPath) -> PathBuf;
 
     fn relocate(&self, from: &RelPath, to: &RelPath) -> io::Result<()>;

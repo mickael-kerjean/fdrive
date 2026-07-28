@@ -1,15 +1,15 @@
 use std::sync::{Arc, Weak};
 
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 
 use super::Engine;
 
-pub(super) struct Spawner<T: LocalTree> {
+pub(super) struct Spawner<T: LocalStore> {
     pub(super) rt: tokio::runtime::Handle,
     pub(super) weak: Weak<Engine<T>>,
 }
 
-impl<T: LocalTree> Spawner<T> {
+impl<T: LocalStore> Spawner<T> {
     pub(super) fn spawn<F, Fut>(&self, f: F)
     where
         F: FnOnce(Arc<Engine<T>>) -> Fut,

@@ -5,12 +5,12 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::path::RelPath;
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 
 use super::Engine;
 use crate::model::Observation;
 
-impl<T: LocalTree> Engine<T> {
+impl<T: LocalStore> Engine<T> {
     pub fn pin(&self, path: &RelPath) {
         self.ledger().pin_set(path);
         log::info!("pinned {path}");
@@ -102,7 +102,7 @@ impl<T: LocalTree> Engine<T> {
             .iter()
             .chain(owed.iter())
             .chain(pins.iter())
-            .map(|p| self.tree.backing(p))
+            .map(|p| self.local.backing(p))
             .collect();
         drop(ledger);
         prune_dir(cache_root, &keep)?;

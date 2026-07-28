@@ -9,7 +9,7 @@ use crate::path::RelPath;
 fn a_held_window_wakes_at_its_release_not_before() {
     use crate::engine::state::State;
     use crate::model::Operation;
-    use crate::port::LocalTree;
+    use crate::port::LocalStore;
 
     let tree = TempTree::new();
     let mut state = State::open(&tree.ledger());
@@ -40,7 +40,7 @@ async fn a_file_open_for_writing_holds_its_save() {
     let engine = engine(&server);
     let path = RelPath::new("f");
     engine.write_opened(&path);
-    engine.tree().write("f", b"half-written");
+    engine.local().write("f", b"half-written");
     engine.created(&path);
     engine.modified(&path);
 
@@ -68,12 +68,12 @@ async fn an_emptied_file_waits_for_its_rewrite() {
         .observations
         .insert(path.clone(), observed(5));
 
-    engine.tree().write("f", b"");
+    engine.local().write("f", b"");
     engine.modified(&path);
     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
     save.assert_hits(0);
 
-    engine.tree().write("f", b"the real bytes");
+    engine.local().write("f", b"the real bytes");
     engine.modified(&path);
     settle(&engine).await;
     save.assert_hits(1);

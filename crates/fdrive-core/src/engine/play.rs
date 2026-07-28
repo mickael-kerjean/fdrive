@@ -1,7 +1,7 @@
 use std::io;
 
 use crate::path::RelPath;
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 use crate::sdk::Error as SdkError;
 
 use super::Engine;
@@ -35,7 +35,7 @@ pub(super) enum Outcome {
     Failed(io::Error),
 }
 
-impl<T: LocalTree> Engine<T> {
+impl<T: LocalStore> Engine<T> {
     pub(super) async fn replay(&self, plan: &Plan) -> Outcome {
         match plan {
             Plan::Save {
@@ -73,7 +73,7 @@ impl<T: LocalTree> Engine<T> {
         moves: Observation,
         theirs: Option<Observation>,
     ) -> Outcome {
-        let resurrect = self.tree.backing(to).is_file().then(|| to.clone());
+        let resurrect = self.local.backing(to).is_file().then(|| to.clone());
         let lost = theirs.is_some() || resurrect.is_none();
         Outcome::MoveLost {
             theirs,

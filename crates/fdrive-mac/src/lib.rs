@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use fdrive_core::engine::{Engine, Observation};
 use fdrive_core::path::RelPath;
-use fdrive_core::port::LocalTree;
+use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, FileInfo, FileType, Sdk};
 use tokio::runtime::Runtime;
 
@@ -34,7 +34,7 @@ impl MacTree {
     }
 }
 
-impl LocalTree for MacTree {
+impl LocalStore for MacTree {
     fn backing(&self, path: &RelPath) -> PathBuf {
         self.cache_dir.join(path.as_str())
     }
@@ -61,11 +61,11 @@ pub struct Handle {
 
 impl Handle {
     fn backing(&self, path: &RelPath) -> PathBuf {
-        self.engine.tree().backing(path)
+        self.engine.local().backing(path)
     }
 
     fn invalidate(&self, dir: &RelPath) {
-        self.engine.tree().invalidate(dir);
+        self.engine.local().invalidate(dir);
     }
 
     fn ls(&self, dir: &RelPath) -> io::Result<Vec<FileInfo>> {
@@ -75,7 +75,7 @@ impl Handle {
                 Ok(fetched) => {
                     self.engine.listed(dir, &fetched);
                     self.engine
-                        .tree()
+                        .local()
                         .meta
                         .lock()
                         .unwrap()
@@ -86,7 +86,7 @@ impl Handle {
                     return Err(err.into())
                 }
                 Err(err) => {
-                    let meta = self.engine.tree().meta.lock().unwrap();
+                    let meta = self.engine.local().meta.lock().unwrap();
                     match meta.get(dir) {
                         Some((_, listing)) => {
                             log::debug!("ls {dir} unreachable, serving stale: {err}");
@@ -105,7 +105,7 @@ impl Handle {
     }
 
     fn cached_listing(&self, dir: &RelPath) -> Option<Vec<FileInfo>> {
-        let meta = self.engine.tree().meta.lock().unwrap();
+        let meta = self.engine.local().meta.lock().unwrap();
         let (at, listing) = meta.get(dir)?;
         (at.elapsed() < META_TTL).then(|| listing.clone())
     }
@@ -210,7 +210,7 @@ impl Handle {
         self.rt.block_on(self.engine.delete(path, is_dir))?;
         remove_path(&self.backing(path))?;
         self.invalidate(path);
-        self.engine.tree().drop(&path.parent_or_root(), path.name());
+        self.engine.local().drop(&path.parent_or_root(), path.name());
         Ok(())
     }
 
@@ -347,7 +347,7 @@ pub unsafe extern "C" fn fsx_connect(
         meta: Mutex::new(HashMap::new()),
     };
     let engine = Engine::start(Arc::new(sdk), rt.handle().clone(), tree);
-    if engine.prune(&engine.tree().cache_dir).is_err() {
+    if engine.prune(&engine.local().cache_dir).is_err() {
         return std::ptr::null_mut();
     }
     engine.recover();

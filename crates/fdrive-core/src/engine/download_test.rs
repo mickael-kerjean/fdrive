@@ -33,7 +33,7 @@ async fn concurrent_hydrates_download_once() {
     a.unwrap();
     b.unwrap();
     cat.assert_hits(1);
-    assert_eq!(engine.tree().read("f").unwrap(), b"hello");
+    assert_eq!(engine.local().read("f").unwrap(), b"hello");
 }
 
 #[tokio::test]
@@ -60,13 +60,13 @@ async fn reads_are_served_while_the_download_is_in_flight() {
 
     engine.hydrate_start(&path, None).await.unwrap();
     assert!(
-        engine.tree().read("f").is_none(),
+        engine.local().read("f").is_none(),
         "hydrate_start returned before the file was cached"
     );
     let download = engine.download(&path).expect("download is in flight");
     assert_eq!(download.read(0, 5).await.unwrap(), b"hello");
     download.done().await.unwrap();
-    assert_eq!(engine.tree().read("f").unwrap(), b"hello world");
+    assert_eq!(engine.local().read("f").unwrap(), b"hello world");
 }
 
 #[tokio::test]
@@ -87,7 +87,7 @@ async fn a_renamed_file_hydrates_from_its_old_name() {
     engine.rename(&a, &b, false).await.unwrap();
     engine.hydrate(&b, Some(observed(5))).await.unwrap();
     cat.assert_hits(1);
-    assert_eq!(engine.tree().read("b").unwrap(), b"hello");
+    assert_eq!(engine.local().read("b").unwrap(), b"hello");
 }
 
 #[tokio::test]
@@ -109,11 +109,11 @@ async fn a_cached_file_opens_when_the_server_is_unreachable() {
     let rt = tokio::runtime::Handle::current();
     let engine = Engine::start(Arc::new(sdk), rt, TempTree::new());
     let path = RelPath::new("f");
-    engine.tree().write("f", b"cached");
+    engine.local().write("f", b"cached");
     engine.ledger().observe(&path, Observation::new(6, None));
 
     engine.hydrate(&path, None).await.unwrap();
-    assert_eq!(engine.tree().read("f").unwrap(), b"cached");
+    assert_eq!(engine.local().read("f").unwrap(), b"cached");
     assert!(
         engine
             .hydrate(&RelPath::new("never-cached"), None)
@@ -140,7 +140,7 @@ async fn a_fresh_listing_hint_makes_a_cold_open_one_request() {
 
     engine.hydrate(&path, Some(hint)).await.unwrap();
     cat.assert_hits(1);
-    assert_eq!(engine.tree().read("f").unwrap(), b"hello");
+    assert_eq!(engine.local().read("f").unwrap(), b"hello");
     assert_eq!(
         engine.ledger().observations.get(&path).copied(),
         Some(hint),
@@ -199,7 +199,7 @@ async fn a_second_hydrate_travels_as_ranges() {
         .hydrate(&path, Some(at(MTIME, v1.len())))
         .await
         .unwrap();
-    assert_eq!(engine.tree().read("f").unwrap(), v1);
+    assert_eq!(engine.local().read("f").unwrap(), v1);
     full.delete();
 
     let sig = server.mock(|when, then| {
@@ -225,7 +225,7 @@ async fn a_second_hydrate_travels_as_ranges() {
         .unwrap();
     sig.assert_hits(1);
     range.assert_hits(1);
-    assert_eq!(engine.tree().read("f").unwrap(), v2);
+    assert_eq!(engine.local().read("f").unwrap(), v2);
 }
 
 #[tokio::test]
@@ -273,5 +273,5 @@ async fn a_rewritten_file_falls_back_to_the_full_download() {
         .await
         .unwrap();
     full2.assert_hits(1);
-    assert_eq!(engine.tree().read("f").unwrap(), v2);
+    assert_eq!(engine.local().read("f").unwrap(), v2);
 }

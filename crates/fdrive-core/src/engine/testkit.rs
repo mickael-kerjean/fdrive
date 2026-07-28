@@ -8,7 +8,7 @@ use httpmock::MockServer;
 
 use crate::engine::{Engine, Observation};
 use crate::path::RelPath;
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 use crate::sdk::Sdk;
 
 pub(super) struct TempTree {
@@ -64,7 +64,7 @@ impl Drop for TempTree {
     }
 }
 
-impl LocalTree for TempTree {
+impl LocalStore for TempTree {
     fn backing(&self, path: &RelPath) -> PathBuf {
         self.dir.join(path.as_str())
     }

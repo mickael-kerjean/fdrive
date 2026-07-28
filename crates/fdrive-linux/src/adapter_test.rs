@@ -12,7 +12,7 @@ fn ls_serves_the_stale_listing_when_the_server_is_unreachable() {
     let expired = Instant::now()
         .checked_sub(Duration::from_secs(600))
         .unwrap();
-    adapter.engine.tree().meta.lock().unwrap().insert(
+    adapter.engine.local().meta.lock().unwrap().insert(
         dir.clone(),
         (
             expired,

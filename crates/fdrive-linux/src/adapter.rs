@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime};
 use fdrive_core::engine::UploadStatus;
 use fdrive_core::engine::{Engine, Observation};
 use fdrive_core::path::RelPath;
-use fdrive_core::port::LocalTree;
+use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, FileInfo, FileType, Sdk};
 use tokio::sync::watch;
 
@@ -43,7 +43,7 @@ impl CacheTree {
     }
 }
 
-impl LocalTree for CacheTree {
+impl LocalStore for CacheTree {
     fn backing(&self, path: &RelPath) -> PathBuf {
         self.cache_dir.join(path.as_str())
     }
@@ -144,15 +144,15 @@ impl Adapter {
     }
 
     fn prune(&self) -> io::Result<()> {
-        self.engine.prune(&self.engine.tree().cache_dir)
+        self.engine.prune(&self.engine.local().cache_dir)
     }
 
     fn backing(&self, path: &RelPath) -> PathBuf {
-        self.engine.tree().backing(path)
+        self.engine.local().backing(path)
     }
 
     fn invalidate(&self, dir: &RelPath) {
-        self.engine.tree().invalidate(dir);
+        self.engine.local().invalidate(dir);
     }
 
     pub fn ls(&self, dir: &RelPath) -> io::Result<Vec<FileInfo>> {
@@ -166,7 +166,7 @@ impl Adapter {
                 Ok(fetched) => {
                     self.engine.listed(dir, &fetched);
                     self.engine
-                        .tree()
+                        .local()
                         .meta
                         .lock()
                         .unwrap()
@@ -177,7 +177,7 @@ impl Adapter {
                     return Err(err.into())
                 }
                 Err(err) => {
-                    let meta = self.engine.tree().meta.lock().unwrap();
+                    let meta = self.engine.local().meta.lock().unwrap();
                     match meta.get(dir) {
                         Some((_, listing)) => {
                             log::debug!("ls {dir} unreachable, serving stale: {err}");
@@ -196,7 +196,7 @@ impl Adapter {
     }
 
     fn cached_listing(&self, dir: &RelPath) -> Option<Vec<FileInfo>> {
-        let meta = self.engine.tree().meta.lock().unwrap();
+        let meta = self.engine.local().meta.lock().unwrap();
         let (at, listing) = meta.get(dir)?;
         (at.elapsed() < META_TTL).then(|| listing.clone())
     }
@@ -384,7 +384,7 @@ impl Adapter {
         remove_path(&self.backing(path))?;
         self.xattrs.forget(path);
         self.invalidate(path);
-        self.engine.tree().drop(&path.parent_or_root(), path.name());
+        self.engine.local().drop(&path.parent_or_root(), path.name());
         Ok(())
     }
 
@@ -417,7 +417,7 @@ impl Adapter {
     }
 
     pub fn vacuum(&self) -> io::Result<()> {
-        self.engine.tree().meta.lock().unwrap().clear();
+        self.engine.local().meta.lock().unwrap().clear();
         self.prune()
     }
 }

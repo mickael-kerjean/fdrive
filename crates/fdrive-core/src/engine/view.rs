@@ -3,13 +3,13 @@ use std::fs;
 use std::time::{Duration, UNIX_EPOCH};
 
 use crate::path::RelPath;
-use crate::port::LocalTree;
+use crate::port::LocalStore;
 use crate::sdk::FileInfo;
 
 use super::Engine;
 use crate::model::{Fate, Observation};
 
-impl<T: LocalTree> Engine<T> {
+impl<T: LocalStore> Engine<T> {
     pub fn fates(&self) -> BTreeMap<RelPath, Fate> {
         self.state().view().fates
     }
@@ -36,7 +36,7 @@ impl<T: LocalTree> Engine<T> {
             if ledger.observations.get(&path) == Some(&obs) {
                 continue;
             }
-            let advance = match fs::metadata(self.tree.backing(&path)) {
+            let advance = match fs::metadata(self.local.backing(&path)) {
                 Ok(md) => Observation::of_local(&md) == obs,
                 Err(_) => true,
             };
@@ -63,7 +63,7 @@ impl<T: LocalTree> Engine<T> {
             if listing.iter().any(|e| e.name == name) {
                 continue;
             }
-            let (size, mtime) = match fs::metadata(self.tree.backing(path)) {
+            let (size, mtime) = match fs::metadata(self.local.backing(path)) {
                 Ok(md) => (md.len(), md.modified().ok()),
                 Err(_) => (was.size, Some(UNIX_EPOCH + Duration::from_secs(was.time))),
             };
@@ -86,7 +86,7 @@ impl<T: LocalTree> Engine<T> {
         for path in extras {
             let name = path.name();
             if !listing.iter().any(|e| e.name == name) {
-                if let Ok(md) = fs::metadata(self.tree.backing(&path)) {
+                if let Ok(md) = fs::metadata(self.local.backing(&path)) {
                     listing.push(FileInfo {
                         name: name.to_string(),
                         kind: crate::sdk::FileType::File,
@@ -161,13 +161,13 @@ impl<T: LocalTree> Engine<T> {
                 ledger.dirty.contains(path),
             )
         };
-        dirty || (observed == Some(current) && self.tree.backing(path).is_file())
+        dirty || (observed == Some(current) && self.local.backing(path).is_file())
     }
 
     pub fn dirty_metadata(&self, path: &RelPath) -> Option<fs::Metadata> {
         if !self.ledger().dirty.contains(path) {
             return None;
         }
-        fs::metadata(self.tree.backing(path)).ok()
+        fs::metadata(self.local.backing(path)).ok()
     }
 }

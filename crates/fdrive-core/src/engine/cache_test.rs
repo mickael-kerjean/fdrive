@@ -14,11 +14,11 @@ async fn unreadable_ledger_quarantines_instead_of_pruning() {
     fs::write(&tree.state, b"not json").unwrap();
 
     let engine = engine_with(&server, tree);
-    let root = engine.tree().dir.clone();
+    let root = engine.local().dir.clone();
     engine.prune(&root).unwrap();
 
     assert!(
-        engine.tree().read("only-copy.txt").is_none(),
+        engine.local().read("only-copy.txt").is_none(),
         "the cache was set aside"
     );
     let prefix = format!(
@@ -33,10 +33,10 @@ async fn unreadable_ledger_quarantines_instead_of_pruning() {
     assert!(aside.path().join("only-copy.txt").exists());
     fs::remove_dir_all(aside.path()).unwrap();
 
-    engine.tree().write("fresh.txt", b"clean");
+    engine.local().write("fresh.txt", b"clean");
     engine.prune(&root).unwrap();
     assert!(
-        engine.tree().read("fresh.txt").is_none(),
+        engine.local().read("fresh.txt").is_none(),
         "a second prune prunes normally instead of quarantining"
     );
     assert!(
@@ -70,7 +70,7 @@ async fn a_pin_hydrates_the_subtree() {
     engine.ledger().pin_set(&RelPath::new("d"));
     engine.hydrate_subtree(&RelPath::new("d")).await;
     cat.assert_hits(1);
-    assert_eq!(engine.tree().read("d/f.txt").unwrap(), b"hello");
+    assert_eq!(engine.local().read("d/f.txt").unwrap(), b"hello");
     assert!(
         engine
             .ledger()
@@ -87,19 +87,19 @@ async fn a_pin_hydrates_the_subtree() {
 async fn prune_spares_pinned_content() {
     let server = MockServer::start();
     let engine = engine(&server);
-    let root = engine.tree().dir.clone();
+    let root = engine.local().dir.clone();
     let path = RelPath::new("d/f.txt");
-    engine.tree().write("d/f.txt", b"hello");
+    engine.local().write("d/f.txt", b"hello");
     engine.ledger().observe(&path, Observation::new(5, None));
     engine.ledger().pin_set(&RelPath::new("d"));
 
     engine.prune(&root).unwrap();
-    assert_eq!(engine.tree().read("d/f.txt").unwrap(), b"hello");
+    assert_eq!(engine.local().read("d/f.txt").unwrap(), b"hello");
     assert!(engine.ledger().observations.contains_key(&path));
 
     engine.unpin(&RelPath::new("d"));
     engine.prune(&root).unwrap();
-    assert!(engine.tree().read("d/f.txt").is_none());
+    assert!(engine.local().read("d/f.txt").is_none());
     assert!(
         engine.ledger().observations.contains_key(&path),
         "prune drops bytes, never knowledge"
@@ -123,16 +123,16 @@ async fn prune_keeps_the_delta_base_across_restarts() {
             .body(r#"{"status":"ok"}"#);
     });
     let engine = engine(&server);
-    let root = engine.tree().dir.clone();
+    let root = engine.local().dir.clone();
     let path = RelPath::new("big.txt");
     let synced = vec![b'a'; 8192];
-    engine.tree().write("big.txt", &synced);
+    engine.local().write("big.txt", &synced);
     engine.ledger().observe(&path, observed(8192));
     let sig = crate::engine::upload::signature(&synced);
     engine.ledger().sign_set(&path, &sig);
 
     engine.prune(&root).unwrap();
-    assert!(engine.tree().read("big.txt").is_none());
+    assert!(engine.local().read("big.txt").is_none());
     assert!(
         engine.ledger().sign_get(&path).is_some(),
         "the signature describes server content, it outlives the bytes"
@@ -144,7 +144,7 @@ async fn prune_keeps_the_delta_base_across_restarts() {
 
     let mut edited = synced.clone();
     edited[0] = b'b';
-    engine.tree().write("big.txt", &edited);
+    engine.local().write("big.txt", &edited);
     engine.modified(&path);
     settle(&engine).await;
 

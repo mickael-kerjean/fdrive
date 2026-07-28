@@ -16,14 +16,14 @@ async fn a_new_file_saves_on_flush() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.tree().write("f", b"hello");
+    engine.local().write("f", b"hello");
     engine.created(&path);
     engine.modified(&path);
 
     settle(&engine).await;
     save.assert_hits(1);
     assert!(engine.ledger().dirty.is_empty());
-    assert_eq!(*engine.tree().settled.lock().unwrap(), [path]);
+    assert_eq!(*engine.local().settled.lock().unwrap(), [path]);
 }
 
 #[tokio::test]
@@ -38,7 +38,7 @@ async fn a_save_carries_its_lease() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.tree().write("f", b"hello");
+    engine.local().write("f", b"hello");
     engine
         .ledger()
         .observations
@@ -74,7 +74,7 @@ async fn a_failed_save_keeps_the_debt() {
     });
     let engine = engine(&server);
     let path = RelPath::new("a/b/f");
-    engine.tree().write("a/b/f", b"deep");
+    engine.local().write("a/b/f", b"deep");
     engine.modified(&path);
 
     engine.flush(Duration::from_millis(1200)).await;

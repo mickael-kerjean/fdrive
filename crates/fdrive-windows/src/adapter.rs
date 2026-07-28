@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 use fdrive_core::engine::UploadStatus;
 use fdrive_core::engine::{Engine, Observation};
 use fdrive_core::path::RelPath;
-use fdrive_core::port::LocalTree;
+use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{Error as SdkError, FileInfo, FileType, Sdk};
 use futures_util::TryStreamExt;
 use tokio::sync::watch;
@@ -70,7 +70,7 @@ impl PlaceholderTree {
     }
 }
 
-impl LocalTree for PlaceholderTree {
+impl LocalStore for PlaceholderTree {
     fn backing(&self, path: &RelPath) -> PathBuf {
         self.abs(path)
     }
@@ -324,14 +324,14 @@ impl Adapter {
     }
 
     pub fn on_delete(&self, path: &RelPath, is_dir: bool) -> io::Result<()> {
-        if self.engine.tree().is_suppressed(path) {
+        if self.engine.local().is_suppressed(path) {
             return Ok(());
         }
         self.engine.rt().block_on(self.engine.delete(path, is_dir))
     }
 
     pub fn on_rename(&self, from: &RelPath, to: &RelPath, is_dir: bool) -> io::Result<()> {
-        if self.engine.tree().is_suppressed(from) {
+        if self.engine.local().is_suppressed(from) {
             return Ok(());
         }
         self.engine
@@ -557,7 +557,7 @@ impl Adapter {
             self.classify(&abs, path),
             Ok(FileState::Cached(Pin::Pinned) | FileState::Dehydrated(Pin::Pinned))
         );
-        let result = self.engine.tree().suppress(path, || {
+        let result = self.engine.local().suppress(path, || {
             match wire::delete_if_clean(&abs) {
                 Ok(()) => {}
                 Err(err) if err.kind() == io::ErrorKind::NotFound => {}
@@ -595,7 +595,7 @@ impl Adapter {
             }
             return;
         }
-        let removed = self.engine.tree().suppress(path, || {
+        let removed = self.engine.local().suppress(path, || {
             if is_dir {
                 fs::remove_dir_all(&abs)
             } else {
@@ -766,7 +766,7 @@ impl Adapter {
         let root = RelPath::root();
         let result = self
             .engine
-            .tree()
+            .local()
             .suppress(&root, || self.vacuum_dir(&root));
         result.map(|_| ())
     }

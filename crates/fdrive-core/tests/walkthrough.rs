@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use fdrive_core::engine::{Engine, Resolution, UploadStatus};
 use fdrive_core::path::RelPath;
-use fdrive_core::port::LocalTree;
+use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::Sdk;
 use fdrive_core::testkit::FakeServer;
 
@@ -43,7 +43,7 @@ impl Drop for Platform {
     }
 }
 
-impl LocalTree for Platform {
+impl LocalStore for Platform {
     fn backing(&self, path: &RelPath) -> PathBuf {
         self.root.join(path.as_str())
     }
@@ -67,14 +67,14 @@ fn connect(server: &FakeServer, platform: Platform) -> Arc<Engine<Platform>> {
 
 fn create(engine: &Engine<Platform>, path: &str, bytes: &[u8]) -> RelPath {
     let path = RelPath::new(path);
-    fs::write(engine.tree().backing(&path), bytes).unwrap();
+    fs::write(engine.local().backing(&path), bytes).unwrap();
     engine.created(&path);
     engine.modified(&path);
     path
 }
 
 fn edit(engine: &Engine<Platform>, path: &RelPath, bytes: &[u8]) {
-    fs::write(engine.tree().backing(path), bytes).unwrap();
+    fs::write(engine.local().backing(path), bytes).unwrap();
     engine.modified(path);
 }
 
@@ -134,7 +134,7 @@ async fn a_rename_travels_as_a_verb_not_as_bytes() {
     settle(&engine).await;
 
     let to = RelPath::new("final.txt");
-    engine.tree().relocate(&from, &to).unwrap();
+    engine.local().relocate(&from, &to).unwrap();
     engine.rename(&from, &to, false).await.unwrap();
     settle(&engine).await;
 
@@ -157,7 +157,7 @@ async fn a_delete_reaches_the_server() {
     let path = create(&engine, "old.txt", b"bye");
     settle(&engine).await;
 
-    fs::remove_file(engine.tree().backing(&path)).unwrap();
+    fs::remove_file(engine.local().backing(&path)).unwrap();
     engine.delete(&path, false).await.unwrap();
     settle(&engine).await;
 
@@ -248,7 +248,7 @@ async fn a_server_file_hydrates_locally_on_demand() {
     engine.hydrate(&path, None).await.unwrap();
 
     assert_eq!(
-        fs::read(engine.tree().backing(&path)).unwrap(),
+        fs::read(engine.local().backing(&path)).unwrap(),
         bytes(32 * 1024)
     );
 }
