@@ -165,6 +165,7 @@ impl Ledger {
                         Some(removes) => Plan::Remove { path, removes },
                         None => continue,
                     },
+                    "d" => Plan::RemoveDir { path },
                     _ => continue,
                 };
                 out.push((seq, plan));
@@ -206,6 +207,7 @@ impl Ledger {
                     } => ("s", path, None, reuses.as_ref(), *replaces),
                     Plan::Move { from, to, moves } => ("m", from, Some(to), None, Some(*moves)),
                     Plan::Remove { path, removes } => ("r", path, None, None, Some(*removes)),
+                    Plan::RemoveDir { path } => ("d", path, None, None, None),
                 };
                 db.prepare_cached(
                     "INSERT INTO journal(op, path, dest, base, size, time) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

@@ -342,9 +342,16 @@ impl State {
                 (false, conflict)
             }
             Outcome::Removed => {
-                if let Plan::Remove { path, .. } = &plan {
-                    self.ledger.forget(path);
-                    log::info!("removed {path}");
+                match &plan {
+                    Plan::Remove { path, .. } => {
+                        self.ledger.forget(path);
+                        log::info!("removed {path}");
+                    }
+                    Plan::RemoveDir { path } => {
+                        self.ledger.forget(path);
+                        log::info!("removed {path}/");
+                    }
+                    _ => {}
                 }
                 self.retire(seq);
                 (false, None)
@@ -353,6 +360,10 @@ impl State {
                 if let Plan::Remove { path, .. } = &plan {
                     self.ledger.observe(path, theirs);
                 }
+                self.retire(seq);
+                (false, Some(conflict))
+            }
+            Outcome::RemoveDirLost { conflict } => {
                 self.retire(seq);
                 (false, Some(conflict))
             }
@@ -387,6 +398,25 @@ impl State {
 
     pub(super) fn pending(&self) -> usize {
         self.journal.pending.len()
+    }
+
+    pub(super) fn plan_remove_dir(&mut self, path: &RelPath) {
+        let plan = Plan::RemoveDir { path: path.clone() };
+        let rows = self.ledger.journal_swap(&[], &[], &[plan]);
+        self.journal.admit(rows);
+        self.refresh();
+    }
+
+    pub(super) fn busy_under(&self, dir: &RelPath) -> bool {
+        let under = |p: &RelPath| p == dir || p.is_descendant_of(dir);
+        self.journal
+            .window
+            .iter()
+            .any(|(_, op)| op_paths(op).into_iter().any(under))
+            || self.journal.pending.values().any(|entry| {
+                !matches!(&entry.plan, Plan::RemoveDir { path } if path == dir)
+                    && entry.plan.paths().into_iter().any(under)
+            })
     }
 
     pub(super) fn idle(&self) -> bool {
@@ -448,6 +478,9 @@ impl State {
                 Plan::Remove { path, .. } => {
                     fates.insert(path.clone(), Fate::Gone);
                 }
+                Plan::RemoveDir { path } => {
+                    fates.insert(path.clone(), Fate::Gone);
+                }
             }
         }
         for (_, op) in &self.journal.window {
@@ -483,6 +516,7 @@ impl Journal {
         loop {
             let next = self.pending.iter().find(|(seq, entry)| {
                 !self.inflight.contains(seq)
+                    && !matches!(entry.plan, Plan::RemoveDir { .. })
                     && !seeds.iter().any(|(s, _)| s == *seq)
                     && (drained
                         .iter()
