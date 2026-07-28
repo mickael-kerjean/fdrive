@@ -5,6 +5,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 mod dashboard;
 mod login;
 mod tray;
+mod webview;
 
 pub use fdrive_core::sdk::normalize_server;
 pub use tray::Tray;

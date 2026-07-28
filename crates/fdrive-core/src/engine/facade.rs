@@ -14,7 +14,6 @@ use crate::sdk::{Error as SdkError, Sdk};
 
 use super::conflict::Conflicts;
 use super::gates::Transfers;
-use super::spawner::Spawner;
 use super::state::{LedgerGuard, State, Step};
 use super::{scheduler, Engine, Frozen, Outcome, UploadStatus};
 
@@ -25,7 +24,7 @@ impl<T: LocalStore> Engine<T> {
         let state = State::open(&ledger_file);
         let conflicts = Conflicts::load(state.ledger.conflicts_load());
         let (scheduler, driver) = scheduler::prepare();
-        let engine = Arc::new_cyclic(|weak| Self {
+        let engine = Arc::new(Self {
             local,
             sdk,
             ignore,
@@ -34,10 +33,7 @@ impl<T: LocalStore> Engine<T> {
             frozen: Mutex::new(BTreeSet::new()),
             conflicts,
             scheduler,
-            spawner: Spawner {
-                rt: rt.clone(),
-                weak: weak.clone(),
-            },
+            rt: rt.clone(),
             activity: Arc::default(),
         });
         driver.spawn(&rt, Arc::downgrade(&engine));
@@ -194,7 +190,7 @@ impl<T: LocalStore> Engine<T> {
     }
 
     pub fn rt(&self) -> &tokio::runtime::Handle {
-        &self.spawner.rt
+        &self.rt
     }
 
     pub fn local(&self) -> &T {

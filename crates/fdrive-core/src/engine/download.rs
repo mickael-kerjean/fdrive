@@ -184,12 +184,11 @@ impl<T: LocalStore> Engine<T> {
             .lock()
             .unwrap()
             .insert(path.clone(), Arc::new(Download { file, state }));
-        self.spawner
-            .spawn(|engine| engine.stream(path.clone(), tmp, tx, current));
+        self.scheduler.stream(path.clone(), tmp, tx, current);
         Ok(())
     }
 
-    async fn stream(
+    pub(super) async fn stream(
         self: Arc<Self>,
         path: RelPath,
         tmp: PathBuf,
