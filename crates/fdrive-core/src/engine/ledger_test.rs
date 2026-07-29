@@ -82,13 +82,17 @@ fn journal_intents_survive_a_reopen() {
         },
         Plan::Remove {
             path: RelPath::new("z"),
-            removes: Observation { size: 5, time: 6 },
+            dir: false,
+        },
+        Plan::Remove {
+            path: RelPath::new("zz"),
+            dir: true,
         },
     ];
     {
         let mut ledger = Ledger::open(&file).unwrap();
         let rows = ledger.journal_swap(&[], &[], &plans);
-        assert_eq!(rows.len(), 3);
+        assert_eq!(rows.len(), 4);
     }
     let ledger = Ledger::open(&file).unwrap();
     let loaded: Vec<Plan> = ledger
@@ -102,6 +106,7 @@ fn journal_intents_survive_a_reopen() {
         ledger.dirty.contains(&RelPath::new("b")),
         "a pending save is a dirty path"
     );
+    assert_eq!(ledger.meta("version").as_deref(), Some("1"));
 }
 
 #[test]

@@ -13,6 +13,7 @@ const OPEN_QUIET: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(10);
 const RETRY_CAP: Duration = Duration::from_secs(300);
 const BREAKER_BUDGET: u64 = 50;
+const BREAKER_FLAG: &str = "breaker_tripped";
 
 pub(super) struct State {
     pub(super) journal: Journal,
@@ -96,11 +97,17 @@ impl State {
             inflight: BTreeSet::new(),
         };
         journal.admit(plans);
+        let tripped = ledger.meta(BREAKER_FLAG).is_some();
+        if tripped {
+            log::warn!(
+                "deletion breaker was tripped before restart; server-side deletions stay held"
+            );
+        }
         Self {
             journal,
             ledger,
             removed: 0,
-            tripped: false,
+            tripped,
         }
     }
 
@@ -350,30 +357,12 @@ impl State {
                 (false, conflict)
             }
             Outcome::Removed => {
-                match &plan {
-                    Plan::Remove { path, .. } => {
-                        self.ledger.forget(path);
-                        log::info!("removed {path}");
-                    }
-                    Plan::RemoveDir { path } => {
-                        self.ledger.forget(path);
-                        log::info!("removed {path}/");
-                    }
-                    _ => {}
+                if let Plan::Remove { path, dir } = &plan {
+                    self.ledger.forget(path);
+                    log::info!("removed {path}{}", if *dir { "/" } else { "" });
                 }
                 self.retire(seq);
                 (false, None)
-            }
-            Outcome::RemoveLost { theirs, conflict } => {
-                if let Plan::Remove { path, .. } = &plan {
-                    self.ledger.observe(path, theirs);
-                }
-                self.retire(seq);
-                (false, Some(conflict))
-            }
-            Outcome::RemoveDirLost { conflict } => {
-                self.retire(seq);
-                (false, Some(conflict))
             }
             Outcome::Busy => {
                 if let Some(entry) = self.journal.pending.get_mut(&seq) {
@@ -408,8 +397,50 @@ impl State {
         self.journal.pending.len()
     }
 
-    pub(super) fn plan_remove_dir(&mut self, path: &RelPath) {
-        let plan = Plan::RemoveDir { path: path.clone() };
+    pub(super) fn pending_sample(&self, n: usize) -> Vec<String> {
+        self.journal
+            .pending
+            .values()
+            .take(n)
+            .map(|e| e.plan.to_string())
+            .collect()
+    }
+
+    pub(super) fn plan_delete_dir(&mut self, path: &RelPath) {
+        let under = |p: &RelPath| p == path || p.is_descendant_of(path);
+        self.journal
+            .window
+            .retain(|(_, op)| !op_paths(op).into_iter().all(under));
+        let subsumed: Vec<i64> = self
+            .journal
+            .pending
+            .iter()
+            .filter(|(seq, e)| {
+                !self.journal.inflight.contains(seq)
+                    && matches!(e.plan, Plan::Remove { .. } | Plan::Save { .. })
+                    && e.plan.paths().into_iter().all(under)
+            })
+            .map(|(seq, _)| *seq)
+            .collect();
+        for seq in subsumed {
+            self.journal.pending.remove(&seq);
+            self.ledger.journal_retire(seq);
+        }
+        let doomed: Vec<RelPath> = self
+            .journal
+            .marks
+            .iter()
+            .filter(|p| under(p))
+            .cloned()
+            .collect();
+        for p in doomed {
+            self.journal.marks.remove(&p);
+            self.ledger.unmark(&p);
+        }
+        let plan = Plan::Remove {
+            path: path.clone(),
+            dir: true,
+        };
         let rows = self.ledger.journal_swap(&[], &[], &[plan]);
         self.journal.admit(rows);
         self.refresh();
@@ -419,6 +450,7 @@ impl State {
         self.removed += 1;
         if !self.tripped && self.removed >= BREAKER_BUDGET {
             self.tripped = true;
+            self.ledger.meta_set(BREAKER_FLAG, "1");
             log::error!(
                 "{} deletions this session; further server-side deletions are held",
                 self.removed
@@ -438,13 +470,14 @@ impl State {
         self.journal
             .pending
             .values()
-            .filter(|e| matches!(e.plan, Plan::Remove { .. } | Plan::RemoveDir { .. }))
+            .filter(|e| matches!(e.plan, Plan::Remove { .. }))
             .count()
     }
 
     pub(super) fn breaker_release(&mut self) {
         self.tripped = false;
         self.removed = 0;
+        self.ledger.meta_clear(BREAKER_FLAG);
     }
 
     pub(super) fn breaker_cancel(&mut self) -> usize {
@@ -456,8 +489,7 @@ impl State {
             .pending
             .iter()
             .filter(|(seq, e)| {
-                !self.journal.inflight.contains(seq)
-                    && matches!(e.plan, Plan::Remove { .. } | Plan::RemoveDir { .. })
+                !self.journal.inflight.contains(seq) && matches!(e.plan, Plan::Remove { .. })
             })
             .map(|(seq, _)| *seq)
             .collect();
@@ -467,18 +499,6 @@ impl State {
         }
         self.breaker_release();
         cancelled
-    }
-
-    pub(super) fn busy_under(&self, dir: &RelPath) -> bool {
-        let under = |p: &RelPath| p == dir || p.is_descendant_of(dir);
-        self.journal
-            .window
-            .iter()
-            .any(|(_, op)| op_paths(op).into_iter().any(under))
-            || self.journal.pending.values().any(|entry| {
-                !matches!(&entry.plan, Plan::RemoveDir { path } if path == dir)
-                    && entry.plan.paths().into_iter().any(under)
-            })
     }
 
     pub(super) fn idle(&self) -> bool {
@@ -540,9 +560,6 @@ impl State {
                 Plan::Remove { path, .. } => {
                     fates.insert(path.clone(), Fate::Gone);
                 }
-                Plan::RemoveDir { path } => {
-                    fates.insert(path.clone(), Fate::Gone);
-                }
             }
         }
         for (_, op) in &self.journal.window {
@@ -578,7 +595,7 @@ impl Journal {
         loop {
             let next = self.pending.iter().find(|(seq, entry)| {
                 !self.inflight.contains(seq)
-                    && !matches!(entry.plan, Plan::RemoveDir { .. })
+                    && !matches!(entry.plan, Plan::Remove { dir: true, .. })
                     && !seeds.iter().any(|(s, _)| s == *seq)
                     && (drained
                         .iter()

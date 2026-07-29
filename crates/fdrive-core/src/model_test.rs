@@ -35,7 +35,7 @@ fn mv(from: &str, to: &str) -> Plan {
 fn rm(path: &str) -> Plan {
     Plan::Remove {
         path: p(path),
-        removes: obs(path.len() as u64),
+        dir: false,
     }
 }
 
@@ -181,7 +181,7 @@ fn pending_intents_fold_with_the_next_burst() {
         folded,
         vec![Plan::Remove {
             path: p("a"),
-            removes: obs(1),
+            dir: false,
         }]
     );
 }

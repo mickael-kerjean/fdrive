@@ -8,7 +8,7 @@ use crate::engine::{Deletions, Engine, Observation};
 use crate::path::RelPath;
 use crate::sdk::Sdk;
 
-use super::testkit::{engine, engine_with, observed, settle, TempTree, MTIME};
+use super::testkit::{engine, engine_with, observed, settle, TempTree};
 
 fn tripwires(server: &MockServer) -> (Mock<'_>, Mock<'_>, Mock<'_>) {
     let rm = server.mock(|when, then| {
@@ -86,6 +86,36 @@ async fn garbage_plans_in_the_db_never_reach_the_server() {
 }
 
 #[tokio::test]
+async fn a_journal_with_children_behind_their_dir_still_drains() {
+    // the 2026-07-29 deadlock: 'd' rows journaled before their subtree's 'r' rows
+    let owner = TempTree::new();
+    {
+        let db = rusqlite::Connection::open(&owner.state).unwrap();
+        db.execute_batch(
+            "CREATE TABLE journal(seq INTEGER PRIMARY KEY, op TEXT NOT NULL, path TEXT NOT NULL, dest TEXT, base TEXT, size INTEGER, time INTEGER);
+             INSERT INTO journal(op, path) VALUES ('d', 'd/sub');
+             INSERT INTO journal(op, path) VALUES ('d', 'd');
+             INSERT INTO journal(op, path, size, time) VALUES ('r', 'd/sub/f', 1, 1);
+             INSERT INTO journal(op, path, size, time) VALUES ('r', 'd/g', 1, 1);",
+        )
+        .unwrap();
+    }
+    let server = MockServer::start();
+    let (rm, mv, save) = tripwires(&server);
+    let engine = engine_with(&server, TempTree::reopen(&owner));
+
+    settle(&engine).await;
+
+    assert!(
+        engine.state.lock().unwrap().idle(),
+        "the wave drains instead of deadlocking"
+    );
+    rm.assert_hits(4);
+    mv.assert_hits(0);
+    save.assert_hits(0);
+}
+
+#[tokio::test]
 async fn a_stale_save_landing_on_a_file_turned_directory_uploads_nothing() {
     let server = MockServer::start();
     let mut down = server.mock(|when, then| {
@@ -123,8 +153,12 @@ async fn a_stale_save_landing_on_a_file_turned_directory_uploads_nothing() {
 async fn a_crash_with_a_pending_remove_replays_it_exactly_once() {
     let server = MockServer::start();
     let mut down = server.mock(|when, then| {
-        when.method(Method::HEAD).path("/api/files/cat");
+        when.method(Method::POST).path("/api/files/rm");
         then.status(500);
+    });
+    let mut alive = server.mock(|when, then| {
+        when.method(Method::HEAD).path("/api/files/cat");
+        then.status(200).header("content-length", "5");
     });
     let owner = TempTree::new();
     let path = RelPath::new("doomed.txt");
@@ -135,22 +169,16 @@ async fn a_crash_with_a_pending_remove_replays_it_exactly_once() {
         crashed.flush(Duration::from_secs(1)).await;
     }
     down.delete();
+    alive.delete();
 
     let (rm, mv, save) = tripwires(&server);
-    server.mock(|when, then| {
-        when.method(Method::HEAD)
-            .path("/api/files/cat")
-            .query_param("path", "/doomed.txt");
-        then.status(200)
-            .header("content-length", "5")
-            .header("last-modified", MTIME);
-    });
     let engine = engine_with(&server, TempTree::reopen(&owner));
     settle(&engine).await;
 
     rm.assert_hits(1);
     mv.assert_hits(0);
     save.assert_hits(0);
+    assert!(engine.ledger().observations.is_empty());
 }
 
 #[tokio::test]
