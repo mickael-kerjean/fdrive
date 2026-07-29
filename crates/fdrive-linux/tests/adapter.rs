@@ -87,9 +87,9 @@ fn rmdir_of_an_empty_directory_deletes_it() {
 }
 
 #[test]
-fn a_delete_storm_lists_once_plus_the_veto_and_replay_rechecks() {
+fn a_delete_storm_is_one_recursive_rm() {
     let server = MockServer::start();
-    let mut ls = ls_mock(
+    ls_mock(
         &server,
         "/d/",
         r#"{"name": "a.txt", "size": 1, "time": 0, "type": "file"},
@@ -101,10 +101,6 @@ fn a_delete_storm_lists_once_plus_the_veto_and_replay_rechecks() {
         then.status(200)
             .json_body(serde_json::json!({"status": "ok"}));
     });
-    server.mock(|when, then| {
-        when.method(httpmock::Method::HEAD).path("/api/files/cat");
-        then.status(200).header("content-length", "1");
-    });
     let (rt, data) = (Runtime::new().unwrap(), TempDir::new());
     let adapter = adapter(&server, &data, &rt);
 
@@ -113,12 +109,8 @@ fn a_delete_storm_lists_once_plus_the_veto_and_replay_rechecks() {
         adapter.delete(&RelPath::new(name), false).unwrap();
     }
     adapter.rmdir(&RelPath::new("d")).unwrap();
-    ls.assert_hits(2);
-    ls.delete();
-    let emptied = ls_mock(&server, "/d/", "");
     rt.block_on(adapter.flush(std::time::Duration::from_secs(10)));
-    emptied.assert_hits(1);
-    rm.assert_hits(4);
+    rm.assert_hits(1);
 }
 
 #[test]

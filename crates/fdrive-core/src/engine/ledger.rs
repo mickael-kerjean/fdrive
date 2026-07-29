@@ -42,7 +42,9 @@ impl Ledger {
                  CREATE TABLE IF NOT EXISTS journal(seq INTEGER PRIMARY KEY, op TEXT NOT NULL, path TEXT NOT NULL, dest TEXT, base TEXT, size INTEGER, time INTEGER);
                  CREATE TABLE IF NOT EXISTS conflicts(seq INTEGER PRIMARY KEY, op TEXT NOT NULL, path TEXT NOT NULL, dest TEXT, expected_size INTEGER, expected_time INTEGER, found_size INTEGER, found_time INTEGER, ours TEXT, at INTEGER NOT NULL);
                  CREATE TABLE IF NOT EXISTS pins(path TEXT PRIMARY KEY);
-                 CREATE TABLE IF NOT EXISTS signatures(path TEXT PRIMARY KEY, sig BLOB NOT NULL);",
+                 CREATE TABLE IF NOT EXISTS signatures(path TEXT PRIMARY KEY, sig BLOB NOT NULL);
+                 CREATE TABLE IF NOT EXISTS meta(name TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 INSERT OR IGNORE INTO meta(name, value) VALUES ('version', '1');",
             )?;
             let mut ledger = Ledger::default();
             {
@@ -88,6 +90,24 @@ impl Ledger {
                 Err(err) => log::error!("ledger: {err}"),
             }
         }
+    }
+
+    pub(super) fn meta_set(&self, name: &str, value: &str) {
+        self.exec(
+            "INSERT INTO meta(name, value) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET value = ?2",
+            [name, value],
+        );
+    }
+
+    pub(super) fn meta_clear(&self, name: &str) {
+        self.exec("DELETE FROM meta WHERE name = ?1", [name]);
+    }
+
+    pub(super) fn meta(&self, name: &str) -> Option<String> {
+        let db = self.db.as_ref()?;
+        db.prepare_cached("SELECT value FROM meta WHERE name = ?1")
+            .and_then(|mut stmt| stmt.query_row([name], |row| row.get(0)))
+            .ok()
     }
 
     pub fn pin_set(&mut self, path: &RelPath) {
@@ -137,7 +157,11 @@ impl Ledger {
             while let Some(row) = rows.next()? {
                 let seq: i64 = row.get(0)?;
                 let op: String = row.get(1)?;
-                let path = RelPath::new(&row.get::<_, String>(2)?);
+                let raw: String = row.get(2)?;
+                let path = RelPath::new(&raw);
+                if path.as_str() != raw || path.is_root() {
+                    continue;
+                }
                 let dest: Option<String> = row.get(3)?;
                 let base: Option<String> = row.get(4)?;
                 let lease = row_obs(row.get(5)?, row.get(6)?);
@@ -161,11 +185,8 @@ impl Ledger {
                         },
                         _ => continue,
                     },
-                    "r" => match lease {
-                        Some(removes) => Plan::Remove { path, removes },
-                        None => continue,
-                    },
-                    "d" => Plan::RemoveDir { path },
+                    "r" => Plan::Remove { path, dir: false },
+                    "d" => Plan::Remove { path, dir: true },
                     _ => continue,
                 };
                 out.push((seq, plan));
@@ -206,8 +227,8 @@ impl Ledger {
                         reuses,
                     } => ("s", path, None, reuses.as_ref(), *replaces),
                     Plan::Move { from, to, moves } => ("m", from, Some(to), None, Some(*moves)),
-                    Plan::Remove { path, removes } => ("r", path, None, None, Some(*removes)),
-                    Plan::RemoveDir { path } => ("d", path, None, None, None),
+                    Plan::Remove { path, dir: false } => ("r", path, None, None, None),
+                    Plan::Remove { path, dir: true } => ("d", path, None, None, None),
                 };
                 db.prepare_cached(
                     "INSERT INTO journal(op, path, dest, base, size, time) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",

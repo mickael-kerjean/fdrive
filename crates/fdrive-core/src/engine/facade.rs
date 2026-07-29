@@ -63,21 +63,7 @@ impl<T: LocalStore> Engine<T> {
             self.state().breaker_note();
         }
         if is_dir {
-            let doomed: BTreeSet<RelPath> = {
-                let ledger = self.ledger();
-                ledger
-                    .observations
-                    .keys()
-                    .chain(ledger.dirty.iter())
-                    .filter(|p| p.is_descendant_of(path))
-                    .cloned()
-                    .collect()
-            };
-            for p in doomed {
-                self.record(Operation::Delete(p));
-            }
-            self.step(0, true);
-            self.state().plan_remove_dir(path);
+            self.state().plan_delete_dir(path);
             self.kick();
             log::info!("journaled rmdir {path}/");
             return Ok(());
@@ -172,6 +158,19 @@ impl<T: LocalStore> Engine<T> {
 
     pub(super) fn rush(&self) {
         self.state().rush();
+    }
+
+    pub(super) fn stall_report(&self) -> String {
+        let state = self.state();
+        let mut sample = state.pending_sample(5);
+        let total = state.pending();
+        if total > sample.len() {
+            sample.push(format!("... {} more", total - sample.len()));
+        }
+        format!(
+            "{total} pending plans, none retired: [{}]",
+            sample.join(", ")
+        )
     }
 
     pub(super) fn record(&self, op: Operation) {

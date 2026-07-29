@@ -66,7 +66,12 @@ impl LocalStore for Platform {
 fn connect(server: &FakeServer, platform: Platform) -> Arc<Engine<Platform>> {
     let mut sdk = Sdk::new(server.url()).unwrap();
     sdk.set_token("TOKEN".into());
-    Engine::start(Arc::new(sdk), tokio::runtime::Handle::current(), platform, Deletions::Authoritative)
+    Engine::start(
+        Arc::new(sdk),
+        tokio::runtime::Handle::current(),
+        platform,
+        Deletions::Authoritative,
+    )
 }
 
 fn create(engine: &Engine<Platform>, path: &str, bytes: &[u8]) -> RelPath {

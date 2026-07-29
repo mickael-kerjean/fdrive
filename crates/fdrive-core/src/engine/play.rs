@@ -27,13 +27,6 @@ pub(super) enum Outcome {
         conflict: Option<Conflict>,
     },
     Removed,
-    RemoveLost {
-        theirs: Observation,
-        conflict: Conflict,
-    },
-    RemoveDirLost {
-        conflict: Conflict,
-    },
     Busy,
     Failed(io::Error),
 }
@@ -47,44 +40,8 @@ impl<T: LocalStore> Engine<T> {
                 reuses,
             } => self.replay_save(path, *replaces, reuses.as_ref()).await,
             Plan::Move { from, to, moves } => self.replay_move(from, to, *moves).await,
-            Plan::Remove { path, removes } => self.replay_remove(path, *removes).await,
-            Plan::RemoveDir { path } => self.replay_remove_dir(path).await,
+            Plan::Remove { path, dir } => self.replay_remove(path, *dir).await,
         }
-    }
-
-    async fn replay_remove_dir(&self, path: &RelPath) -> Outcome {
-        if self.is_frozen(path) || self.state().breaker_holds() || self.state().busy_under(path) {
-            return Outcome::Busy;
-        }
-        match self.subtree_holds_files(path).await {
-            Err(SdkError::NotFound) => Outcome::Removed,
-            Err(err) => Outcome::Failed(err.into()),
-            Ok(true) => Outcome::RemoveDirLost {
-                conflict: Conflict::new(Operation::Delete(path.clone()), None, None, None),
-            },
-            Ok(false) => match self.sdk.rm(&path.as_dir()).await {
-                Ok(()) | Err(SdkError::NotFound) => Outcome::Removed,
-                Err(err) => Outcome::Failed(err.into()),
-            },
-        }
-    }
-
-    async fn subtree_holds_files(&self, path: &RelPath) -> Result<bool, SdkError> {
-        let mut stack = vec![path.clone()];
-        while let Some(dir) = stack.pop() {
-            let listing = match self.sdk.ls(&dir.as_dir()).await {
-                Ok(listing) => listing,
-                Err(SdkError::NotFound) if dir != *path => continue,
-                Err(err) => return Err(err),
-            };
-            for entry in listing {
-                match entry.kind {
-                    crate::sdk::FileType::File => return Ok(true),
-                    crate::sdk::FileType::Directory => stack.push(dir.join(&entry.name)),
-                }
-            }
-        }
-        Ok(false)
     }
 
     async fn replay_move(&self, from: &RelPath, to: &RelPath, moves: Observation) -> Outcome {
@@ -128,31 +85,34 @@ impl<T: LocalStore> Engine<T> {
         }
     }
 
-    async fn replay_remove(&self, path: &RelPath, removes: Observation) -> Outcome {
+    async fn replay_remove(&self, path: &RelPath, dir: bool) -> Outcome {
         if self.is_frozen(path) || self.state().breaker_holds() {
             return Outcome::Busy;
         }
-        match self.sdk.stat(&path.as_file()).await {
-            Err(SdkError::NotFound) => Outcome::Removed,
-            Ok(info) if Observation::of(&info) == removes => {
-                match self.sdk.rm(&path.as_file()).await {
-                    Ok(()) | Err(SdkError::NotFound) => Outcome::Removed,
-                    Err(err) => Outcome::Failed(err.into()),
+        let target = if dir { path.as_dir() } else { path.as_file() };
+        match self.sdk.rm(&target).await {
+            Ok(()) | Err(SdkError::NotFound) => Outcome::Removed,
+            // some backends answer rm of a missing target with a generic
+            // error instead of 404; already-gone is still success
+            Err(err) => {
+                if self.gone(path, dir).await {
+                    log::debug!("rm {target} failed ({err}) but the target is gone");
+                    Outcome::Removed
+                } else {
+                    Outcome::Failed(err.into())
                 }
             }
-            Ok(info) => {
-                let theirs = Observation::of(&info);
-                Outcome::RemoveLost {
-                    theirs,
-                    conflict: Conflict::new(
-                        Operation::Delete(path.clone()),
-                        Some(removes),
-                        Some(theirs),
-                        None,
-                    ),
-                }
-            }
-            Err(err) => Outcome::Failed(err.into()),
+        }
+    }
+
+    async fn gone(&self, path: &RelPath, dir: bool) -> bool {
+        if dir {
+            matches!(self.sdk.ls(&path.as_dir()).await, Err(SdkError::NotFound))
+        } else {
+            matches!(
+                self.sdk.stat(&path.as_file()).await,
+                Err(SdkError::NotFound)
+            )
         }
     }
 }

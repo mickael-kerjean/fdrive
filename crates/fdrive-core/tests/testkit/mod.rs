@@ -317,7 +317,9 @@ fn handle(state: &State, mut req: tiny_http::Request) {
                         let _ = req.respond(resp);
                         return;
                     }
-                    if let Some(r) = find!("range").and_then(|r| r.strip_prefix("bytes=").map(String::from)) {
+                    if let Some(r) =
+                        find!("range").and_then(|r| r.strip_prefix("bytes=").map(String::from))
+                    {
                         let (a, b) = r.split_once('-').unwrap_or((r.as_str(), ""));
                         let start: usize = a.parse().unwrap_or(0);
                         let end = b

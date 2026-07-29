@@ -132,8 +132,14 @@ async fn a_local_only_delete_is_vacuous() {
 async fn a_failed_remove_stays_owed() {
     let server = MockServer::start();
     server.mock(|when, then| {
-        when.method(Method::HEAD).path("/api/files/cat");
+        when.method(Method::POST).path("/api/files/rm");
         then.status(500);
+    });
+    server.mock(|when, then| {
+        when.method(Method::HEAD).path("/api/files/cat");
+        then.status(200)
+            .header("content-length", "5")
+            .header("last-modified", MTIME);
     });
     let engine = engine(&server);
     let path = RelPath::new("f");

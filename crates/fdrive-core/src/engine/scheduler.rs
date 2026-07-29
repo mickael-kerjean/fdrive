@@ -15,6 +15,7 @@ use crate::path::RelPath;
 use crate::port::LocalStore;
 
 const CONCURRENCY: usize = 4;
+const STALL: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UploadStatus {
@@ -27,7 +28,12 @@ enum Msg {
     Kick,
     Flush(oneshot::Sender<()>),
     Sweep,
-    Stream(RelPath, PathBuf, watch::Sender<(u64, DownloadStatus)>, Observation),
+    Stream(
+        RelPath,
+        PathBuf,
+        watch::Sender<(u64, DownloadStatus)>,
+        Observation,
+    ),
 }
 
 pub(super) struct Handle {
@@ -99,6 +105,8 @@ async fn run<T: LocalStore>(
     let mut flushes: Vec<oneshot::Sender<()>> = Vec::new();
     let mut failing = false;
     let mut rushed = false;
+    let mut last_progress = Instant::now();
+    let mut last_stall_log = Instant::now();
     loop {
         let wake = {
             let Some(engine) = engine.upgrade() else {
@@ -118,6 +126,10 @@ async fn run<T: LocalStore>(
                 for reply in flushes.drain(..) {
                     let _ = reply.send(());
                 }
+                last_progress = Instant::now();
+            } else if last_progress.elapsed() >= STALL && last_stall_log.elapsed() >= STALL {
+                last_stall_log = Instant::now();
+                log::error!("sync stalled: {}", engine.stall_report());
             }
             let next = match (failing, idle) {
                 (true, _) => UploadStatus::Error,
@@ -164,6 +176,9 @@ async fn run<T: LocalStore>(
                         (seq, Outcome::Failed(io::Error::other("replay panicked")))
                     }
                 };
+                if !matches!(outcome, Outcome::Busy | Outcome::Failed(_)) {
+                    last_progress = Instant::now();
+                }
                 if let Some(engine) = engine.upgrade() {
                     failing = engine.settle(seq, outcome);
                 }

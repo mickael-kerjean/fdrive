@@ -108,10 +108,7 @@ pub enum Plan {
     },
     Remove {
         path: RelPath,
-        removes: Observation,
-    },
-    RemoveDir {
-        path: RelPath,
+        dir: bool,
     },
 }
 
@@ -121,7 +118,6 @@ impl Plan {
             Plan::Save { path, reuses, .. } => std::iter::once(path).chain(reuses).collect(),
             Plan::Move { from, to, .. } => vec![from, to],
             Plan::Remove { path, .. } => vec![path],
-            Plan::RemoveDir { path } => vec![path],
         }
     }
 
@@ -154,8 +150,8 @@ impl fmt::Display for Plan {
                 Ok(())
             }
             Plan::Move { from, to, .. } => write!(f, "move {from}->{to}"),
-            Plan::Remove { path, .. } => write!(f, "remove {path}"),
-            Plan::RemoveDir { path } => write!(f, "rmdir {path}"),
+            Plan::Remove { path, dir: false } => write!(f, "remove {path}"),
+            Plan::Remove { path, dir: true } => write!(f, "rmdir {path}"),
         }
     }
 }
@@ -194,13 +190,13 @@ pub(crate) fn coalesce<'a>(
                 content.insert(to.clone(), Content::Orig(from.clone()));
                 content.insert(from.clone(), Content::Gone);
             }
-            Plan::Remove { path, .. } => {
+            Plan::Remove { path, dir: false } => {
                 if !origs.contains(path) {
                     origs.push(path.clone());
                 }
                 content.insert(path.clone(), Content::Gone);
             }
-            Plan::RemoveDir { path } => dirs.push(path.clone()),
+            Plan::Remove { path, dir: true } => dirs.push(path.clone()),
         }
     }
     let known = |p: &RelPath| know(p).is_some();
@@ -288,17 +284,15 @@ pub(crate) fn coalesce<'a>(
         let survives = content
             .values()
             .any(|st| *st == Content::Orig(orig.clone()));
-        if !survives && content.get(orig) == Some(&Content::Gone) {
-            if let Some(removes) = know(orig) {
-                out.push(Plan::Remove {
-                    path: orig.clone(),
-                    removes,
-                });
-            }
+        if !survives && content.get(orig) == Some(&Content::Gone) && know(orig).is_some() {
+            out.push(Plan::Remove {
+                path: orig.clone(),
+                dir: false,
+            });
         }
     }
     for path in dirs {
-        out.push(Plan::RemoveDir { path });
+        out.push(Plan::Remove { path, dir: true });
     }
     out
 }
