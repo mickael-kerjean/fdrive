@@ -27,6 +27,31 @@ enum SessionEnd {
     Quit,
 }
 
+fn tray_status(upload: UploadStatus, held: usize) -> Status {
+    if held > 0 {
+        return Status::Held;
+    }
+    match upload {
+        UploadStatus::Idle => Status::Ok,
+        UploadStatus::Busy => Status::Syncing,
+        UploadStatus::Error => Status::Error,
+    }
+}
+
+fn check_deletions(adapter: &Adapter, tray: &Tray, prompted: &mut bool) -> usize {
+    let held = adapter.deletions_held();
+    tray.set_held(held);
+    if held > 0 {
+        if !*prompted {
+            *prompted = true;
+            tray.prompt_deletions(held);
+        }
+    } else {
+        *prompted = false;
+    }
+    held
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args::Setup {
@@ -61,7 +86,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(creds) = credentials.as_ref() {
             tray.account(creds);
             tray.set_status(Status::Syncing);
-            match run(creds, &config, &root, &data, &mut events, &tray, fresh_credentials).await {
+            match run(
+                creds,
+                &config,
+                &root,
+                &data,
+                &mut events,
+                &tray,
+                fresh_credentials,
+            )
+            .await
+            {
                 Ok(SessionEnd::Quit) => break 'app,
                 Ok(SessionEnd::Logout) => {
                     credentials = None;
@@ -84,7 +119,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 fresh_credentials = true;
             }
             Some(TrayEvent::Browse) => gui::open_folder(&root),
-            Some(TrayEvent::Restart | TrayEvent::Logout | TrayEvent::Refresh) => {}
+            Some(
+                TrayEvent::Restart
+                | TrayEvent::Logout
+                | TrayEvent::Refresh
+                | TrayEvent::DeletionsRelease
+                | TrayEvent::DeletionsCancel,
+            ) => {}
         }
     }
     Ok(())
@@ -163,6 +204,7 @@ async fn run(
     tray.set_status(Status::Ok);
     let refresh_every = Duration::from_secs(config.windows.refresh_secs.max(2));
     let mut refreshed: HashMap<RelPath, Instant> = HashMap::new();
+    let mut deletions_prompted = false;
     let mut sweep_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut sweep = tokio::time::interval(Duration::from_secs(30));
     sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -185,12 +227,23 @@ async fn run(
                             if let Err(err) = adapter.resync().await {
                                 log::warn!("refresh: {err}");
                             }
-                            tray.set_status(match *status.borrow() {
-                                UploadStatus::Idle => Status::Ok,
-                                UploadStatus::Busy => Status::Syncing,
-                                UploadStatus::Error => Status::Error,
-                            });
+                            tray.set_status(tray_status(
+                                *status.borrow(),
+                                adapter.deletions_held(),
+                            ));
                         });
+                    }
+                    Some(TrayEvent::DeletionsRelease) => {
+                        adapter.deletions_release();
+                        deletions_prompted = false;
+                        tray.set_held(0);
+                        tray.set_status(tray_status(*upload_status.borrow(), 0));
+                    }
+                    Some(TrayEvent::DeletionsCancel) => {
+                        adapter.deletions_cancel();
+                        deletions_prompted = false;
+                        tray.set_held(0);
+                        tray.set_status(tray_status(*upload_status.borrow(), 0));
                     }
                     Some(TrayEvent::Login(_)) => {}
                 }
@@ -214,13 +267,14 @@ async fn run(
                 }
             }
             _ = upload_status.changed() => {
-                tray.set_status(match *upload_status.borrow() {
-                    UploadStatus::Idle => Status::Ok,
-                    UploadStatus::Busy => Status::Syncing,
-                    UploadStatus::Error => Status::Error,
-                });
+                let held = check_deletions(&adapter, tray, &mut deletions_prompted);
+                tray.set_status(tray_status(*upload_status.borrow(), held));
             }
             _ = sweep.tick() => {
+                let held = check_deletions(&adapter, tray, &mut deletions_prompted);
+                if held > 0 {
+                    tray.set_status(Status::Held);
+                }
                 if sweep_task.as_ref().is_none_or(|task| task.is_finished()) {
                     let adapter = adapter.clone();
                     sweep_task = Some(tokio::spawn(async move {

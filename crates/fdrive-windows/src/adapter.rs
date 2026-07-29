@@ -133,6 +133,18 @@ impl Adapter {
         self.engine.upload_status()
     }
 
+    pub fn deletions_held(&self) -> usize {
+        self.engine.deletions_held()
+    }
+
+    pub fn deletions_release(&self) {
+        self.engine.deletions_release();
+    }
+
+    pub fn deletions_cancel(&self) {
+        self.engine.deletions_cancel();
+    }
+
     pub fn activity(&self) -> Arc<fdrive_core::activity::Activity> {
         self.engine.activity()
     }

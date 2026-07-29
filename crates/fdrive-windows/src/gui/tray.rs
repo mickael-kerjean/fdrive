@@ -12,9 +12,10 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, PostQuitMessage,
-    PostThreadMessageW, RegisterClassW, SetForegroundWindow, TrackPopupMenu, TranslateMessage,
-    HICON, IDI_APPLICATION, IMAGE_FLAGS, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL,
+    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, MessageBoxW,
+    PostQuitMessage, PostThreadMessageW, RegisterClassW, SetForegroundWindow, TrackPopupMenu,
+    TranslateMessage, HICON, IDI_APPLICATION, IDNO, IDYES, IMAGE_FLAGS, MB_DEFBUTTON2,
+    MB_ICONWARNING, MB_YESNOCANCEL, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL,
     TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_LBUTTONUP,
     WM_RBUTTONUP, WNDCLASSW,
 };
@@ -26,6 +27,7 @@ use super::{wide_path, Credentials, Ctx, Status, TrayEvent, TrayState, CTX};
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_TRAY_REFRESH: u32 = WM_APP + 2;
 const WM_TRAY_LOGIN: u32 = WM_APP + 3;
+const WM_TRAY_DELETIONS: u32 = WM_APP + 4;
 const CMD_BROWSE: usize = 1;
 const CMD_LOGIN: usize = 2;
 const CMD_LOGOUT: usize = 3;
@@ -34,6 +36,7 @@ const CMD_QUIT: usize = 5;
 const CMD_LOGS: usize = 6;
 const CMD_AUTOSTART: usize = 7;
 const CMD_REFRESH: usize = 8;
+const CMD_DELETIONS: usize = 9;
 
 #[derive(Clone)]
 pub struct Tray {
@@ -73,6 +76,20 @@ impl Tray {
     pub fn prompt_login(&self) {
         unsafe {
             let _ = PostThreadMessageW(self.thread, WM_TRAY_LOGIN, WPARAM(0), LPARAM(0));
+        }
+    }
+
+    pub fn set_held(&self, held: usize) {
+        let mut state = self.state.lock().unwrap();
+        if state.held == held {
+            return;
+        }
+        state.held = held;
+    }
+
+    pub fn prompt_deletions(&self, held: usize) {
+        unsafe {
+            let _ = PostThreadMessageW(self.thread, WM_TRAY_DELETIONS, WPARAM(held), LPARAM(0));
         }
     }
 }
@@ -152,6 +169,10 @@ fn tray_thread(
             }
             if msg.hwnd.is_invalid() && msg.message == WM_TRAY_LOGIN {
                 prompt_login();
+                continue;
+            }
+            if msg.hwnd.is_invalid() && msg.message == WM_TRAY_DELETIONS {
+                prompt_deletions(msg.wParam.0);
                 continue;
             }
             let _ = TranslateMessage(&msg);
@@ -240,11 +261,43 @@ unsafe extern "system" fn tray_wndproc(
     }
 }
 
+fn prompt_deletions(held: usize) {
+    let text: Vec<u16> = format!(
+        "Filestash stopped {held} pending deletion(s) from reaching your server files.\n\n\
+         This many deletions in one session is unusual and may indicate a problem \
+         rather than something you did on purpose.\n\n\
+         Yes — delete these files on the server too\n\
+         No — keep the server files and restore them here\n\
+         Cancel — decide later, deletions stay paused"
+    )
+    .encode_utf16()
+    .chain(std::iter::once(0))
+    .collect();
+    let picked = unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(text.as_ptr()),
+            w!("Filestash"),
+            MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON2,
+        )
+    };
+    let send = |event: TrayEvent| {
+        CTX.with_borrow(|ctx| {
+            let _ = ctx.as_ref().expect("tray ctx").events.send(event);
+        })
+    };
+    match picked {
+        IDYES => send(TrayEvent::DeletionsRelease),
+        IDNO => send(TrayEvent::DeletionsCancel),
+        _ => {}
+    }
+}
+
 unsafe fn show_menu(hwnd: HWND) {
-    let logged_in = CTX.with_borrow(|ctx| {
+    let (logged_in, held) = CTX.with_borrow(|ctx| {
         let ctx = ctx.as_ref().expect("tray ctx");
         let state = ctx.state.lock().unwrap();
-        state.status != Status::LoggedOut
+        (state.status != Status::LoggedOut, state.held)
     });
     let Ok(menu) = CreatePopupMenu() else { return };
     let autostart = if crate::wire::shell::autostart_enabled() {
@@ -253,6 +306,10 @@ unsafe fn show_menu(hwnd: HWND) {
         MF_STRING
     };
     if logged_in {
+        if held > 0 {
+            let _ = AppendMenuW(menu, MF_STRING, CMD_DELETIONS, w!("Held deletions..."));
+            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+        }
         let _ = AppendMenuW(menu, MF_STRING, CMD_BROWSE, w!("Browse"));
         let _ = AppendMenuW(menu, MF_STRING, CMD_REFRESH, w!("Refresh"));
         let _ = AppendMenuW(menu, MF_STRING, CMD_LOGS, w!("Logs"));
@@ -287,6 +344,7 @@ unsafe fn show_menu(hwnd: HWND) {
     };
     match picked.0 as usize {
         CMD_BROWSE => send(TrayEvent::Browse),
+        CMD_DELETIONS => prompt_deletions(held),
         CMD_REFRESH => send(TrayEvent::Refresh),
         CMD_LOGIN => prompt_login(),
         CMD_LOGOUT => send(TrayEvent::Logout),
@@ -320,4 +378,3 @@ unsafe fn show_menu(hwnd: HWND) {
         _ => {}
     }
 }
-
