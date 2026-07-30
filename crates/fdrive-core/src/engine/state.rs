@@ -9,17 +9,14 @@ use crate::model::{Conflict, Fate, Observation, Operation, Plan};
 
 const WINDOW_QUIET: Duration = Duration::from_millis(250);
 const WINDOW_MAX: Duration = Duration::from_secs(2);
+const WINDOW_DELETE_MAX: Duration = Duration::from_secs(30);
 const OPEN_QUIET: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(10);
 const RETRY_CAP: Duration = Duration::from_secs(300);
-const BREAKER_BUDGET: u64 = 50;
-const BREAKER_FLAG: &str = "breaker_tripped";
 
 pub(super) struct State {
     pub(super) journal: Journal,
     pub(super) ledger: Ledger,
-    removed: u64,
-    tripped: bool,
 }
 
 pub(super) struct Journal {
@@ -88,6 +85,9 @@ impl State {
             }
         };
         let (recovered, plans) = ledger.journal_load();
+        if !plans.is_empty() {
+            log::info!("recovered {} pending plans", plans.len());
+        }
         let now = Instant::now();
         let mut journal = Journal {
             marks: recovered.iter().flat_map(op_paths).cloned().collect(),
@@ -97,18 +97,7 @@ impl State {
             inflight: BTreeSet::new(),
         };
         journal.admit(plans);
-        let tripped = ledger.meta(BREAKER_FLAG).is_some();
-        if tripped {
-            log::warn!(
-                "deletion breaker was tripped before restart; server-side deletions stay held"
-            );
-        }
-        Self {
-            journal,
-            ledger,
-            removed: 0,
-            tripped,
-        }
+        Self { journal, ledger }
     }
 
     pub(super) fn record(&mut self, op: Operation) {
@@ -221,7 +210,12 @@ impl State {
             return Vec::new();
         };
         let oldest = j.window.first().map_or(newest, |(at, _)| *at);
-        let opens = (newest + WINDOW_QUIET).min(oldest + WINDOW_MAX);
+        let capped = j
+            .window
+            .iter()
+            .find(|(_, op)| !matches!(op, Operation::Delete(_)))
+            .map_or(oldest + WINDOW_DELETE_MAX, |(at, _)| *at + WINDOW_MAX);
+        let opens = (newest + WINDOW_QUIET).min(capped);
         if !force && now < opens {
             wake.note(Release::At(opens));
             return Vec::new();
@@ -408,9 +402,21 @@ impl State {
 
     pub(super) fn plan_delete_dir(&mut self, path: &RelPath) {
         let under = |p: &RelPath| p == path || p.is_descendant_of(path);
-        self.journal
-            .window
-            .retain(|(_, op)| !op_paths(op).into_iter().all(under));
+        let window = std::mem::take(&mut self.journal.window);
+        self.journal.window = window
+            .into_iter()
+            .filter_map(|(at, op)| {
+                if op_paths(&op).into_iter().all(under) {
+                    return None;
+                }
+                if let Operation::Rename(from, to) = &op {
+                    if under(to) && !under(from) {
+                        return Some((at, Operation::Delete(from.clone())));
+                    }
+                }
+                Some((at, op))
+            })
+            .collect();
         let subsumed: Vec<i64> = self
             .journal
             .pending
@@ -444,61 +450,6 @@ impl State {
         let rows = self.ledger.journal_swap(&[], &[], &[plan]);
         self.journal.admit(rows);
         self.refresh();
-    }
-
-    pub(super) fn breaker_note(&mut self) {
-        self.removed += 1;
-        if !self.tripped && self.removed >= BREAKER_BUDGET {
-            self.tripped = true;
-            self.ledger.meta_set(BREAKER_FLAG, "1");
-            log::error!(
-                "{} deletions this session; further server-side deletions are held",
-                self.removed
-            );
-        }
-    }
-
-    pub(super) fn breaker_holds(&self) -> bool {
-        self.tripped
-    }
-
-    pub(super) fn breaker_tripped(&self) -> bool {
-        self.tripped
-    }
-
-    pub(super) fn held_deletes(&self) -> usize {
-        self.journal
-            .pending
-            .values()
-            .filter(|e| matches!(e.plan, Plan::Remove { .. }))
-            .count()
-    }
-
-    pub(super) fn breaker_release(&mut self) {
-        self.tripped = false;
-        self.removed = 0;
-        self.ledger.meta_clear(BREAKER_FLAG);
-    }
-
-    pub(super) fn breaker_cancel(&mut self) -> usize {
-        self.journal
-            .window
-            .retain(|(_, op)| !matches!(op, Operation::Delete(_)));
-        let doomed: Vec<i64> = self
-            .journal
-            .pending
-            .iter()
-            .filter(|(seq, e)| {
-                !self.journal.inflight.contains(seq) && matches!(e.plan, Plan::Remove { .. })
-            })
-            .map(|(seq, _)| *seq)
-            .collect();
-        let cancelled = doomed.len();
-        for seq in doomed {
-            self.retire(seq);
-        }
-        self.breaker_release();
-        cancelled
     }
 
     pub(super) fn idle(&self) -> bool {

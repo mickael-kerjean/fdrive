@@ -226,16 +226,16 @@ pub(crate) fn coalesce<'a>(
                 };
                 content.insert(p.clone(), Content::New(from));
             }
+            Operation::Rename(a, b) if a == b => {}
             Operation::Rename(a, b) => {
                 touch(&mut origs, &content, a, &known);
                 touch(&mut origs, &content, b, &known);
-                let src = content.get(a).cloned().unwrap_or_else(|| {
-                    if known(a) {
-                        Content::Orig(a.clone())
-                    } else {
-                        Content::New(None)
-                    }
-                });
+                let src = match content.get(a).cloned() {
+                    Some(Content::Gone) => Content::New(None),
+                    Some(src) => src,
+                    None if known(a) => Content::Orig(a.clone()),
+                    None => Content::New(None),
+                };
                 content.insert(b.clone(), src);
                 content.insert(a.clone(), Content::Gone);
             }

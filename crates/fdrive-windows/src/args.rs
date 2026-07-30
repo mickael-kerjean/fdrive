@@ -130,4 +130,3 @@ fn instance_lock(data: &Path, root: &Path) -> Result<(), String> {
             )
         })
 }
-

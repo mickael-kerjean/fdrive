@@ -67,8 +67,11 @@ mod bench {
         let mut db = phase(&mut phases, "open + create table", || {
             Connection::open(&path).unwrap()
         });
-        db.execute("CREATE TABLE t(id INTEGER PRIMARY KEY, blob BLOB, n INTEGER)", [])
-            .unwrap();
+        db.execute(
+            "CREATE TABLE t(id INTEGER PRIMARY KEY, blob BLOB, n INTEGER)",
+            [],
+        )
+        .unwrap();
 
         phase(&mut phases, "bulk insert (500 rows, 1 txn)", || {
             let tx = db.transaction().unwrap();
@@ -86,8 +89,11 @@ mod bench {
         phase(&mut phases, "50 tiny txns (journal dance)", || {
             for i in 0..50 {
                 let tx = db.transaction().unwrap();
-                tx.execute("INSERT INTO t(blob, n) VALUES (?1, ?2)", params![payload, i])
-                    .unwrap();
+                tx.execute(
+                    "INSERT INTO t(blob, n) VALUES (?1, ?2)",
+                    params![payload, i],
+                )
+                .unwrap();
                 tx.commit().unwrap();
             }
         });
@@ -157,7 +163,10 @@ mod bench {
             .skip(1)
             .filter(|a| !a.starts_with('-'))
             .collect();
-        let local = args.get(1).map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        let local = args
+            .get(1)
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
         let (remote, _rig) = match args.first() {
             Some(dir) => (PathBuf::from(dir), None),
             None => {
@@ -174,7 +183,10 @@ mod bench {
         println!("\ndb size: {} KiB", l.size / 1024);
         println!("integrity: local={} remote={}", l.integrity, r.integrity);
         println!("wal mode:  local={} remote={}\n", l.wal, r.wal);
-        println!("{:<32} {:>10} {:>10} {:>9}", "phase", "local", "remote", "penalty");
+        println!(
+            "{:<32} {:>10} {:>10} {:>9}",
+            "phase", "local", "remote", "penalty"
+        );
         for ((name, lt), (_, rt)) in l.phases.iter().zip(&r.phases) {
             let (lt, rt) = (lt.as_secs_f64(), rt.as_secs_f64());
             println!(

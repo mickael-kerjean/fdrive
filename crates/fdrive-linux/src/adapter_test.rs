@@ -42,3 +42,29 @@ fn ls_serves_the_stale_listing_when_the_server_is_unreachable() {
     );
     let _ = fs::remove_dir_all(&data);
 }
+
+#[test]
+fn a_write_lands_on_the_replaced_file_not_the_dead_inode() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let data = std::env::temp_dir().join(format!("fdrive-fresh-write-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&data);
+    fs::create_dir_all(&data).unwrap();
+    let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
+    let adapter = Adapter::new(Arc::new(sdk), rt.handle().clone(), &data).unwrap();
+
+    let path = RelPath::new("doc.txt");
+    let backing = adapter.backing(&path);
+    fs::create_dir_all(backing.parent().unwrap()).unwrap();
+    fs::write(&backing, b"original").unwrap();
+    let fh = adapter.opened(&path, true);
+
+    let part = backing.with_extension("part");
+    fs::write(&part, b"hydrated").unwrap();
+    fs::rename(&part, &backing).unwrap();
+
+    adapter.write(fh, &path, 0, b"edit").unwrap();
+    adapter.closed(fh);
+
+    assert_eq!(fs::read(&backing).unwrap(), b"editated");
+    let _ = fs::remove_dir_all(&data);
+}

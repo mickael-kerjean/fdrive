@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use httpmock::MockServer;
 
-use crate::engine::{Deletions, Engine, Observation};
+use crate::engine::{Engine, Observation};
 use crate::path::RelPath;
 use crate::port::LocalStore;
 use crate::sdk::Sdk;
@@ -93,12 +93,7 @@ pub(super) fn engine(server: &MockServer) -> Arc<Engine<TempTree>> {
 pub(super) fn engine_with(server: &MockServer, tree: TempTree) -> Arc<Engine<TempTree>> {
     let mut sdk = Sdk::new(&server.base_url()).unwrap();
     sdk.set_token("TOKEN".into());
-    Engine::start(
-        Arc::new(sdk),
-        tokio::runtime::Handle::current(),
-        tree,
-        Deletions::Inferred,
-    )
+    Engine::start(Arc::new(sdk), tokio::runtime::Handle::current(), tree)
 }
 
 pub(super) async fn settle(engine: &Engine<TempTree>) {

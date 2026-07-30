@@ -27,6 +27,14 @@ enum SessionEnd {
     Quit,
 }
 
+fn tray_status(upload: UploadStatus) -> Status {
+    match upload {
+        UploadStatus::Idle => Status::Ok,
+        UploadStatus::Busy => Status::Syncing,
+        UploadStatus::Error => Status::Error,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args::Setup {
@@ -61,7 +69,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(creds) = credentials.as_ref() {
             tray.account(creds);
             tray.set_status(Status::Syncing);
-            match run(creds, &config, &root, &data, &mut events, &tray, fresh_credentials).await {
+            match run(
+                creds,
+                &config,
+                &root,
+                &data,
+                &mut events,
+                &tray,
+                fresh_credentials,
+            )
+            .await
+            {
                 Ok(SessionEnd::Quit) => break 'app,
                 Ok(SessionEnd::Logout) => {
                     credentials = None;
@@ -185,11 +203,7 @@ async fn run(
                             if let Err(err) = adapter.resync().await {
                                 log::warn!("refresh: {err}");
                             }
-                            tray.set_status(match *status.borrow() {
-                                UploadStatus::Idle => Status::Ok,
-                                UploadStatus::Busy => Status::Syncing,
-                                UploadStatus::Error => Status::Error,
-                            });
+                            tray.set_status(tray_status(*status.borrow()));
                         });
                     }
                     Some(TrayEvent::Login(_)) => {}
@@ -214,11 +228,7 @@ async fn run(
                 }
             }
             _ = upload_status.changed() => {
-                tray.set_status(match *upload_status.borrow() {
-                    UploadStatus::Idle => Status::Ok,
-                    UploadStatus::Busy => Status::Syncing,
-                    UploadStatus::Error => Status::Error,
-                });
+                tray.set_status(tray_status(*upload_status.borrow()));
             }
             _ = sweep.tick() => {
                 if sweep_task.as_ref().is_none_or(|task| task.is_finished()) {

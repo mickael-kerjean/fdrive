@@ -320,4 +320,3 @@ unsafe fn show_menu(hwnd: HWND) {
         _ => {}
     }
 }
-

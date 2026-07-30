@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use fdrive_core::engine::UploadStatus;
-use fdrive_core::engine::{Deletions, Engine, Observation};
+use fdrive_core::engine::{Engine, Observation};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, FileInfo, FileType, Sdk};
@@ -80,7 +80,7 @@ impl Adapter {
             meta: Mutex::new(HashMap::new()),
         };
         let adapter = Self {
-            engine: Engine::start(sdk, rt, tree, Deletions::Authoritative),
+            engine: Engine::start(sdk, rt, tree),
             xattrs: XattrDb::open(data_dir.join("xattr.json")),
             handles: Mutex::new(HashMap::new()),
             next_fh: AtomicU64::new(1),
@@ -305,7 +305,10 @@ impl Adapter {
     fn fresh_handle_file(&self, fh: u64, path: &RelPath) -> Option<Arc<fs::File>> {
         use std::os::unix::fs::MetadataExt;
         let file = self.handle_file(fh)?;
-        let same = file.metadata().ok().zip(fs::metadata(self.backing(path)).ok())
+        let same = file
+            .metadata()
+            .ok()
+            .zip(fs::metadata(self.backing(path)).ok())
             .is_some_and(|(a, b)| a.ino() == b.ino() && a.dev() == b.dev());
         if same {
             return Some(file);
@@ -322,7 +325,7 @@ impl Adapter {
     }
 
     pub fn write(&self, fh: u64, path: &RelPath, offset: u64, data: &[u8]) -> io::Result<u32> {
-        match self.handle_file(fh) {
+        match self.fresh_handle_file(fh, path) {
             Some(file) => {
                 self.engine.modified(path);
                 file.write_all_at(data, offset)?;
@@ -384,7 +387,9 @@ impl Adapter {
         remove_path(&self.backing(path))?;
         self.xattrs.forget(path);
         self.invalidate(path);
-        self.engine.local().drop(&path.parent_or_root(), path.name());
+        self.engine
+            .local()
+            .drop(&path.parent_or_root(), path.name());
         Ok(())
     }
 

@@ -127,6 +127,8 @@ async fn run<T: LocalStore>(
                     let _ = reply.send(());
                 }
                 last_progress = Instant::now();
+            } else if engine.pending() == 0 {
+                last_progress = Instant::now();
             } else if last_progress.elapsed() >= STALL && last_stall_log.elapsed() >= STALL {
                 last_stall_log = Instant::now();
                 log::error!("sync stalled: {}", engine.stall_report());

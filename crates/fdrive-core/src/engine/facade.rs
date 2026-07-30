@@ -15,15 +15,10 @@ use crate::sdk::{Error as SdkError, Sdk};
 use super::conflict::Conflicts;
 use super::gates::Transfers;
 use super::state::{LedgerGuard, State, Step};
-use super::{scheduler, Deletions, Engine, Frozen, Outcome, UploadStatus};
+use super::{scheduler, Engine, Frozen, Outcome, UploadStatus};
 
 impl<T: LocalStore> Engine<T> {
-    pub fn start(
-        sdk: Arc<Sdk>,
-        rt: tokio::runtime::Handle,
-        local: T,
-        deletions: Deletions,
-    ) -> Arc<Self> {
+    pub fn start(sdk: Arc<Sdk>, rt: tokio::runtime::Handle, local: T) -> Arc<Self> {
         let ledger_file = local.ledger();
         let ignore = crate::config::ignore(ledger_file.parent().unwrap_or(Path::new("")));
         let state = State::open(&ledger_file);
@@ -33,7 +28,6 @@ impl<T: LocalStore> Engine<T> {
             local,
             sdk,
             ignore,
-            deletions,
             state: Mutex::new(state),
             transfers: Transfers::default(),
             frozen: Mutex::new(BTreeSet::new()),
@@ -59,9 +53,6 @@ impl<T: LocalStore> Engine<T> {
     }
 
     pub async fn delete(&self, path: &RelPath, is_dir: bool) -> io::Result<()> {
-        if self.deletions == Deletions::Inferred {
-            self.state().breaker_note();
-        }
         if is_dir {
             self.state().plan_delete_dir(path);
             self.kick();
@@ -113,31 +104,7 @@ impl<T: LocalStore> Engine<T> {
         self.scheduler.status()
     }
 
-    pub fn deletions_held(&self) -> usize {
-        let state = self.state();
-        if state.breaker_tripped() {
-            state.held_deletes()
-        } else {
-            0
-        }
-    }
-
-    pub fn deletions_release(&self) {
-        self.state().breaker_release();
-        self.kick();
-    }
-
-    pub fn deletions_cancel(&self) {
-        let cancelled = self.state().breaker_cancel();
-        log::info!("cancelled {cancelled} held deletions; the server copies remain");
-        self.kick();
-    }
-
     pub fn recover(&self) {
-        let pending = self.state().pending();
-        if pending > 0 {
-            log::info!("recovered {pending} pending plans");
-        }
         self.kick();
         self.pin_sweep();
     }
@@ -158,6 +125,10 @@ impl<T: LocalStore> Engine<T> {
 
     pub(super) fn rush(&self) {
         self.state().rush();
+    }
+
+    pub(super) fn pending(&self) -> usize {
+        self.state().pending()
     }
 
     pub(super) fn stall_report(&self) -> String {

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use httpmock::{Method, Mock, MockServer};
 
-use crate::engine::{Deletions, Engine, Observation};
+use crate::engine::{Engine, Observation};
 use crate::path::RelPath;
 use crate::sdk::Sdk;
 
@@ -87,7 +87,6 @@ async fn garbage_plans_in_the_db_never_reach_the_server() {
 
 #[tokio::test]
 async fn a_journal_with_children_behind_their_dir_still_drains() {
-    // the 2026-07-29 deadlock: 'd' rows journaled before their subtree's 'r' rows
     let owner = TempTree::new();
     {
         let db = rusqlite::Connection::open(&owner.state).unwrap();
@@ -185,7 +184,7 @@ async fn a_crash_with_a_pending_remove_replays_it_exactly_once() {
 async fn a_dead_server_leaves_no_mark_anywhere() {
     let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
     let rt = tokio::runtime::Handle::current();
-    let engine = Engine::start(Arc::new(sdk), rt, TempTree::new(), Deletions::Inferred);
+    let engine = Engine::start(Arc::new(sdk), rt, TempTree::new());
     let path = RelPath::new("doc.txt");
     engine.ledger().observe(&path, Observation::new(1, None));
     engine.created(&path);
