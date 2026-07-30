@@ -15,18 +15,13 @@ use crate::sdk::{Error as SdkError, Sdk};
 use super::conflict::Conflicts;
 use super::gates::Transfers;
 use super::state::{LedgerGuard, State, Step};
-use super::{scheduler, Deletions, Engine, Frozen, Outcome, UploadStatus};
+use super::{scheduler, Engine, Frozen, Outcome, UploadStatus};
 
 impl<T: LocalStore> Engine<T> {
-    pub fn start(
-        sdk: Arc<Sdk>,
-        rt: tokio::runtime::Handle,
-        local: T,
-        deletions: Deletions,
-    ) -> Arc<Self> {
+    pub fn start(sdk: Arc<Sdk>, rt: tokio::runtime::Handle, local: T) -> Arc<Self> {
         let ledger_file = local.ledger();
         let ignore = crate::config::ignore(ledger_file.parent().unwrap_or(Path::new("")));
-        let state = State::open(&ledger_file, deletions);
+        let state = State::open(&ledger_file);
         let conflicts = Conflicts::load(state.ledger.conflicts_load());
         let (scheduler, driver) = scheduler::prepare();
         let engine = Arc::new(Self {
@@ -109,26 +104,6 @@ impl<T: LocalStore> Engine<T> {
         self.scheduler.status()
     }
 
-    pub fn deletions_held(&self) -> usize {
-        let state = self.state();
-        if state.breaker_tripped() {
-            state.held_deletes()
-        } else {
-            0
-        }
-    }
-
-    pub fn deletions_release(&self) {
-        self.state().breaker_release();
-        self.kick();
-    }
-
-    pub fn deletions_cancel(&self) {
-        let cancelled = self.state().breaker_cancel();
-        log::info!("cancelled {cancelled} held deletions; the server copies remain");
-        self.kick();
-    }
-
     pub fn recover(&self) {
         self.kick();
         self.pin_sweep();
@@ -152,14 +127,14 @@ impl<T: LocalStore> Engine<T> {
         self.state().rush();
     }
 
-    pub(super) fn pending_unheld(&self) -> usize {
-        self.state().pending_unheld()
+    pub(super) fn pending(&self) -> usize {
+        self.state().pending()
     }
 
     pub(super) fn stall_report(&self) -> String {
         let state = self.state();
         let mut sample = state.pending_sample(5);
-        let total = state.pending_unheld();
+        let total = state.pending();
         if total > sample.len() {
             sample.push(format!("... {} more", total - sample.len()));
         }

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use crate::path::RelPath;
 
-use super::{Deletions, Ledger, Outcome};
+use super::{Ledger, Outcome};
 use crate::model;
 use crate::model::{Conflict, Fate, Observation, Operation, Plan};
 
@@ -13,15 +13,10 @@ const WINDOW_DELETE_MAX: Duration = Duration::from_secs(30);
 const OPEN_QUIET: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(10);
 const RETRY_CAP: Duration = Duration::from_secs(300);
-const BREAKER_BUDGET: u64 = 50;
-const BREAKER_FLAG: &str = "breaker_tripped";
 
 pub(super) struct State {
     pub(super) journal: Journal,
     pub(super) ledger: Ledger,
-    deletions: Deletions,
-    removed: u64,
-    tripped: bool,
 }
 
 pub(super) struct Journal {
@@ -79,7 +74,7 @@ pub(super) struct Step {
 }
 
 impl State {
-    pub(super) fn open(file: &std::path::Path, deletions: Deletions) -> Self {
+    pub(super) fn open(file: &std::path::Path) -> Self {
         let ledger = match Ledger::open(file) {
             Ok(ledger) => ledger,
             Err(()) => {
@@ -102,19 +97,7 @@ impl State {
             inflight: BTreeSet::new(),
         };
         journal.admit(plans);
-        let tripped = ledger.meta(BREAKER_FLAG).is_some();
-        if tripped {
-            log::warn!(
-                "deletion breaker was tripped before restart; server-side deletions stay held"
-            );
-        }
-        Self {
-            journal,
-            ledger,
-            deletions,
-            removed: 0,
-            tripped,
-        }
+        Self { journal, ledger }
     }
 
     pub(super) fn record(&mut self, op: Operation) {
@@ -197,11 +180,6 @@ impl State {
             "journal [{}] -> [{}]",
             model::render(&drained),
             model::render(&made)
-        );
-        self.breaker_note(
-            made.iter()
-                .filter(|p| matches!(p, Plan::Remove { .. }))
-                .count(),
         );
         let unmark: Vec<RelPath> = drained
             .iter()
@@ -409,23 +387,14 @@ impl State {
         self.refresh();
     }
 
-    fn held(&self, plan: &Plan) -> bool {
-        self.tripped && matches!(plan, Plan::Remove { .. })
-    }
-
-    pub(super) fn pending_unheld(&self) -> usize {
-        self.journal
-            .pending
-            .values()
-            .filter(|e| !self.held(&e.plan))
-            .count()
+    pub(super) fn pending(&self) -> usize {
+        self.journal.pending.len()
     }
 
     pub(super) fn pending_sample(&self, n: usize) -> Vec<String> {
         self.journal
             .pending
             .values()
-            .filter(|e| !self.held(&e.plan))
             .take(n)
             .map(|e| e.plan.to_string())
             .collect()
@@ -462,7 +431,6 @@ impl State {
             self.journal.marks.remove(&p);
             self.ledger.unmark(&p);
         }
-        self.breaker_note(1);
         let plan = Plan::Remove {
             path: path.clone(),
             dir: true,
@@ -470,64 +438,6 @@ impl State {
         let rows = self.ledger.journal_swap(&[], &[], &[plan]);
         self.journal.admit(rows);
         self.refresh();
-    }
-
-    fn breaker_note(&mut self, gestures: usize) {
-        if self.deletions != Deletions::Inferred || gestures == 0 {
-            return;
-        }
-        self.removed += gestures as u64;
-        if !self.tripped && self.removed >= BREAKER_BUDGET {
-            self.tripped = true;
-            self.ledger.meta_set(BREAKER_FLAG, "1");
-            log::error!(
-                "{} deletions this session; further server-side deletions are held",
-                self.removed
-            );
-        }
-    }
-
-    pub(super) fn breaker_holds(&self) -> bool {
-        self.tripped
-    }
-
-    pub(super) fn breaker_tripped(&self) -> bool {
-        self.tripped
-    }
-
-    pub(super) fn held_deletes(&self) -> usize {
-        self.journal
-            .pending
-            .values()
-            .filter(|e| matches!(e.plan, Plan::Remove { .. }))
-            .count()
-    }
-
-    pub(super) fn breaker_release(&mut self) {
-        self.tripped = false;
-        self.removed = 0;
-        self.ledger.meta_clear(BREAKER_FLAG);
-    }
-
-    pub(super) fn breaker_cancel(&mut self) -> usize {
-        self.journal
-            .window
-            .retain(|(_, op)| !matches!(op, Operation::Delete(_)));
-        let doomed: Vec<i64> = self
-            .journal
-            .pending
-            .iter()
-            .filter(|(seq, e)| {
-                !self.journal.inflight.contains(seq) && matches!(e.plan, Plan::Remove { .. })
-            })
-            .map(|(seq, _)| *seq)
-            .collect();
-        let cancelled = doomed.len();
-        for seq in doomed {
-            self.retire(seq);
-        }
-        self.breaker_release();
-        cancelled
     }
 
     pub(super) fn idle(&self) -> bool {

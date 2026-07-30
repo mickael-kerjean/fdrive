@@ -92,18 +92,7 @@ impl Ledger {
         }
     }
 
-    pub(super) fn meta_set(&self, name: &str, value: &str) {
-        self.exec(
-            "INSERT INTO meta(name, value) VALUES (?1, ?2) ON CONFLICT(name) DO UPDATE SET value = ?2",
-            [name, value],
-        );
-    }
-
-    pub(super) fn meta_clear(&self, name: &str) {
-        self.exec("DELETE FROM meta WHERE name = ?1", [name]);
-    }
-
-    pub(super) fn meta(&self, name: &str) -> Option<String> {
+    pub fn meta(&self, name: &str) -> Option<String> {
         let db = self.db.as_ref()?;
         db.prepare_cached("SELECT value FROM meta WHERE name = ?1")
             .and_then(|mut stmt| stmt.query_row([name], |row| row.get(0)))

@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use fdrive_core::engine::UploadStatus;
-use fdrive_core::engine::{Deletions, Engine, Observation};
+use fdrive_core::engine::{Engine, Observation};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{Error as SdkError, FileInfo, FileType, Sdk};
@@ -117,7 +117,7 @@ impl Adapter {
             suppressed: Mutex::new(BTreeMap::new()),
         };
         Ok(Arc::new(Self {
-            engine: Engine::start(sdk, rt, tree, Deletions::Inferred),
+            engine: Engine::start(sdk, rt, tree),
             root,
             refreshing: Mutex::new(BTreeMap::new()),
             kept: Mutex::new(BTreeSet::new()),
@@ -131,18 +131,6 @@ impl Adapter {
 
     pub fn upload_status(&self) -> watch::Receiver<UploadStatus> {
         self.engine.upload_status()
-    }
-
-    pub fn deletions_held(&self) -> usize {
-        self.engine.deletions_held()
-    }
-
-    pub fn deletions_release(&self) {
-        self.engine.deletions_release();
-    }
-
-    pub fn deletions_cancel(&self) {
-        self.engine.deletions_cancel();
     }
 
     pub fn activity(&self) -> Arc<fdrive_core::activity::Activity> {

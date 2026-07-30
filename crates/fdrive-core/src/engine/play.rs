@@ -86,7 +86,7 @@ impl<T: LocalStore> Engine<T> {
     }
 
     async fn replay_remove(&self, path: &RelPath, dir: bool) -> Outcome {
-        if self.is_frozen(path) || self.state().breaker_holds() {
+        if self.is_frozen(path) {
             return Outcome::Busy;
         }
         let target = if dir { path.as_dir() } else { path.as_file() };

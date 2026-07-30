@@ -26,7 +26,6 @@ use super::{wide_path, Credentials, Ctx, Status, TrayEvent, TrayState, CTX};
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_TRAY_REFRESH: u32 = WM_APP + 2;
 const WM_TRAY_LOGIN: u32 = WM_APP + 3;
-const WM_TRAY_DELETIONS: u32 = WM_APP + 4;
 const CMD_BROWSE: usize = 1;
 const CMD_LOGIN: usize = 2;
 const CMD_LOGOUT: usize = 3;
@@ -74,12 +73,6 @@ impl Tray {
     pub fn prompt_login(&self) {
         unsafe {
             let _ = PostThreadMessageW(self.thread, WM_TRAY_LOGIN, WPARAM(0), LPARAM(0));
-        }
-    }
-
-    pub fn prompt_deletions(&self, held: usize) {
-        unsafe {
-            let _ = PostThreadMessageW(self.thread, WM_TRAY_DELETIONS, WPARAM(held), LPARAM(0));
         }
     }
 }
@@ -159,10 +152,6 @@ fn tray_thread(
             }
             if msg.hwnd.is_invalid() && msg.message == WM_TRAY_LOGIN {
                 prompt_login();
-                continue;
-            }
-            if msg.hwnd.is_invalid() && msg.message == WM_TRAY_DELETIONS {
-                prompt_deletions(msg.wParam.0);
                 continue;
             }
             let _ = TranslateMessage(&msg);
@@ -249,17 +238,6 @@ unsafe extern "system" fn tray_wndproc(
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),
     }
-}
-
-fn prompt_deletions(held: usize) {
-    let event = if super::alert::confirm_deletions(held) {
-        TrayEvent::DeletionsRelease
-    } else {
-        TrayEvent::DeletionsCancel
-    };
-    CTX.with_borrow(|ctx| {
-        let _ = ctx.as_ref().expect("tray ctx").events.send(event);
-    });
 }
 
 unsafe fn show_menu(hwnd: HWND) {

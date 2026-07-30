@@ -69,8 +69,6 @@ pub enum TrayEvent {
     Logout,
     Restart,
     Quit,
-    DeletionsRelease,
-    DeletionsCancel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -80,7 +78,6 @@ pub enum Status {
     Ok,
     Syncing,
     Error,
-    Held,
 }
 
 impl Status {
@@ -89,9 +86,7 @@ impl Status {
             Status::LoggedOut => include_bytes!(concat!(env!("OUT_DIR"), "/tray-unlogged.ico")),
             Status::Ok => include_bytes!(concat!(env!("OUT_DIR"), "/tray-ok.ico")),
             Status::Syncing => include_bytes!(concat!(env!("OUT_DIR"), "/tray-sync.ico")),
-            Status::Error | Status::Held => {
-                include_bytes!(concat!(env!("OUT_DIR"), "/tray-error.ico"))
-            }
+            Status::Error => include_bytes!(concat!(env!("OUT_DIR"), "/tray-error.ico")),
         }
     }
 
@@ -101,7 +96,6 @@ impl Status {
             Status::Ok => "Filestash",
             Status::Syncing => "Filestash — syncing",
             Status::Error => "Filestash — sync error",
-            Status::Held => "Filestash — deletions held",
         }
     }
 }

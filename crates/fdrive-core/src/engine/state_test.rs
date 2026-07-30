@@ -12,7 +12,7 @@ fn a_held_window_wakes_at_its_release_not_before() {
     use crate::port::LocalStore;
 
     let tree = TempTree::new();
-    let mut state = State::open(&tree.ledger(), crate::engine::Deletions::Authoritative);
+    let mut state = State::open(&tree.ledger());
     let path = RelPath::new("f");
     state.write_opened(&path);
     state.record(Operation::Create(path.clone()));
@@ -38,11 +38,11 @@ fn a_dirty_rename_keeps_its_mark_across_a_crash() {
 
     let tree = TempTree::new();
     {
-        let mut state = State::open(&tree.ledger(), crate::engine::Deletions::Authoritative);
+        let mut state = State::open(&tree.ledger());
         state.record(Operation::Write(RelPath::new("a")));
         state.record(Operation::Rename(RelPath::new("a"), RelPath::new("b")));
     }
-    let state = State::open(&tree.ledger(), crate::engine::Deletions::Authoritative);
+    let state = State::open(&tree.ledger());
     let dirty: Vec<&str> = state.ledger.dirty.iter().map(|p| p.as_str()).collect();
     assert_eq!(dirty, ["b"], "the edit must be owed at its new name");
 }
@@ -55,11 +55,11 @@ fn a_delete_clears_the_mark_it_supersedes() {
 
     let tree = TempTree::new();
     {
-        let mut state = State::open(&tree.ledger(), crate::engine::Deletions::Authoritative);
+        let mut state = State::open(&tree.ledger());
         state.record(Operation::Write(RelPath::new("a")));
         state.record(Operation::Delete(RelPath::new("a")));
     }
-    let state = State::open(&tree.ledger(), crate::engine::Deletions::Authoritative);
+    let state = State::open(&tree.ledger());
     assert!(state.ledger.dirty.is_empty());
 }
 
@@ -150,5 +150,5 @@ async fn a_failed_remove_stays_owed() {
     engine.delete(&path, false).await.unwrap();
     engine.flush(Duration::from_millis(1200)).await;
     assert!(engine.ledger().observations.contains_key(&path));
-    assert_eq!(engine.state.lock().unwrap().pending_unheld(), 1);
+    assert_eq!(engine.state.lock().unwrap().pending(), 1);
 }

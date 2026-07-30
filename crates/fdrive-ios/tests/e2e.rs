@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use fdrive_ios::Adapter;
 use fdrive_core::testkit::FakeServer;
+use fdrive_ios::Adapter;
 
 struct Rig {
     server: FakeServer,
@@ -191,7 +191,11 @@ fn a_known_dir_still_lists_offline() {
     rig.server.offline(true);
     std::thread::sleep(Duration::from_millis(2500));
     let listing = rig.adapter.ls("/keep".to_string()).unwrap();
-    assert_eq!(listing.len(), 1, "the ledger answers when the server cannot");
+    assert_eq!(
+        listing.len(),
+        1,
+        "the ledger answers when the server cannot"
+    );
     assert_eq!(listing[0].name, "manual.pdf");
     let local = rig.adapter.open("/keep/manual.pdf".to_string()).unwrap();
     assert_eq!(fs::read(&local).unwrap(), b"the whole manual");
