@@ -315,6 +315,118 @@ async fn a_folder_delete_slower_than_the_window_cap_is_still_one_rm() {
 }
 
 #[tokio::test]
+async fn nested_dir_deletes_collapse_into_the_root() {
+    let server = MockServer::start();
+    let rm_root = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/rm")
+            .query_param("path", "/d/");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    let rm_sub = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/rm")
+            .query_param("path", "/d/sub/");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    let engine = engine(&server);
+    engine
+        .ledger()
+        .observations
+        .insert(RelPath::new("d/sub/f"), observed(1));
+
+    engine.delete(&RelPath::new("d/sub"), true).await.unwrap();
+    engine.delete(&RelPath::new("d"), true).await.unwrap();
+    settle(&engine).await;
+
+    rm_root.assert_hits(1);
+    rm_sub.assert_hits(0);
+    assert!(engine.ledger().observations.is_empty());
+    assert!(engine.state.lock().unwrap().idle());
+}
+
+#[tokio::test]
+async fn a_move_out_of_a_dying_dir_saves_the_file() {
+    let server = MockServer::start();
+    let rm_dir = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/rm")
+            .query_param("path", "/d/");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    server.mock(|when, then| {
+        when.method(Method::HEAD)
+            .path("/api/files/cat")
+            .query_param("path", "/d/x");
+        then.status(404);
+    });
+    let save = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/cat")
+            .query_param("path", "/e");
+        then.status(200).header("Last-Modified", MTIME);
+    });
+    let engine = engine(&server);
+    let (from, to) = (RelPath::new("d/x"), RelPath::new("e"));
+    engine
+        .ledger()
+        .observations
+        .insert(from.clone(), observed(1));
+    engine.local().write("e", b"survivor");
+
+    engine.rename(&from, &to, false).await.unwrap();
+    engine.delete(&RelPath::new("d"), true).await.unwrap();
+    settle(&engine).await;
+
+    rm_dir.assert_hits(1);
+    save.assert_hits(1);
+    assert!(engine.conflicts().is_empty());
+}
+
+#[tokio::test]
+async fn a_move_into_a_dying_dir_dooms_the_source() {
+    let server = MockServer::start();
+    let rm_dir = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/rm")
+            .query_param("path", "/d/");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    let rm_src = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/rm")
+            .query_param("path", "/e");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    let mv = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/mv");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    let engine = engine(&server);
+    let (from, to) = (RelPath::new("e"), RelPath::new("d/x"));
+    engine
+        .ledger()
+        .observations
+        .insert(from.clone(), observed(1));
+
+    engine.rename(&from, &to, false).await.unwrap();
+    engine.delete(&RelPath::new("d"), true).await.unwrap();
+    settle(&engine).await;
+
+    rm_dir.assert_hits(1);
+    rm_src.assert_hits(1);
+    mv.assert_hits(0);
+    assert!(engine.ledger().observations.is_empty());
+    assert!(engine.conflicts().is_empty());
+}
+
+#[tokio::test]
 async fn dir_delete_takes_unseen_files_with_it() {
     let server = MockServer::start();
     let rm = server.mock(|when, then| {

@@ -87,7 +87,6 @@ async fn garbage_plans_in_the_db_never_reach_the_server() {
 
 #[tokio::test]
 async fn a_journal_with_children_behind_their_dir_still_drains() {
-    // the 2026-07-29 deadlock: 'd' rows journaled before their subtree's 'r' rows
     let owner = TempTree::new();
     {
         let db = rusqlite::Connection::open(&owner.state).unwrap();

@@ -402,9 +402,21 @@ impl State {
 
     pub(super) fn plan_delete_dir(&mut self, path: &RelPath) {
         let under = |p: &RelPath| p == path || p.is_descendant_of(path);
-        self.journal
-            .window
-            .retain(|(_, op)| !op_paths(op).into_iter().all(under));
+        let window = std::mem::take(&mut self.journal.window);
+        self.journal.window = window
+            .into_iter()
+            .filter_map(|(at, op)| {
+                if op_paths(&op).into_iter().all(under) {
+                    return None;
+                }
+                if let Operation::Rename(from, to) = &op {
+                    if under(to) && !under(from) {
+                        return Some((at, Operation::Delete(from.clone())));
+                    }
+                }
+                Some((at, op))
+            })
+            .collect();
         let subsumed: Vec<i64> = self
             .journal
             .pending

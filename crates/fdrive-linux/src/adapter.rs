@@ -325,7 +325,7 @@ impl Adapter {
     }
 
     pub fn write(&self, fh: u64, path: &RelPath, offset: u64, data: &[u8]) -> io::Result<u32> {
-        match self.handle_file(fh) {
+        match self.fresh_handle_file(fh, path) {
             Some(file) => {
                 self.engine.modified(path);
                 file.write_all_at(data, offset)?;

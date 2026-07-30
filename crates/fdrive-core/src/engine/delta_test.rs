@@ -33,7 +33,7 @@ fn identical_files_have_no_missing_ranges() {
 #[test]
 fn an_edit_maps_to_its_blocks() {
     let server_size = 256 * 1024;
-    let mut local = data(server_size, 1);
+    let local = data(server_size, 1);
     let server = {
         let mut s = local.clone();
         s[100 * 1024..104 * 1024].copy_from_slice(&data(4 * 1024, 9));

@@ -307,3 +307,146 @@ fn the_real_servers_signature_is_consumable_by_this_client() {
     fast_rsync::apply(&server, &delta, &mut restored).expect("apply");
     assert_eq!(restored, local);
 }
+
+fn xorshift(seed: &mut u64) -> u64 {
+    *seed ^= *seed << 13;
+    *seed ^= *seed >> 7;
+    *seed ^= *seed << 17;
+    *seed
+}
+
+fn server_files(server: &FakeServer) -> std::collections::BTreeMap<String, Vec<u8>> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut dirs = vec![String::new()];
+    while let Some(dir) = dirs.pop() {
+        for name in server.names(&format!("/{dir}")) {
+            let full = if dir.is_empty() {
+                name
+            } else {
+                format!("{dir}/{name}")
+            };
+            match server.get(&format!("/{full}")) {
+                Some(bytes) => {
+                    out.insert(full, bytes);
+                }
+                None => dirs.push(full),
+            }
+        }
+    }
+    out
+}
+
+struct StderrLog;
+
+impl log::Log for StderrLog {
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        true
+    }
+    fn log(&self, record: &log::Record) {
+        eprintln!("[{}] {}", record.level(), record.args());
+    }
+    fn flush(&self) {}
+}
+
+#[tokio::test]
+async fn random_workloads_converge() {
+    let _ = log::set_logger(&StderrLog).map(|()| log::set_max_level(log::LevelFilter::Info));
+    const PATHS: [&str; 6] = ["a.txt", "b.txt", "e.txt", "d/x.txt", "d/y.txt", "d/z.txt"];
+    for round in 0..24u64 {
+        let mut seed = 0x853c49e6748fea9b ^ (round + 1);
+        let server = FakeServer::start();
+        let platform = Platform::fresh();
+        fs::create_dir_all(platform.root.join("d")).unwrap();
+        let mut engine = connect(&server, platform.reopen());
+        let mut expected: std::collections::BTreeMap<String, Vec<u8>> = Default::default();
+        let mut trace: Vec<String> = Vec::new();
+
+        for phase in 0..4 {
+            let offline = phase > 0 && xorshift(&mut seed) % 2 == 0;
+            if offline {
+                trace.push(format!("-- phase {phase} offline"));
+                server.offline(true);
+            } else {
+                trace.push(format!("-- phase {phase} online"));
+            }
+            for turn in 0..10 {
+                let at = (xorshift(&mut seed) % 6) as usize;
+                let path = PATHS[at];
+                let rel = RelPath::new(path);
+                let on_disk = engine.local().backing(&rel).is_file();
+                let gesture = if offline {
+                    xorshift(&mut seed) % 2
+                } else {
+                    xorshift(&mut seed) % 6
+                };
+                match gesture {
+                    0 | 1 => {
+                        let content = format!("{round}-{phase}-{turn}-{seed:x}").into_bytes();
+                        if on_disk {
+                            edit(&engine, &rel, &content);
+                        } else {
+                            create(&engine, path, &content);
+                        }
+                        trace.push(format!(
+                            "write {path} = {}",
+                            String::from_utf8_lossy(&content)
+                        ));
+                        expected.insert(path.to_string(), content);
+                    }
+                    2 if on_disk => {
+                        fs::remove_file(engine.local().backing(&rel)).unwrap();
+                        engine.delete(&rel, false).await.unwrap();
+                        trace.push(format!("rm {path}"));
+                        expected.remove(path);
+                    }
+                    3 if on_disk => {
+                        let to = PATHS[(at + 1 + (xorshift(&mut seed) % 5) as usize) % 6];
+                        let to_rel = RelPath::new(to);
+                        fs::rename(
+                            engine.local().backing(&rel),
+                            engine.local().backing(&to_rel),
+                        )
+                        .unwrap();
+                        engine.rename(&rel, &to_rel, false).await.unwrap();
+                        trace.push(format!("mv {path} -> {to}"));
+                        let content = expected.remove(path);
+                        match content {
+                            Some(content) => {
+                                expected.insert(to.to_string(), content);
+                            }
+                            None => {
+                                expected.remove(to);
+                            }
+                        }
+                    }
+                    4 => {
+                        let dir = RelPath::new("d");
+                        let _ = fs::remove_dir_all(engine.local().backing(&dir));
+                        fs::create_dir_all(engine.local().backing(&dir)).unwrap();
+                        engine.delete(&dir, true).await.unwrap();
+                        trace.push("rmdir d".to_string());
+                        expected.retain(|k, _| !k.starts_with("d/"));
+                    }
+                    _ => {}
+                }
+            }
+            if offline {
+                engine.flush(Duration::from_millis(100)).await;
+                drop(engine);
+                server.offline(false);
+                engine = connect(&server, platform.reopen());
+                engine.recover();
+            }
+            settle(&engine).await;
+        }
+
+        let actual = server_files(&server);
+        assert_eq!(
+            actual,
+            expected,
+            "server diverged from the model (round {round})\ntrace:\n{}\nserver log:\n{}",
+            trace.join("\n"),
+            server.log().join("\n")
+        );
+    }
+}

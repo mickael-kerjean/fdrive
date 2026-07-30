@@ -79,6 +79,30 @@ Kept from round 3's work (still worth verifying):
 - Don't name a PowerShell helper `Ls`; don't run these scripts via
   `powershell -NoProfile` from a Bash tool (`curl.exe` missing, silent exit 0).
 
+## Task A — convert the placeholder rebuild to CfUpdatePlaceholder
+
+The one remaining self-mutation that can masquerade as a user delete: the
+rebuild path (`adapter.rs:622` area) refreshes a drifted placeholder by
+`wire::delete_if_clean` + `wire::create_placeholder`. That delete goes through
+the normal fs API, fires `NOTIFY_DELETE`, and a late echo past `suppress()`
+journals a delete against a file that is alive on the server — the only echo
+source with a live target (the ownCloud VFS disaster mechanism).
+
+CFAPI has the purpose-built verb: `CfUpdatePlaceholder` on an oplock handle
+(`CfOpenFileWithOplock` is already in wire.rs) updates size/mtime in place —
+no delete, no recreate, no event.
+
+1. Add a `wire::update_placeholder(abs, size, mtime)` using `CfUpdatePlaceholder`
+   (metadata update, `CF_UPDATE_FLAG_MARK_IN_SYNC` as appropriate); replace the
+   delete+create pair in the rebuild path with it. Keep the pin handling.
+2. Verify: trigger a rebuild (change a dehydrated file's size/mtime server-side,
+   refresh the dir), confirm the placeholder shows the new metadata, stays
+   pinned if it was, and the journal gains **zero** rows during the operation.
+3. Confirm rehydration of the updated placeholder fetches the new content.
+
+If `CfUpdatePlaceholder` cannot express something rebuild needs, report what
+and why rather than keeping the delete path.
+
 ## Test 1 — delete semantics without the breaker
 
 1. Folder with 200 files: delete in Explorer. Expect one `journaled rmdir`,
