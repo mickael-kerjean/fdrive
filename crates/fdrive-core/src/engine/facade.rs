@@ -152,10 +152,14 @@ impl<T: LocalStore> Engine<T> {
         self.state().rush();
     }
 
+    pub(super) fn pending_unheld(&self) -> usize {
+        self.state().pending_unheld()
+    }
+
     pub(super) fn stall_report(&self) -> String {
         let state = self.state();
         let mut sample = state.pending_sample(5);
-        let total = state.pending();
+        let total = state.pending_unheld();
         if total > sample.len() {
             sample.push(format!("... {} more", total - sample.len()));
         }

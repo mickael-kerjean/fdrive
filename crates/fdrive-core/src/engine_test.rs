@@ -390,6 +390,39 @@ async fn a_folder_delete_is_one_breaker_gesture() {
 }
 
 #[tokio::test]
+async fn a_folder_delete_slower_than_the_window_cap_is_still_one_gesture() {
+    let server = MockServer::start();
+    let rm = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/rm");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    let engine = engine(&server);
+    let dir = RelPath::new("d");
+    let children: Vec<RelPath> = (0..60).map(|i| RelPath::new(&format!("d/f{i}"))).collect();
+    for child in &children {
+        engine
+            .ledger()
+            .observations
+            .insert(child.clone(), observed(1));
+    }
+    for child in &children {
+        engine.delete(child, false).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    engine.delete(&dir, true).await.unwrap();
+    settle(&engine).await;
+
+    assert_eq!(
+        engine.deletions_held(),
+        0,
+        "a folder delete must stay one gesture even when its events outlast the window cap"
+    );
+    rm.assert_hits(1);
+    assert!(engine.ledger().observations.is_empty());
+}
+
+#[tokio::test]
 async fn a_tripped_breaker_survives_a_restart() {
     let server = MockServer::start();
     let rm = server.mock(|when, then| {

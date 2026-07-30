@@ -6,6 +6,21 @@ deletion occurs under any vector tested** (byte-exact full-tree verification,
 1748 files) and filed findings F1-F6; the fixes for F1/F3/F4 have landed since
 and are what this round verifies, plus the still-unexplained run-1 anomaly.
 
+> **Run 3 in progress (2026-07-30).** Tests 1 and 2 **pass** — see their sections
+> for measurements. Test 3 was mid-observation when this was written; tests 4-6
+> not yet run. Commits added during run 3: `9f84f08` (slow-folder-delete
+> coalescing + regression test), `37243ad` (F3 stall scoped to unheld work),
+> `98c544e` / this file (brief upkeep). Core suite 107 + 10 green, fmt and clippy
+> clean.
+>
+> **Headline measurement:** a 2000-file folder delete takes ~18s of event
+> streaming and still resolves to **one** recursive rm with **zero** breaker
+> gestures. The same run showed the `WINDOW_DELETE_MAX` cliff sits near 3300
+> files — read the Test 1 notes before touching the window constants.
+>
+> Baseline server tree re-verified before destructive work: 1748 files / 141 dirs
+> / 100,038,764 bytes, unchanged from run 2.
+
 ## What changed since round 2
 
 - **F1 fixed — breaker counts journal gestures, not watcher events.** Counting
@@ -17,9 +32,33 @@ and are what this round verifies, plus the still-unexplained run-1 anomaly.
 - **F4 done — "Held deletions..." menu entry removed.** The forced-choice
   Yes/No dialog (default No) is the only surface; after a restart while held,
   the sweep re-prompts within ~30s.
+- **Follow-up to F1 (commit `9f84f08`) — a slow folder delete stays one gesture.**
+  F1 alone only held for folders whose events fitted inside `WINDOW_MAX` (2s):
+  past that the window force-flushed mid-burst, the children became counted `'r'`
+  plans *and* went out as individual `rm` calls, and the folder gesture arrived
+  too late to fold them. The cap is now taken from the oldest **non-delete** op,
+  with `WINDOW_DELETE_MAX` (30s) as a backstop, so a pure-delete burst waits for
+  the 250ms quiet gap — which is where the directory event lands.
 - Unchanged and deliberate: no suppression tombstone was added. The `suppress()`
   drop-on-return window (adapter.rs:54-70) still exists; the breaker is the
   intended net until the adapter restructure removes suppression entirely.
+- **F3 hardened further (commit `37243ad`).** The original fix reset the stall
+  timer whenever *any* deletion was held, which disabled the watchdog wholesale —
+  a genuinely stuck upload could never report while the breaker held. The stall
+  check is now driven by `pending_unheld()` (pending plans minus held removes), so
+  it stays quiet when everything outstanding is held but still fires for unheld
+  work. `stall_report` samples unheld plans only, so the message names what is
+  actually stuck. `State::pending()` was dead after this and is gone.
+- **Known, accepted, not a bug to file:** breaker accounting sits downstream of a
+  timing heuristic, so a window miss escalates from "wasteful" to "false-positive
+  dialog". Past `WINDOW_DELETE_MAX` the old fragmentation returns (no data loss —
+  plans not yet inflight are still subsumed, the server still converges). The
+  durable fix is to make the breaker count timing-independent (distinct delete
+  roots, not plans made per window); deliberately deferred to keep this simple.
+  **Run 3 put a number on the cliff: ~9 ms per file measured, so 30s ≈ 3300
+  files.** That is an ordinary folder, not an edge case, which strengthens the
+  case for the timing-independent count over tuning the constant. `WINDOW_MAX`
+  itself (2s) is exceeded by as few as ~150 files.
 
 ## Environment
 
@@ -82,9 +121,39 @@ and are what this round verifies, plus the still-unexplained run-1 anomaly.
    `journaled rmdir`, one `removed <dir>/`, subtree gone from the server,
    journal drains to 0.
 3. Repeat with a 60-file folder for good measure — same expectation.
+4. **Then a folder big enough that its delete events outlast `WINDOW_MAX` (2s) —
+   2000+ files.** 200 files delete well inside the window, so steps 1-3 pass with
+   or without `9f84f08` and prove nothing about it. This is the case that does.
+   Same expectation, plus: count the `rm` calls — there must be **one**, not one
+   per file. Fragmentation into N calls means the burst outran
+   `WINDOW_DELETE_MAX` or the quiet gap was missed; capture the timing.
 
-- [ ] pass
-- [ ] fail → capture log + journal
+- [x] **pass (200)** — [x] **pass (60)** — [x] **pass (2000)** (run 3, 2026-07-30)
+
+Every case: `deletions this session` **0**, `journaled rmdir` **1**, `removed <dir>/`
+**1**, per-file `removed` **0**, journal drained to 0, `breaker_tripped` absent,
+server subtree gone. Measured wall-clock for the Explorer delete:
+
+| files | delete took | vs `WINDOW_MAX` (2s) |
+|---|---|---|
+| 200 | 2511 ms | already past it |
+| 60 | 3053 ms | already past it |
+| 2000 | **17912 ms** | 9× past it |
+
+Two things fell out of this that matter more than the pass:
+
+1. **Step 4's premise was wrong — 200 files already outlast the window.** Even the
+   small cases took >2s, so they were *already* hitting the fragmentation path
+   before `9f84f08`. The fix matters at far smaller folder sizes than assumed.
+   Do not treat the 200-file case as a control; there isn't one below ~150 files.
+2. **The `WINDOW_DELETE_MAX` cliff is reachable in normal use.** 2000 files in
+   17.9s is ~**9 ms/file**, so the 30s ceiling lands at roughly **3300 files** —
+   an ordinary photo folder, `node_modules`, or build tree. Past it you get
+   fragmentation into thousands of individual `rm` calls *plus* a false-positive
+   dialog. See "Known open items" — this is the concrete argument for making
+   breaker accounting timing-independent rather than tuning the constant. Cheap
+   stopgap if that waits: raising `WINDOW_DELETE_MAX` to 5 min buys ~33k files at
+   no practical cost.
 
 ## Test 2 — regression: 60 individual deletes still trip
 
@@ -93,8 +162,17 @@ and are what this round verifies, plus the still-unexplained run-1 anomaly.
    deleted before you answer. Answer **No**: `cancelled N held deletions`,
    server intact, placeholders return after a tray Refresh.
 
-- [ ] pass
-- [ ] fail
+- [x] **pass** (run 3) — tripped, journal held **60 `'r'` rows**, and **all 60
+      files were still on the server** before answering, which is the assertion
+      that matters. Dialog up (class `#32770`).
+- The trip line read **`63 deletions this session`**, not 60. That is correct and
+  is useful corroboration: 3 = the three Test 1 folder deletes contributing
+  exactly **one gesture each**, + 60 individual files, all counted in one journal
+  swap. If you ever see this number scale with folder *contents* rather than
+  folder *count*, F1 has regressed.
+- Note the budget is cumulative per session, so Test 1 spends 3 of the 50 before
+  Test 2 starts. Restart the client between tests if you want an exact threshold
+  measurement.
 
 ## Test 3 — F3: held is quiet
 

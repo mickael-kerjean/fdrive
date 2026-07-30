@@ -150,5 +150,5 @@ async fn a_failed_remove_stays_owed() {
     engine.delete(&path, false).await.unwrap();
     engine.flush(Duration::from_millis(1200)).await;
     assert!(engine.ledger().observations.contains_key(&path));
-    assert_eq!(engine.state.lock().unwrap().pending(), 1);
+    assert_eq!(engine.state.lock().unwrap().pending_unheld(), 1);
 }

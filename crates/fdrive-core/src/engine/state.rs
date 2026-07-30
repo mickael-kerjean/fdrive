@@ -9,6 +9,7 @@ use crate::model::{Conflict, Fate, Observation, Operation, Plan};
 
 const WINDOW_QUIET: Duration = Duration::from_millis(250);
 const WINDOW_MAX: Duration = Duration::from_secs(2);
+const WINDOW_DELETE_MAX: Duration = Duration::from_secs(30);
 const OPEN_QUIET: Duration = Duration::from_secs(5);
 const RETRY: Duration = Duration::from_secs(10);
 const RETRY_CAP: Duration = Duration::from_secs(300);
@@ -231,7 +232,12 @@ impl State {
             return Vec::new();
         };
         let oldest = j.window.first().map_or(newest, |(at, _)| *at);
-        let opens = (newest + WINDOW_QUIET).min(oldest + WINDOW_MAX);
+        let capped = j
+            .window
+            .iter()
+            .find(|(_, op)| !matches!(op, Operation::Delete(_)))
+            .map_or(oldest + WINDOW_DELETE_MAX, |(at, _)| *at + WINDOW_MAX);
+        let opens = (newest + WINDOW_QUIET).min(capped);
         if !force && now < opens {
             wake.note(Release::At(opens));
             return Vec::new();
@@ -403,14 +409,23 @@ impl State {
         self.refresh();
     }
 
-    pub(super) fn pending(&self) -> usize {
-        self.journal.pending.len()
+    fn held(&self, plan: &Plan) -> bool {
+        self.tripped && matches!(plan, Plan::Remove { .. })
+    }
+
+    pub(super) fn pending_unheld(&self) -> usize {
+        self.journal
+            .pending
+            .values()
+            .filter(|e| !self.held(&e.plan))
+            .count()
     }
 
     pub(super) fn pending_sample(&self, n: usize) -> Vec<String> {
         self.journal
             .pending
             .values()
+            .filter(|e| !self.held(&e.plan))
             .take(n)
             .map(|e| e.plan.to_string())
             .collect()
