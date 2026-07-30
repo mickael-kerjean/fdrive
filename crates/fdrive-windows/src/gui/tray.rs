@@ -35,7 +35,6 @@ const CMD_QUIT: usize = 5;
 const CMD_LOGS: usize = 6;
 const CMD_AUTOSTART: usize = 7;
 const CMD_REFRESH: usize = 8;
-const CMD_DELETIONS: usize = 9;
 
 #[derive(Clone)]
 pub struct Tray {
@@ -76,14 +75,6 @@ impl Tray {
         unsafe {
             let _ = PostThreadMessageW(self.thread, WM_TRAY_LOGIN, WPARAM(0), LPARAM(0));
         }
-    }
-
-    pub fn set_held(&self, held: usize) {
-        let mut state = self.state.lock().unwrap();
-        if state.held == held {
-            return;
-        }
-        state.held = held;
     }
 
     pub fn prompt_deletions(&self, held: usize) {
@@ -272,10 +263,10 @@ fn prompt_deletions(held: usize) {
 }
 
 unsafe fn show_menu(hwnd: HWND) {
-    let (logged_in, held) = CTX.with_borrow(|ctx| {
+    let logged_in = CTX.with_borrow(|ctx| {
         let ctx = ctx.as_ref().expect("tray ctx");
         let state = ctx.state.lock().unwrap();
-        (state.status != Status::LoggedOut, state.held)
+        state.status != Status::LoggedOut
     });
     let Ok(menu) = CreatePopupMenu() else { return };
     let autostart = if crate::wire::shell::autostart_enabled() {
@@ -284,10 +275,6 @@ unsafe fn show_menu(hwnd: HWND) {
         MF_STRING
     };
     if logged_in {
-        if held > 0 {
-            let _ = AppendMenuW(menu, MF_STRING, CMD_DELETIONS, w!("Held deletions..."));
-            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        }
         let _ = AppendMenuW(menu, MF_STRING, CMD_BROWSE, w!("Browse"));
         let _ = AppendMenuW(menu, MF_STRING, CMD_REFRESH, w!("Refresh"));
         let _ = AppendMenuW(menu, MF_STRING, CMD_LOGS, w!("Logs"));
@@ -322,7 +309,6 @@ unsafe fn show_menu(hwnd: HWND) {
     };
     match picked.0 as usize {
         CMD_BROWSE => send(TrayEvent::Browse),
-        CMD_DELETIONS => prompt_deletions(held),
         CMD_REFRESH => send(TrayEvent::Refresh),
         CMD_LOGIN => prompt_login(),
         CMD_LOGOUT => send(TrayEvent::Logout),

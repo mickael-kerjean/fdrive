@@ -109,7 +109,6 @@ impl Status {
 #[derive(Default)]
 pub struct TrayState {
     pub status: Status,
-    pub held: usize,
     pub url: Option<String>,
     pub user: String,
     pub storage: String,

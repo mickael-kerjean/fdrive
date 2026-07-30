@@ -356,6 +356,40 @@ async fn released_deletions_finish_the_wave() {
 }
 
 #[tokio::test]
+async fn a_folder_delete_is_one_breaker_gesture() {
+    let server = MockServer::start();
+    let rm_dir = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/rm")
+            .query_param("path", "/d/");
+        then.status(200)
+            .json_body(serde_json::json!({"status": "ok"}));
+    });
+    let engine = engine(&server);
+    let dir = RelPath::new("d");
+    let children: Vec<RelPath> = (0..200).map(|i| RelPath::new(&format!("d/f{i}"))).collect();
+    for child in &children {
+        engine
+            .ledger()
+            .observations
+            .insert(child.clone(), observed(1));
+    }
+    for child in &children {
+        engine.delete(child, false).await.unwrap();
+    }
+    engine.delete(&dir, true).await.unwrap();
+    settle(&engine).await;
+
+    assert_eq!(
+        engine.deletions_held(),
+        0,
+        "one folder gesture must not trip"
+    );
+    rm_dir.assert_hits(1);
+    assert!(engine.ledger().observations.is_empty());
+}
+
+#[tokio::test]
 async fn a_tripped_breaker_survives_a_restart() {
     let server = MockServer::start();
     let rm = server.mock(|when, then| {

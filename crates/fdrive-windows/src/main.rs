@@ -40,7 +40,6 @@ fn tray_status(upload: UploadStatus, held: usize) -> Status {
 
 fn check_deletions(adapter: &Adapter, tray: &Tray, prompted: &mut bool) -> usize {
     let held = adapter.deletions_held();
-    tray.set_held(held);
     if held > 0 {
         if !*prompted {
             *prompted = true;
@@ -236,13 +235,11 @@ async fn run(
                     Some(TrayEvent::DeletionsRelease) => {
                         adapter.deletions_release();
                         deletions_prompted = false;
-                        tray.set_held(0);
                         tray.set_status(tray_status(*upload_status.borrow(), 0));
                     }
                     Some(TrayEvent::DeletionsCancel) => {
                         adapter.deletions_cancel();
                         deletions_prompted = false;
-                        tray.set_held(0);
                         tray.set_status(tray_status(*upload_status.borrow(), 0));
                     }
                     Some(TrayEvent::Login(_)) => {}

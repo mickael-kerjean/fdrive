@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use crate::path::RelPath;
 
-use super::{Ledger, Outcome};
+use super::{Deletions, Ledger, Outcome};
 use crate::model;
 use crate::model::{Conflict, Fate, Observation, Operation, Plan};
 
@@ -18,6 +18,7 @@ const BREAKER_FLAG: &str = "breaker_tripped";
 pub(super) struct State {
     pub(super) journal: Journal,
     pub(super) ledger: Ledger,
+    deletions: Deletions,
     removed: u64,
     tripped: bool,
 }
@@ -77,7 +78,7 @@ pub(super) struct Step {
 }
 
 impl State {
-    pub(super) fn open(file: &std::path::Path) -> Self {
+    pub(super) fn open(file: &std::path::Path, deletions: Deletions) -> Self {
         let ledger = match Ledger::open(file) {
             Ok(ledger) => ledger,
             Err(()) => {
@@ -88,6 +89,9 @@ impl State {
             }
         };
         let (recovered, plans) = ledger.journal_load();
+        if !plans.is_empty() {
+            log::info!("recovered {} pending plans", plans.len());
+        }
         let now = Instant::now();
         let mut journal = Journal {
             marks: recovered.iter().flat_map(op_paths).cloned().collect(),
@@ -106,6 +110,7 @@ impl State {
         Self {
             journal,
             ledger,
+            deletions,
             removed: 0,
             tripped,
         }
@@ -191,6 +196,11 @@ impl State {
             "journal [{}] -> [{}]",
             model::render(&drained),
             model::render(&made)
+        );
+        self.breaker_note(
+            made.iter()
+                .filter(|p| matches!(p, Plan::Remove { .. }))
+                .count(),
         );
         let unmark: Vec<RelPath> = drained
             .iter()
@@ -437,6 +447,7 @@ impl State {
             self.journal.marks.remove(&p);
             self.ledger.unmark(&p);
         }
+        self.breaker_note(1);
         let plan = Plan::Remove {
             path: path.clone(),
             dir: true,
@@ -446,8 +457,11 @@ impl State {
         self.refresh();
     }
 
-    pub(super) fn breaker_note(&mut self) {
-        self.removed += 1;
+    fn breaker_note(&mut self, gestures: usize) {
+        if self.deletions != Deletions::Inferred || gestures == 0 {
+            return;
+        }
+        self.removed += gestures as u64;
         if !self.tripped && self.removed >= BREAKER_BUDGET {
             self.tripped = true;
             self.ledger.meta_set(BREAKER_FLAG, "1");

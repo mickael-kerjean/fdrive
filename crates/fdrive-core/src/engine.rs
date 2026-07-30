@@ -35,7 +35,6 @@ pub struct Engine<T: LocalStore> {
     local: T,
     sdk: Arc<Sdk>,
     ignore: crate::config::Ignore,
-    deletions: Deletions,
 
     state: Mutex<State>,
 

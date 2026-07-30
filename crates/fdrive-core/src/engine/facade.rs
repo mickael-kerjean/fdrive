@@ -26,14 +26,13 @@ impl<T: LocalStore> Engine<T> {
     ) -> Arc<Self> {
         let ledger_file = local.ledger();
         let ignore = crate::config::ignore(ledger_file.parent().unwrap_or(Path::new("")));
-        let state = State::open(&ledger_file);
+        let state = State::open(&ledger_file, deletions);
         let conflicts = Conflicts::load(state.ledger.conflicts_load());
         let (scheduler, driver) = scheduler::prepare();
         let engine = Arc::new(Self {
             local,
             sdk,
             ignore,
-            deletions,
             state: Mutex::new(state),
             transfers: Transfers::default(),
             frozen: Mutex::new(BTreeSet::new()),
@@ -59,9 +58,6 @@ impl<T: LocalStore> Engine<T> {
     }
 
     pub async fn delete(&self, path: &RelPath, is_dir: bool) -> io::Result<()> {
-        if self.deletions == Deletions::Inferred {
-            self.state().breaker_note();
-        }
         if is_dir {
             self.state().plan_delete_dir(path);
             self.kick();
@@ -134,10 +130,6 @@ impl<T: LocalStore> Engine<T> {
     }
 
     pub fn recover(&self) {
-        let pending = self.state().pending();
-        if pending > 0 {
-            log::info!("recovered {pending} pending plans");
-        }
         self.kick();
         self.pin_sweep();
     }
