@@ -7,15 +7,16 @@ use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetDlgItem, GetWindowTextLengthW, GetWindowTextW, MessageBoxW, SetWindowTextW, MB_ICONERROR,
-    MB_ICONINFORMATION, MB_OK, MESSAGEBOX_STYLE, SW_SHOWNORMAL,
+    GetDlgItem, GetWindowTextLengthW, GetWindowTextW, SetWindowTextW, SW_SHOWNORMAL,
 };
 
+mod alert;
 mod dashboard;
 mod login;
 mod tray;
 mod webview;
 
+pub use alert::{alert, info};
 pub use tray::Tray;
 
 pub fn init(
@@ -37,21 +38,6 @@ pub fn init(
         tray.prompt_login();
     }
     Ok((tray, rx))
-}
-
-pub fn alert(message: &str) {
-    message_box(message, MB_ICONERROR);
-}
-
-pub fn info(message: &str) {
-    message_box(message, MB_ICONINFORMATION);
-}
-
-fn message_box(message: &str, icon: MESSAGEBOX_STYLE) {
-    let text: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
-    unsafe {
-        MessageBoxW(None, PCWSTR(text.as_ptr()), w!("Filestash"), MB_OK | icon);
-    }
 }
 
 #[derive(Debug, Clone, Default)]

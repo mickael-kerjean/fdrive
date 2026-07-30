@@ -485,11 +485,13 @@ Test "conflict-keeps-both" {
     Start-Sleep -Seconds 2
     Srv-Save "$SrvE2E/c1.txt" "server version"
     Set-Content -LiteralPath (LPath "c1.txt") -Value "local version" -Encoding ascii -NoNewline
+    $pattern = "^c1 \(conflicted copy from .+\)\.txt$"
     $ok = Wait-Until {
-        @(Srv-Ls "$SrvE2E/") -match "c1 \(conflicted copy\)"
+        @(Srv-Ls "$SrvE2E/") -match $pattern
     } 30 "conflicted copy on server"
     if (-not $ok) { return $false }
-    (Srv-Cat "$SrvE2E/c1 (conflicted copy).txt") -eq "local version" -and
+    $copy = @(Srv-Ls "$SrvE2E/") -match $pattern | Select-Object -First 1
+    (Srv-Cat "$SrvE2E/$copy") -eq "local version" -and
         (Srv-Cat "$SrvE2E/c1.txt") -eq "server version"
 }
 

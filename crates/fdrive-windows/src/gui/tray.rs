@@ -12,10 +12,9 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, MessageBoxW,
-    PostQuitMessage, PostThreadMessageW, RegisterClassW, SetForegroundWindow, TrackPopupMenu,
-    TranslateMessage, HICON, IDI_APPLICATION, IDNO, IDYES, IMAGE_FLAGS, MB_DEFBUTTON2,
-    MB_ICONWARNING, MB_YESNOCANCEL, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL,
+    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, PostQuitMessage,
+    PostThreadMessageW, RegisterClassW, SetForegroundWindow, TrackPopupMenu, TranslateMessage,
+    HICON, IDI_APPLICATION, IMAGE_FLAGS, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL,
     TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_LBUTTONUP,
     WM_RBUTTONUP, WNDCLASSW,
 };
@@ -262,35 +261,14 @@ unsafe extern "system" fn tray_wndproc(
 }
 
 fn prompt_deletions(held: usize) {
-    let text: Vec<u16> = format!(
-        "Filestash stopped {held} pending deletion(s) from reaching your server files.\n\n\
-         This many deletions in one session is unusual and may indicate a problem \
-         rather than something you did on purpose.\n\n\
-         Yes — delete these files on the server too\n\
-         No — keep the server files and restore them here\n\
-         Cancel — decide later, deletions stay paused"
-    )
-    .encode_utf16()
-    .chain(std::iter::once(0))
-    .collect();
-    let picked = unsafe {
-        MessageBoxW(
-            None,
-            PCWSTR(text.as_ptr()),
-            w!("Filestash"),
-            MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON2,
-        )
+    let event = if super::alert::confirm_deletions(held) {
+        TrayEvent::DeletionsRelease
+    } else {
+        TrayEvent::DeletionsCancel
     };
-    let send = |event: TrayEvent| {
-        CTX.with_borrow(|ctx| {
-            let _ = ctx.as_ref().expect("tray ctx").events.send(event);
-        })
-    };
-    match picked {
-        IDYES => send(TrayEvent::DeletionsRelease),
-        IDNO => send(TrayEvent::DeletionsCancel),
-        _ => {}
-    }
+    CTX.with_borrow(|ctx| {
+        let _ = ctx.as_ref().expect("tray ctx").events.send(event);
+    });
 }
 
 unsafe fn show_menu(hwnd: HWND) {
