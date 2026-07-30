@@ -26,7 +26,7 @@ A cross platform drive client that does not try to own your storage, but rather 
 
 We use the hexagonal architecture / ports and adapters pattern. The core owns all policy, everything that decides *what moves where* lives there, once. Each platform adapts its own UI and filesystem technology to it.
 
-Inside the core, sync is a journal: filesystem events are recorded, coalesced into plans (an editor's whole save dance collapses into a single upload), and replayed against the server under leases, a plan only lands if the server still holds the version we last saw, anything newer wins and becomes a conflict you can act on.
+Inside the core, sync is a journal: filesystem events are recorded, coalesced into plans, and replayed against the server under leases, a plan only lands if the server still holds the version we last saw, anything newer wins and becomes a conflict you can act on.
 
 | crate | technology |
 |---|---|
@@ -66,4 +66,5 @@ Inside the core, sync is a journal: filesystem events are recorded, coalesced in
 - [ ] Support for delta download: same as the existing upload but for download. Awaiting for server support
 - [ ] MDM integration: preconfigure the client and roll it out across a fleet
 - [ ] full POSIX compliance
+- [ ] finetune performance
 - [ ] Ransomware protection
