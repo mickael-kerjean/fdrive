@@ -104,10 +104,7 @@ fn instance_lock(data: &Path) -> Result<(), String> {
 
 fn prompt_password() -> std::io::Result<String> {
     use std::os::fd::AsRawFd;
-    let mut tty = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open("/dev/tty")?;
+    let mut tty = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty")?;
     write!(tty, "Password: ")?;
     tty.flush()?;
     let fd = tty.as_raw_fd();

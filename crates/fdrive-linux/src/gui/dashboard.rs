@@ -84,10 +84,7 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
     let (width, height) = window.size();
     window.resize(width, height);
     if let Some((center, y)) = near {
-        let right = window
-            .screen()
-            .map(|s| s.width() - width - 8)
-            .unwrap_or(i32::MAX);
+        let right = window.screen().map(|s| s.width() - width - 8).unwrap_or(i32::MAX);
         window.move_((center - width / 2).clamp(8, right.max(8)), y);
     }
 }

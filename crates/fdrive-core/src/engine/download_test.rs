@@ -107,7 +107,7 @@ async fn a_deleted_file_stops_hydrating() {
 async fn a_cached_file_opens_when_the_server_is_unreachable() {
     let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
     let rt = tokio::runtime::Handle::current();
-    let engine = Engine::start(Arc::new(sdk), rt, TempTree::new());
+    let engine = Engine::start(rt, Arc::new(sdk), TempTree::new());
     let path = RelPath::new("f");
     engine.local().write("f", b"cached");
     engine.ledger().observe(&path, Observation::new(6, None));

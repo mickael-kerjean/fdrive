@@ -20,10 +20,7 @@ struct Ctx {
 enum TrayMsg {
     Set(Status, bool),
     Attach(Arc<Activity>),
-    Login(
-        Credentials,
-        tokio::sync::oneshot::Sender<Option<Credentials>>,
-    ),
+    Login(Credentials, tokio::sync::oneshot::Sender<Option<Credentials>>),
     Quit,
 }
 
@@ -32,11 +29,7 @@ pub struct Tray {
 }
 
 impl Tray {
-    pub async fn spawn(
-        events: UnboundedSender<TrayEvent>,
-        data_dir: PathBuf,
-        mount: PathBuf,
-    ) -> std::io::Result<Self> {
+    pub async fn spawn(events: UnboundedSender<TrayEvent>, data_dir: PathBuf, mount: PathBuf) -> std::io::Result<Self> {
         let icon_dir = data_dir.join("icons");
         ensure_icons(&icon_dir)?;
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
@@ -97,18 +90,11 @@ type Ready = Result<gtk::glib::Sender<TrayMsg>, std::io::Error>;
 
 fn tray_thread(ready: std::sync::mpsc::Sender<Ready>, ctx: Ctx, icon_dir: PathBuf) {
     if gtk::init().is_err() {
-        let _ = ready.send(Err(std::io::Error::other(
-            "could not connect GTK to the desktop session",
-        )));
+        let _ = ready.send(Err(std::io::Error::other("could not connect GTK to the desktop session")));
         return;
     }
     gtk::glib::log_set_writer_func(|level, fields| {
-        let field = |key| {
-            fields
-                .iter()
-                .find(|f| f.key() == key)
-                .and_then(|f| f.value_str())
-        };
+        let field = |key| fields.iter().find(|f| f.key() == key).and_then(|f| f.value_str());
         let benign = field("GLIB_DOMAIN") == Some("libayatana-appindicator")
             || field("MESSAGE").is_some_and(|m| m.contains("thaw_toplevel_updates"));
         if benign {
@@ -129,11 +115,7 @@ fn tray_thread(ready: std::sync::mpsc::Sender<Ready>, ctx: Ctx, icon_dir: PathBu
         })
     });
     let mut backend = if sni_host_running() {
-        let mut indicator = AppIndicator::with_path(
-            "filestash",
-            Status::LoggedOut.icon_name(),
-            icon_dir.to_str().unwrap_or("."),
-        );
+        let mut indicator = AppIndicator::with_path("filestash", Status::LoggedOut.icon_name(), icon_dir.to_str().unwrap_or("."));
         indicator.set_title(Status::LoggedOut.tip());
         indicator.set_status(AppIndicatorStatus::Active);
         let mut menu = with_ui(build_menu);
@@ -249,10 +231,7 @@ fn xembed_set(icon: *mut gtk::ffi::GtkStatusIcon, status: Status) {
     }
 }
 
-unsafe extern "C" fn on_activate(
-    icon: *mut gtk::ffi::GtkStatusIcon,
-    _data: gtk::glib::ffi::gpointer,
-) {
+unsafe extern "C" fn on_activate(icon: *mut gtk::ffi::GtkStatusIcon, _data: gtk::glib::ffi::gpointer) {
     match with_ui(|ui| ui.activity.clone()) {
         Some(activity) => show_stats(activity, stats_position(icon)),
         None => popup_menu(0, gtk::current_event_time()),
@@ -279,9 +258,7 @@ fn stats_position(icon: *mut gtk::ffi::GtkStatusIcon) -> Option<(i32, i32)> {
         let mut screen: *mut gtk::gdk::ffi::GdkScreen = std::ptr::null_mut();
         let mut rect: gtk::gdk::ffi::GdkRectangle = std::mem::zeroed();
         let mut orientation: gtk::ffi::GtkOrientation = 0;
-        if gtk::ffi::gtk_status_icon_get_geometry(icon, &mut screen, &mut rect, &mut orientation)
-            == 0
-        {
+        if gtk::ffi::gtk_status_icon_get_geometry(icon, &mut screen, &mut rect, &mut orientation) == 0 {
             return None;
         }
         let screen_h = gtk::gdk::ffi::gdk_screen_get_height(screen);
@@ -333,22 +310,10 @@ fn build_menu(ui: &mut Ui) -> gtk::Menu {
 
 fn ensure_icons(dir: &Path) -> std::io::Result<()> {
     const ICONS: [(&str, &str); 4] = [
-        (
-            "icon-base.svg",
-            include_str!("../../../fdrive-core/icons/icon-base.svg"),
-        ),
-        (
-            "icon-ok.svg",
-            include_str!("../../../fdrive-core/icons/icon-ok.svg"),
-        ),
-        (
-            "icon-sync.svg",
-            include_str!("../../../fdrive-core/icons/icon-sync.svg"),
-        ),
-        (
-            "icon-error.svg",
-            include_str!("../../../fdrive-core/icons/icon-error.svg"),
-        ),
+        ("icon-base.svg", include_str!("../../../fdrive-core/icons/icon-base.svg")),
+        ("icon-ok.svg", include_str!("../../../fdrive-core/icons/icon-ok.svg")),
+        ("icon-sync.svg", include_str!("../../../fdrive-core/icons/icon-sync.svg")),
+        ("icon-error.svg", include_str!("../../../fdrive-core/icons/icon-error.svg")),
     ];
     std::fs::create_dir_all(dir)?;
     for (name, svg) in ICONS {
@@ -359,19 +324,15 @@ fn ensure_icons(dir: &Path) -> std::io::Result<()> {
 
 fn update_svg(svg: &str) -> String {
     use std::sync::LazyLock;
-    static PAINT: LazyLock<regex::Regex> =
-        LazyLock::new(|| regex::Regex::new(r"(stroke|fill):#([0-9a-fA-F]{3,6})").unwrap());
-    static WIDTH: LazyLock<regex::Regex> =
-        LazyLock::new(|| regex::Regex::new(r#"stroke-width="([0-9.]+)"#).unwrap());
+    static PAINT: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(stroke|fill):#([0-9a-fA-F]{3,6})").unwrap());
+    static WIDTH: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r#"stroke-width="([0-9.]+)"#).unwrap());
 
     let is_white = |hex: &str| matches!(hex.to_lowercase().as_str(), "fff" | "ffffff");
-    let out = PAINT.replace_all(svg, |caps: &regex::Captures| {
-        match (&caps[1], is_white(&caps[2])) {
-            ("stroke", _) => "stroke:#ffffff".to_string(),
-            ("fill", true) => caps[0].to_string(),
-            ("fill", _) => "fill:none".to_string(),
-            _ => unreachable!(),
-        }
+    let out = PAINT.replace_all(svg, |caps: &regex::Captures| match (&caps[1], is_white(&caps[2])) {
+        ("stroke", _) => "stroke:#ffffff".to_string(),
+        ("fill", true) => caps[0].to_string(),
+        ("fill", _) => "fill:none".to_string(),
+        _ => unreachable!(),
     });
     WIDTH
         .replace_all(&out, |caps: &regex::Captures| {
@@ -392,11 +353,7 @@ fn file_manager() -> Option<gtk::gio::AppInfo> {
     };
     gio::AppInfo::default_for_type("inode/directory", false)
         .filter(is_manager)
-        .or_else(|| {
-            gio::AppInfo::all_for_type("inode/directory")
-                .into_iter()
-                .find(is_manager)
-        })
+        .or_else(|| gio::AppInfo::all_for_type("inode/directory").into_iter().find(is_manager))
 }
 
 fn open_folder(path: &Path) {

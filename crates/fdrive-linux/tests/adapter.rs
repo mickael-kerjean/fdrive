@@ -32,15 +32,13 @@ impl Drop for TempDir {
 fn adapter(server: &MockServer, data: &TempDir, rt: &Runtime) -> Adapter {
     let mut sdk = Sdk::new(&server.base_url()).unwrap();
     sdk.set_token("TOKEN".into());
-    Adapter::new(Arc::new(sdk), rt.handle().clone(), &data.0).unwrap()
+    Adapter::new(rt.handle().clone(), Arc::new(sdk), &data.0).unwrap()
 }
 
 fn ls_mock<'a>(server: &'a MockServer, path: &str, entries: &str) -> httpmock::Mock<'a> {
     let body = format!("{{\"status\": \"ok\", \"results\": [{entries}]}}");
     server.mock(move |when, then| {
-        when.method(GET)
-            .path("/api/files/ls")
-            .query_param("path", path);
+        when.method(GET).path("/api/files/ls").query_param("path", path);
         then.status(200)
             .json_body_obj(&serde_json::from_str::<serde_json::Value>(&body).unwrap());
     })
@@ -56,8 +54,7 @@ fn rmdir_vetoes_a_directory_that_is_not_empty_on_the_server() {
     );
     let rm = server.mock(|when, then| {
         when.method(POST).path("/api/files/rm");
-        then.status(200)
-            .json_body(serde_json::json!({"status": "ok"}));
+        then.status(200).json_body(serde_json::json!({"status": "ok"}));
     });
     let (rt, data) = (Runtime::new().unwrap(), TempDir::new());
     let adapter = adapter(&server, &data, &rt);
@@ -72,11 +69,8 @@ fn rmdir_of_an_empty_directory_deletes_it() {
     let server = MockServer::start();
     ls_mock(&server, "/d/", "");
     let rm = server.mock(|when, then| {
-        when.method(POST)
-            .path("/api/files/rm")
-            .query_param("path", "/d/");
-        then.status(200)
-            .json_body(serde_json::json!({"status": "ok"}));
+        when.method(POST).path("/api/files/rm").query_param("path", "/d/");
+        then.status(200).json_body(serde_json::json!({"status": "ok"}));
     });
     let (rt, data) = (Runtime::new().unwrap(), TempDir::new());
     let adapter = adapter(&server, &data, &rt);
@@ -98,8 +92,7 @@ fn a_delete_storm_is_one_recursive_rm() {
     );
     let rm = server.mock(|when, then| {
         when.method(POST).path("/api/files/rm");
-        then.status(200)
-            .json_body(serde_json::json!({"status": "ok"}));
+        then.status(200).json_body(serde_json::json!({"status": "ok"}));
     });
     let (rt, data) = (Runtime::new().unwrap(), TempDir::new());
     let adapter = adapter(&server, &data, &rt);

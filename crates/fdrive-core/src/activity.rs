@@ -61,13 +61,6 @@ pub struct Activity {
     inner: Mutex<Inner>,
 }
 
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 impl Default for Activity {
     fn default() -> Self {
         Self {
@@ -133,7 +126,7 @@ impl Activity {
             }
             None => return,
         };
-        let at = now_secs();
+        let at = Activity::now_secs();
         let bucket = &mut inner.meter[(at % METER_SECONDS as u64) as usize];
         if bucket.at != at {
             *bucket = Bucket {
@@ -149,7 +142,7 @@ impl Activity {
 
     pub fn snapshot(&self) -> Snapshot {
         let inner = self.inner.lock().unwrap();
-        let now = now_secs();
+        let now = Activity::now_secs();
         let meter = (0..METER_SECONDS as u64)
             .map(|back| {
                 let at = now - (METER_SECONDS as u64 - 1) + back;
@@ -174,6 +167,13 @@ impl Activity {
         if let Some(t) = inner.records.iter_mut().find(|t| t.id == id) {
             apply(t);
         }
+    }
+
+    fn now_secs() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
     }
 }
 

@@ -45,10 +45,7 @@ impl Rig {
         fs::create_dir_all(&mnt).unwrap();
         fs::create_dir_all(&data).unwrap();
         prepare(&data);
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
         let (adapter, session) = mount(&server, &rt, &mnt, &data);
         Some(Rig {
             mnt,
@@ -70,8 +67,7 @@ impl Rig {
 
     pub fn settle(&self) {
         std::thread::sleep(Duration::from_millis(500));
-        self.rt
-            .block_on(self.adapter.flush(Duration::from_secs(10)));
+        self.rt.block_on(self.adapter.flush(Duration::from_secs(10)));
     }
 
     pub fn settle_for(&self, timeout: Duration) {
@@ -96,20 +92,12 @@ impl Rig {
     }
 }
 
-fn mount(
-    server: &FakeServer,
-    rt: &tokio::runtime::Runtime,
-    mnt: &Path,
-    data: &Path,
-) -> (Arc<Adapter>, fuser::BackgroundSession) {
+fn mount(server: &FakeServer, rt: &tokio::runtime::Runtime, mnt: &Path, data: &Path) -> (Arc<Adapter>, fuser::BackgroundSession) {
     let mut sdk = Sdk::new(server.url()).unwrap();
     sdk.set_token("TOKEN".into());
-    let adapter = Arc::new(Adapter::new(Arc::new(sdk), rt.handle().clone(), data).unwrap());
+    let adapter = Arc::new(Adapter::new(rt.handle().clone(), Arc::new(sdk), data).unwrap());
     let mut config = Config::default();
-    config.mount_options = vec![
-        MountOption::FSName("fdrive-e2e".to_string()),
-        MountOption::DefaultPermissions,
-    ];
+    config.mount_options = vec![MountOption::FSName("fdrive-e2e".to_string()), MountOption::DefaultPermissions];
     let session = fuser::spawn_mount2(MountFs::new(adapter.clone()), mnt, &config).unwrap();
     (adapter, session)
 }

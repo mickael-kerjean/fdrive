@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use fuser::{
-    BsdFileFlags, Errno, FileAttr, FileHandle, FileType, Filesystem, FopenFlags, Generation,
-    INodeNo, LockOwner, OpenFlags, RenameFlags, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory,
-    ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr, Request, TimeOrNow, WriteFlags,
+    BsdFileFlags, Errno, FileAttr, FileHandle, FileType, Filesystem, FopenFlags, Generation, INodeNo, LockOwner, OpenFlags,
+    RenameFlags, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyWrite, ReplyXattr,
+    Request, TimeOrNow, WriteFlags,
 };
 
 use crate::adapter::Adapter;
@@ -14,44 +14,6 @@ use fdrive_core::path::RelPath;
 
 const TTL: Duration = Duration::from_secs(5);
 const ROOT: u64 = 1;
-
-struct InodeTable {
-    paths: HashMap<u64, RelPath>,
-    inos: HashMap<RelPath, u64>,
-    lookups: HashMap<u64, u64>,
-    next_ino: u64,
-}
-
-impl InodeTable {
-    fn ino(&mut self, path: &RelPath) -> u64 {
-        if let Some(ino) = self.inos.get(path) {
-            return *ino;
-        }
-        let ino = self.next_ino;
-        self.next_ino += 1;
-        self.inos.insert(path.clone(), ino);
-        self.paths.insert(ino, path.clone());
-        ino
-    }
-
-    fn bump(&mut self, ino: u64) {
-        if ino != ROOT {
-            *self.lookups.entry(ino).or_insert(0) += 1;
-        }
-    }
-
-    fn forget(&mut self, ino: u64, n: u64) {
-        if let Some(count) = self.lookups.get_mut(&ino) {
-            *count = count.saturating_sub(n);
-            if *count == 0 {
-                self.lookups.remove(&ino);
-                if let Some(path) = self.paths.remove(&ino) {
-                    self.inos.remove(&path);
-                }
-            }
-        }
-    }
-}
 
 pub struct MountFs {
     rt: tokio::runtime::Handle,
@@ -63,6 +25,13 @@ struct Wire {
     inodes: Mutex<InodeTable>,
     uid: u32,
     gid: u32,
+}
+
+struct InodeTable {
+    paths: HashMap<u64, RelPath>,
+    inos: HashMap<RelPath, u64>,
+    lookups: HashMap<u64, u64>,
+    next_ino: u64,
 }
 
 impl Filesystem for MountFs {
@@ -81,11 +50,7 @@ impl Filesystem for MountFs {
                 wire.bump(attr.ino.0);
                 reply.entry(&TTL, &attr, Generation(0));
             }
-            None => reply.entry(
-                &TTL,
-                &wire.make_attr(0, false, 0, SystemTime::UNIX_EPOCH),
-                Generation(0),
-            ),
+            None => reply.entry(&TTL, &wire.make_attr(0, false, 0, SystemTime::UNIX_EPOCH), Generation(0)),
         });
     }
 
@@ -139,14 +104,7 @@ impl Filesystem for MountFs {
         });
     }
 
-    fn readdir(
-        &self,
-        req: &Request,
-        ino: INodeNo,
-        _fh: FileHandle,
-        offset: u64,
-        mut reply: ReplyDirectory,
-    ) {
+    fn readdir(&self, req: &Request, ino: INodeNo, _fh: FileHandle, offset: u64, mut reply: ReplyDirectory) {
         let Some(dir) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
@@ -186,15 +144,7 @@ impl Filesystem for MountFs {
         });
     }
 
-    fn mkdir(
-        &self,
-        _req: &Request,
-        parent: INodeNo,
-        name: &OsStr,
-        _mode: u32,
-        _umask: u32,
-        reply: ReplyEntry,
-    ) {
+    fn mkdir(&self, _req: &Request, parent: INodeNo, name: &OsStr, _mode: u32, _umask: u32, reply: ReplyEntry) {
         let Some(path) = self.wire.child(parent.0, name) else {
             return reply.error(Errno::EINVAL);
         };
@@ -213,16 +163,7 @@ impl Filesystem for MountFs {
         });
     }
 
-    fn create(
-        &self,
-        _req: &Request,
-        parent: INodeNo,
-        name: &OsStr,
-        _mode: u32,
-        _umask: u32,
-        _flags: i32,
-        reply: ReplyCreate,
-    ) {
+    fn create(&self, _req: &Request, parent: INodeNo, name: &OsStr, _mode: u32, _umask: u32, _flags: i32, reply: ReplyCreate) {
         let Some(path) = self.wire.child(parent.0, name) else {
             return reply.error(Errno::EINVAL);
         };
@@ -234,13 +175,7 @@ impl Filesystem for MountFs {
             let attr = wire.make_attr(wire.ino(&path), false, 0, SystemTime::now());
             wire.bump(attr.ino.0);
             let fh = wire.adapter.opened(&path, true);
-            reply.created(
-                &TTL,
-                &attr,
-                Generation(0),
-                FileHandle(fh),
-                FopenFlags::empty(),
-            );
+            reply.created(&TTL, &attr, Generation(0), FileHandle(fh), FopenFlags::empty());
         });
     }
 
@@ -259,10 +194,7 @@ impl Filesystem for MountFs {
                 wire.adapter.hydrate_start(&path)
             };
             match result {
-                Ok(()) => reply.opened(
-                    FileHandle(wire.adapter.opened(&path, writable)),
-                    FopenFlags::empty(),
-                ),
+                Ok(()) => reply.opened(FileHandle(wire.adapter.opened(&path, writable)), FopenFlags::empty()),
                 Err(err) => reply.error(Errno::from(err)),
             }
         });
@@ -282,12 +214,10 @@ impl Filesystem for MountFs {
         let Some(path) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
-        self.go(
-            move |wire| match wire.adapter.read(fh.0, &path, offset, size) {
-                Ok(data) => reply.data(&data),
-                Err(err) => reply.error(Errno::from(err)),
-            },
-        );
+        self.go(move |wire| match wire.adapter.read(fh.0, &path, offset, size) {
+            Ok(data) => reply.data(&data),
+            Err(err) => reply.error(Errno::from(err)),
+        });
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -307,12 +237,10 @@ impl Filesystem for MountFs {
             return reply.error(Errno::ENOENT);
         };
         let data = data.to_vec();
-        self.go(
-            move |wire| match wire.adapter.write(fh.0, &path, offset, &data) {
-                Ok(written) => reply.written(written),
-                Err(err) => reply.error(Errno::from(err)),
-            },
-        );
+        self.go(move |wire| match wire.adapter.write(fh.0, &path, offset, &data) {
+            Ok(written) => reply.written(written),
+            Err(err) => reply.error(Errno::from(err)),
+        });
     }
 
     fn unlink(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
@@ -351,10 +279,7 @@ impl Filesystem for MountFs {
         _flags: RenameFlags,
         reply: ReplyEmpty,
     ) {
-        let (Some(from), Some(to)) = (
-            self.wire.child(parent.0, name),
-            self.wire.child(newparent.0, newname),
-        ) else {
+        let (Some(from), Some(to)) = (self.wire.child(parent.0, name), self.wire.child(newparent.0, newname)) else {
             return reply.error(Errno::ENOENT);
         };
         self.go(move |wire| {
@@ -369,25 +294,11 @@ impl Filesystem for MountFs {
         });
     }
 
-    fn flush(
-        &self,
-        _req: &Request,
-        _ino: INodeNo,
-        _fh: FileHandle,
-        _lock_owner: LockOwner,
-        reply: ReplyEmpty,
-    ) {
+    fn flush(&self, _req: &Request, _ino: INodeNo, _fh: FileHandle, _lock_owner: LockOwner, reply: ReplyEmpty) {
         reply.ok();
     }
 
-    fn fsync(
-        &self,
-        _req: &Request,
-        _ino: INodeNo,
-        _fh: FileHandle,
-        _datasync: bool,
-        reply: ReplyEmpty,
-    ) {
+    fn fsync(&self, _req: &Request, _ino: INodeNo, _fh: FileHandle, _datasync: bool, reply: ReplyEmpty) {
         reply.ok();
     }
 
@@ -405,16 +316,7 @@ impl Filesystem for MountFs {
         reply.ok();
     }
 
-    fn setxattr(
-        &self,
-        _req: &Request,
-        ino: INodeNo,
-        name: &OsStr,
-        value: &[u8],
-        flags: i32,
-        _position: u32,
-        reply: ReplyEmpty,
-    ) {
+    fn setxattr(&self, _req: &Request, ino: INodeNo, name: &OsStr, value: &[u8], flags: i32, _position: u32, reply: ReplyEmpty) {
         let Some(path) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
@@ -431,10 +333,7 @@ impl Filesystem for MountFs {
         let Some(path) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
-        match name
-            .to_str()
-            .and_then(|name| self.wire.adapter.xattr_get(&path, name))
-        {
+        match name.to_str().and_then(|name| self.wire.adapter.xattr_get(&path, name)) {
             Some(value) => xattr_reply(reply, &value, size),
             None => reply.error(Errno::ENODATA),
         }
@@ -486,6 +385,37 @@ impl MountFs {
     }
 }
 
+impl InodeTable {
+    fn ino(&mut self, path: &RelPath) -> u64 {
+        if let Some(ino) = self.inos.get(path) {
+            return *ino;
+        }
+        let ino = self.next_ino;
+        self.next_ino += 1;
+        self.inos.insert(path.clone(), ino);
+        self.paths.insert(ino, path.clone());
+        ino
+    }
+
+    fn bump(&mut self, ino: u64) {
+        if ino != ROOT {
+            *self.lookups.entry(ino).or_insert(0) += 1;
+        }
+    }
+
+    fn forget(&mut self, ino: u64, n: u64) {
+        if let Some(count) = self.lookups.get_mut(&ino) {
+            *count = count.saturating_sub(n);
+            if *count == 0 {
+                self.lookups.remove(&ino);
+                if let Some(path) = self.paths.remove(&ino) {
+                    self.inos.remove(&path);
+                }
+            }
+        }
+    }
+}
+
 impl Wire {
     fn ino(&self, path: &RelPath) -> u64 {
         self.inodes.lock().unwrap().ino(path)
@@ -523,11 +453,7 @@ impl Wire {
             mtime,
             ctime: mtime,
             crtime: mtime,
-            kind: if is_dir {
-                FileType::Directory
-            } else {
-                FileType::RegularFile
-            },
+            kind: if is_dir { FileType::Directory } else { FileType::RegularFile },
             perm: if is_dir { 0o755 } else { 0o644 },
             nlink: 1,
             uid: self.uid,

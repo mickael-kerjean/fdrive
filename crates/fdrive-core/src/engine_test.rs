@@ -488,7 +488,7 @@ async fn rename_of_an_unuploaded_file_stays_local() {
 async fn an_offline_dir_rename_is_refused_before_touching_anything() {
     let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
     let rt = tokio::runtime::Handle::current();
-    let engine = Engine::start(Arc::new(sdk), rt, TempTree::new());
+    let engine = Engine::start(rt, Arc::new(sdk), TempTree::new());
     engine
         .ledger()
         .observations

@@ -3,7 +3,6 @@ use std::fs;
 use std::io::{self};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -16,14 +15,14 @@ use tokio::sync::watch;
 
 use crate::xattr::XattrDb;
 
-struct Handle {
-    path: RelPath,
-    file: Option<Arc<fs::File>>,
-    writable: bool,
-}
-
 const META_TTL: Duration = Duration::from_secs(5);
 const PIN_XATTR: &str = "user.fdrive.pin";
+
+pub struct Adapter {
+    engine: Arc<Engine<CacheTree>>,
+    xattrs: XattrDb,
+    handles: Handles,
+}
 
 pub struct CacheTree {
     cache_dir: PathBuf,
@@ -31,16 +30,19 @@ pub struct CacheTree {
     meta: Mutex<HashMap<RelPath, (Instant, Vec<FileInfo>)>>,
 }
 
-impl CacheTree {
-    fn invalidate(&self, dir: &RelPath) {
-        self.meta.lock().unwrap().remove(dir);
-    }
+#[derive(Default)]
+struct Handles(Mutex<HandleTable>);
 
-    fn drop(&self, dir: &RelPath, name: &str) {
-        if let Some((_, listing)) = self.meta.lock().unwrap().get_mut(dir) {
-            listing.retain(|e| e.name != name);
-        }
-    }
+#[derive(Default)]
+struct HandleTable {
+    open: HashMap<u64, Handle>,
+    next: u64,
+}
+
+struct Handle {
+    path: RelPath,
+    file: Option<Arc<fs::File>>,
+    writable: bool,
 }
 
 impl LocalStore for CacheTree {
@@ -63,15 +65,20 @@ impl LocalStore for CacheTree {
     }
 }
 
-pub struct Adapter {
-    engine: Arc<Engine<CacheTree>>,
-    xattrs: XattrDb,
-    handles: Mutex<HashMap<u64, Handle>>,
-    next_fh: AtomicU64,
+impl CacheTree {
+    fn invalidate(&self, dir: &RelPath) {
+        self.meta.lock().unwrap().remove(dir);
+    }
+
+    fn drop(&self, dir: &RelPath, name: &str) {
+        if let Some((_, listing)) = self.meta.lock().unwrap().get_mut(dir) {
+            listing.retain(|e| e.name != name);
+        }
+    }
 }
 
 impl Adapter {
-    pub fn new(sdk: Arc<Sdk>, rt: tokio::runtime::Handle, data_dir: &Path) -> io::Result<Self> {
+    pub fn new(rt: tokio::runtime::Handle, sdk: Arc<Sdk>, data_dir: &Path) -> io::Result<Self> {
         let cache_dir = data_dir.join("cache");
         fs::create_dir_all(&cache_dir)?;
         let tree = CacheTree {
@@ -80,10 +87,9 @@ impl Adapter {
             meta: Mutex::new(HashMap::new()),
         };
         let adapter = Self {
-            engine: Engine::start(sdk, rt, tree),
+            engine: Engine::start(rt, sdk, tree),
             xattrs: XattrDb::open(data_dir.join("xattr.json")),
-            handles: Mutex::new(HashMap::new()),
-            next_fh: AtomicU64::new(1),
+            handles: Handles::default(),
         };
         adapter.prune()?;
         adapter.engine.recover();
@@ -110,13 +116,7 @@ impl Adapter {
         &self.xattrs
     }
 
-    pub fn xattr_set(
-        &self,
-        path: &RelPath,
-        name: &str,
-        value: &[u8],
-        flags: i32,
-    ) -> Result<(), fuser::Errno> {
+    pub fn xattr_set(&self, path: &RelPath, name: &str, value: &[u8], flags: i32) -> Result<(), fuser::Errno> {
         if name == PIN_XATTR {
             match value {
                 b"always" => self.engine.pin(path),
@@ -158,11 +158,7 @@ impl Adapter {
     pub fn ls(&self, dir: &RelPath) -> io::Result<Vec<FileInfo>> {
         let listing = match self.cached_listing(dir) {
             Some(listing) => listing,
-            None => match self
-                .engine
-                .rt()
-                .block_on(self.engine.sdk().ls(&dir.as_dir()))
-            {
+            None => match self.engine.rt().block_on(self.engine.sdk().ls(&dir.as_dir())) {
                 Ok(fetched) => {
                     self.engine.listed(dir, &fetched);
                     self.engine
@@ -173,9 +169,7 @@ impl Adapter {
                         .insert(dir.clone(), (Instant::now(), fetched.clone()));
                     fetched
                 }
-                Err(err @ (sdk::Error::NotFound | sdk::Error::PermissionDenied)) => {
-                    return Err(err.into())
-                }
+                Err(err @ (sdk::Error::NotFound | sdk::Error::PermissionDenied)) => return Err(err.into()),
                 Err(err) => {
                     let meta = self.engine.local().meta.lock().unwrap();
                     match meta.get(dir) {
@@ -215,11 +209,7 @@ impl Adapter {
             return Ok(Some((true, 0, SystemTime::UNIX_EPOCH)));
         }
         if let Some(md) = self.engine.dirty_metadata(path) {
-            return Ok(Some((
-                false,
-                md.len(),
-                md.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-            )));
+            return Ok(Some((false, md.len(), md.modified().unwrap_or(SystemTime::UNIX_EPOCH))));
         }
         Ok(self.entry(path)?.map(|e| {
             (
@@ -235,9 +225,7 @@ impl Adapter {
         if current.is_some_and(|current| self.engine.content_current(path, current)) {
             return Ok(());
         }
-        self.engine
-            .rt()
-            .block_on(self.engine.hydrate(path, current))
+        self.engine.rt().block_on(self.engine.hydrate(path, current))
     }
 
     pub fn hydrate_start(&self, path: &RelPath) -> io::Result<()> {
@@ -245,9 +233,7 @@ impl Adapter {
         if current.is_some_and(|current| self.engine.content_current(path, current)) {
             return Ok(());
         }
-        self.engine
-            .rt()
-            .block_on(self.engine.hydrate_start(path, current))
+        self.engine.rt().block_on(self.engine.hydrate_start(path, current))
     }
 
     fn remote(&self, path: &RelPath) -> Option<Observation> {
@@ -264,29 +250,16 @@ impl Adapter {
             .open(self.backing(path))
             .ok()
             .map(Arc::new);
-        let fh = self.next_fh.fetch_add(1, Ordering::Relaxed);
-        self.handles.lock().unwrap().insert(
-            fh,
-            Handle {
-                path: path.clone(),
-                file,
-                writable,
-            },
-        );
-        fh
+        self.handles.open(path, file, writable)
     }
 
     pub fn closed(&self, fh: u64) {
-        if let Some(handle) = self.handles.lock().unwrap().remove(&fh) {
+        if let Some(handle) = self.handles.close(fh) {
             if handle.writable {
                 self.engine.write_closed(&handle.path);
             }
             self.engine.released(&handle.path);
         }
-    }
-
-    fn handle_file(&self, fh: u64) -> Option<Arc<fs::File>> {
-        self.handles.lock().unwrap().get(&fh)?.file.clone()
     }
 
     pub fn read(&self, fh: u64, path: &RelPath, offset: u64, size: u32) -> io::Result<Vec<u8>> {
@@ -304,7 +277,7 @@ impl Adapter {
 
     fn fresh_handle_file(&self, fh: u64, path: &RelPath) -> Option<Arc<fs::File>> {
         use std::os::unix::fs::MetadataExt;
-        let file = self.handle_file(fh)?;
+        let file = self.handles.get(fh)?;
         let same = file
             .metadata()
             .ok()
@@ -313,14 +286,8 @@ impl Adapter {
         if same {
             return Some(file);
         }
-        let reopened = Arc::new(
-            fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(self.backing(path))
-                .ok()?,
-        );
-        self.handles.lock().unwrap().get_mut(&fh)?.file = Some(reopened.clone());
+        let reopened = Arc::new(fs::OpenOptions::new().read(true).write(true).open(self.backing(path)).ok()?);
+        self.handles.set(fh, reopened.clone());
         Some(reopened)
     }
 
@@ -373,23 +340,17 @@ impl Adapter {
     }
 
     pub fn mkdir(&self, path: &RelPath) -> io::Result<()> {
-        self.engine
-            .rt()
-            .block_on(self.engine.sdk().mkdir(&path.as_dir()))?;
+        self.engine.rt().block_on(self.engine.sdk().mkdir(&path.as_dir()))?;
         self.invalidate(&path.parent_or_root());
         Ok(())
     }
 
     pub fn delete(&self, path: &RelPath, is_dir: bool) -> io::Result<()> {
-        self.engine
-            .rt()
-            .block_on(self.engine.delete(path, is_dir))?;
+        self.engine.rt().block_on(self.engine.delete(path, is_dir))?;
         remove_path(&self.backing(path))?;
         self.xattrs.forget(path);
         self.invalidate(path);
-        self.engine
-            .local()
-            .drop(&path.parent_or_root(), path.name());
+        self.engine.local().drop(&path.parent_or_root(), path.name());
         Ok(())
     }
 
@@ -405,9 +366,7 @@ impl Adapter {
 
     pub fn rename(&self, from: &RelPath, to: &RelPath) -> io::Result<()> {
         let is_dir = matches!(self.attr(from)?, Some((true, ..)));
-        self.engine
-            .rt()
-            .block_on(self.engine.rename(from, to, is_dir))?;
+        self.engine.rt().block_on(self.engine.rename(from, to, is_dir))?;
         let from_backing = self.backing(from);
         if from_backing.exists() {
             let to_backing = self.backing(to);
@@ -424,6 +383,41 @@ impl Adapter {
     pub fn vacuum(&self) -> io::Result<()> {
         self.engine.local().meta.lock().unwrap().clear();
         self.prune()
+    }
+
+    pub async fn logout(&self) {
+        let _ = self.engine.sdk().logout().await;
+    }
+}
+
+impl Handles {
+    fn open(&self, path: &RelPath, file: Option<Arc<fs::File>>, writable: bool) -> u64 {
+        let mut t = self.0.lock().unwrap();
+        t.next += 1;
+        let fh = t.next;
+        t.open.insert(
+            fh,
+            Handle {
+                path: path.clone(),
+                file,
+                writable,
+            },
+        );
+        fh
+    }
+
+    fn close(&self, fh: u64) -> Option<Handle> {
+        self.0.lock().unwrap().open.remove(&fh)
+    }
+
+    fn get(&self, fh: u64) -> Option<Arc<fs::File>> {
+        self.0.lock().unwrap().open.get(&fh)?.file.clone()
+    }
+
+    fn set(&self, fh: u64, file: Arc<fs::File>) {
+        if let Some(handle) = self.0.lock().unwrap().open.get_mut(&fh) {
+            handle.file = Some(file);
+        }
     }
 }
 

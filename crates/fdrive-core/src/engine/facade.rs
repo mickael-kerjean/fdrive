@@ -18,7 +18,7 @@ use super::state::{LedgerGuard, State, Step};
 use super::{scheduler, Engine, Frozen, Outcome, UploadStatus};
 
 impl<T: LocalStore> Engine<T> {
-    pub fn start(sdk: Arc<Sdk>, rt: tokio::runtime::Handle, local: T) -> Arc<Self> {
+    pub fn start(rt: tokio::runtime::Handle, sdk: Arc<Sdk>, local: T) -> Arc<Self> {
         let ledger_file = local.ledger();
         let ignore = crate::config::ignore(ledger_file.parent().unwrap_or(Path::new("")));
         let state = State::open(&ledger_file);

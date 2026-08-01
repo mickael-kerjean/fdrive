@@ -348,7 +348,7 @@ pub unsafe extern "C" fn fsx_connect(
         ledger: data.join("fdrive.db"),
         meta: Mutex::new(HashMap::new()),
     };
-    let engine = Engine::start(Arc::new(sdk), rt.handle().clone(), tree);
+    let engine = Engine::start(rt.handle().clone(), Arc::new(sdk), tree);
     if engine.prune(&engine.local().cache_dir).is_err() {
         return std::ptr::null_mut();
     }

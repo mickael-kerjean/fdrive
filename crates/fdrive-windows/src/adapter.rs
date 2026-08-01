@@ -117,7 +117,7 @@ impl Adapter {
             suppressed: Mutex::new(BTreeMap::new()),
         };
         Ok(Arc::new(Self {
-            engine: Engine::start(sdk, rt, tree),
+            engine: Engine::start(rt, sdk, tree),
             root,
             refreshing: Mutex::new(BTreeMap::new()),
             kept: Mutex::new(BTreeSet::new()),

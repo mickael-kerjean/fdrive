@@ -44,9 +44,7 @@ impl XattrDb {
         if flags & libc::XATTR_REPLACE != 0 && !exists {
             return Err(Errno::ENODATA);
         }
-        map.entry(path.clone())
-            .or_default()
-            .insert(name.to_string(), value.to_vec());
+        map.entry(path.clone()).or_default().insert(name.to_string(), value.to_vec());
         self.save(&map);
         Ok(())
     }

@@ -39,9 +39,7 @@ pub(super) fn show_login(prefill: Credentials) -> Option<Credentials> {
         .insecure(prefill.insecure)
         .probe_blocking()
     {
-        alert(&format!(
-            "{url} does not look like a Filestash server.\n\n{err}"
-        ));
+        alert(&format!("{url} does not look like a Filestash server.\n\n{err}"));
         return None;
     }
     match super::webview::login(&url, prefill.insecure) {

@@ -41,10 +41,7 @@ fn offline_edits_land_when_the_server_recovers() {
 
     rig.server.offline(false);
     rig.settle();
-    assert_eq!(
-        rig.server.get("/notes.txt").unwrap(),
-        b"written on the plane"
-    );
+    assert_eq!(rig.server.get("/notes.txt").unwrap(), b"written on the plane");
     assert_eq!(rig.server.log(), vec!["save /notes.txt"]);
 }
 
@@ -52,11 +49,8 @@ fn offline_edits_land_when_the_server_recovers() {
 #[ignore = "e2e"]
 fn a_stale_lease_becomes_a_conflicted_copy_never_an_overwrite() {
     let Some(rig) = Rig::start() else { return };
-    rig.server.put_at(
-        "/report.txt",
-        b"base",
-        SystemTime::now() - Duration::from_secs(60),
-    );
+    rig.server
+        .put_at("/report.txt", b"base", SystemTime::now() - Duration::from_secs(60));
     assert_eq!(fs::read(rig.path("report.txt")).unwrap(), b"base");
 
     rig.server.put("/report.txt", b"theirs");
@@ -83,11 +77,8 @@ fn a_stale_lease_becomes_a_conflicted_copy_never_an_overwrite() {
 #[ignore = "e2e"]
 fn a_remote_change_reaches_a_cached_file() {
     let Some(rig) = Rig::start() else { return };
-    rig.server.put_at(
-        "/shared.txt",
-        b"version one",
-        SystemTime::now() - Duration::from_secs(60),
-    );
+    rig.server
+        .put_at("/shared.txt", b"version one", SystemTime::now() - Duration::from_secs(60));
     assert_eq!(fs::read(rig.path("shared.txt")).unwrap(), b"version one");
 
     rig.server.put("/shared.txt", b"version two - longer");
@@ -104,20 +95,13 @@ fn a_remote_change_reaches_a_cached_file() {
 fn a_write_during_hydration_uploads_the_whole_file() {
     let Some(rig) = Rig::start() else { return };
     let original = vec![b'x'; 2 * 1024 * 1024];
-    rig.server.put_at(
-        "/big.bin",
-        &original,
-        SystemTime::now() - Duration::from_secs(60),
-    );
+    rig.server
+        .put_at("/big.bin", &original, SystemTime::now() - Duration::from_secs(60));
     fs::read_dir(&rig.mnt).unwrap().count();
     rig.server.throttle(Some(Duration::from_millis(5)));
 
-    let file = fs::OpenOptions::new()
-        .write(true)
-        .open(rig.path("big.bin"))
-        .unwrap();
-    file.write_all_at(b"PATCH", (original.len() - 5) as u64)
-        .unwrap();
+    let file = fs::OpenOptions::new().write(true).open(rig.path("big.bin")).unwrap();
+    file.write_all_at(b"PATCH", (original.len() - 5) as u64).unwrap();
     drop(file);
     rig.server.throttle(None);
     rig.settle();
@@ -126,12 +110,7 @@ fn a_write_during_hydration_uploads_the_whole_file() {
     let at = expected.len() - 5;
     expected[at..].copy_from_slice(b"PATCH");
     let got = rig.server.get("/big.bin").unwrap();
-    assert_eq!(
-        got.len(),
-        expected.len(),
-        "size survived; log: {:?}",
-        rig.server.log()
-    );
+    assert_eq!(got.len(), expected.len(), "size survived; log: {:?}", rig.server.log());
     assert_eq!(
         &got[at..],
         b"PATCH",
@@ -154,10 +133,7 @@ fn a_restart_replays_pending_work_exactly_once() {
     rig.server.offline(false);
     rig.settle();
 
-    assert_eq!(
-        rig.server.get("/pending.txt").unwrap(),
-        b"queued before the crash"
-    );
+    assert_eq!(rig.server.get("/pending.txt").unwrap(), b"queued before the crash");
     assert_eq!(
         rig.server.log(),
         vec!["save /pending.txt"],
@@ -195,18 +171,11 @@ fn an_offline_dir_rename_fails_fast_and_leaves_no_debt() {
 
     rig.server.offline(true);
     let refused = fs::rename(rig.path("folder"), rig.path("renamed"));
-    assert!(
-        refused.is_err(),
-        "dir ops are synchronous, offline fails loudly"
-    );
+    assert!(refused.is_err(), "dir ops are synchronous, offline fails loudly");
 
     rig.server.offline(false);
     rig.settle();
-    assert_eq!(
-        rig.server.log(),
-        vec!["mkdir /folder"],
-        "no mv was queued for later"
-    );
+    assert_eq!(rig.server.log(), vec!["mkdir /folder"], "no mv was queued for later");
 }
 
 #[test]
@@ -217,10 +186,7 @@ fn a_wiped_client_relearns_and_never_mutates() {
     let Some(mut rig) = Rig::with(server) else {
         return;
     };
-    assert_eq!(
-        fs::read(rig.path("keep/precious.txt")).unwrap(),
-        b"the only copy"
-    );
+    assert_eq!(fs::read(rig.path("keep/precious.txt")).unwrap(), b"the only copy");
 
     rig.wipe_client_state();
     assert_eq!(
@@ -315,11 +281,7 @@ fn a_garbage_ledger_quarantines_the_cache_and_relearns() {
     let Some(rig) = Rig::with_state(server, |data| {
         fs::write(data.join("fdrive.db"), b"this is not a sqlite database").unwrap();
         fs::create_dir_all(data.join("cache")).unwrap();
-        fs::write(
-            data.join("cache/maybe-unsent.txt"),
-            b"the only copy of an edit",
-        )
-        .unwrap();
+        fs::write(data.join("cache/maybe-unsent.txt"), b"the only copy of an edit").unwrap();
     }) else {
         return;
     };
@@ -333,11 +295,7 @@ fn a_garbage_ledger_quarantines_the_cache_and_relearns() {
     let aside = fs::read_dir(rig.data())
         .unwrap()
         .filter_map(|e| e.ok())
-        .find(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with("cache.unreadable-")
-        })
+        .find(|e| e.file_name().to_string_lossy().starts_with("cache.unreadable-"))
         .expect("the cache was set aside, not deleted and not trusted");
     assert_eq!(
         fs::read(aside.path().join("maybe-unsent.txt")).unwrap(),
@@ -380,11 +338,7 @@ fn a_dir_rename_moves_the_whole_tree_in_one_call() {
     assert_eq!(rig.server.get("/archive/cat.jpg").unwrap(), b"meow");
     assert_eq!(
         rig.server.log(),
-        vec![
-            "mkdir /photos",
-            "save /photos/cat.jpg",
-            "mv /photos /archive"
-        ],
+        vec!["mkdir /photos", "save /photos/cat.jpg", "mv /photos /archive"],
         "the subtree moved server-side, nothing was re-sent"
     );
 }
@@ -401,10 +355,7 @@ fn an_exiftool_dance_moves_the_original_and_saves_the_new() {
     rig.settle();
 
     assert_eq!(rig.server.get("/photo.jpg").unwrap(), b"stripped pixels");
-    assert_eq!(
-        rig.server.get("/photo.jpg_original").unwrap(),
-        b"original pixels"
-    );
+    assert_eq!(rig.server.get("/photo.jpg_original").unwrap(), b"original pixels");
     assert_eq!(
         rig.server.log()[1..],
         vec!["mv /photo.jpg /photo.jpg_original", "save /photo.jpg"],
@@ -453,8 +404,7 @@ fn unicode_names_roundtrip() {
     rig.settle();
 
     assert_eq!(rig.server.get("/réunion/budget €.txt").unwrap(), b"12,34");
-    rig.server
-        .put("/réunion/budget €.txt", "56,78 - approuvé".as_bytes());
+    rig.server.put("/réunion/budget €.txt", "56,78 - approuvé".as_bytes());
     std::thread::sleep(Duration::from_millis(6500));
     assert_eq!(
         fs::read(rig.path("réunion/budget €.txt")).unwrap(),
@@ -503,8 +453,7 @@ fn a_changed_file_rehydrates_as_ranges() {
 
     let mut v2 = v1.clone();
     v2[1048576..1052672].copy_from_slice(&lcg(4096, 9));
-    rig.server
-        .put_at("/big.bin", &v2, SystemTime::now() + Duration::from_secs(2));
+    rig.server.put_at("/big.bin", &v2, SystemTime::now() + Duration::from_secs(2));
     std::thread::sleep(Duration::from_millis(6500));
 
     let got = fs::read(rig.path("big.bin")).unwrap();
@@ -536,14 +485,7 @@ fn a_pin_hydrates_without_anyone_opening() {
     let dir = std::ffi::CString::new(rig.path("keep").to_str().unwrap()).unwrap();
     let name = std::ffi::CString::new("user.fdrive.pin").unwrap();
     let mut buf = [0u8; 16];
-    let n = unsafe {
-        libc::getxattr(
-            dir.as_ptr(),
-            name.as_ptr(),
-            buf.as_mut_ptr().cast(),
-            buf.len(),
-        )
-    };
+    let n = unsafe { libc::getxattr(dir.as_ptr(), name.as_ptr(), buf.as_mut_ptr().cast(), buf.len()) };
     assert_eq!(&buf[..n as usize], b"always");
 }
 
@@ -590,21 +532,8 @@ fn real_vim_saves_land_with_their_exact_bytes() {
 fn pin_always(path: &std::path::Path) {
     let target = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
     let name = std::ffi::CString::new("user.fdrive.pin").unwrap();
-    let rc = unsafe {
-        libc::setxattr(
-            target.as_ptr(),
-            name.as_ptr(),
-            b"always".as_ptr().cast(),
-            6,
-            0,
-        )
-    };
-    assert_eq!(
-        rc,
-        0,
-        "setxattr failed: {}",
-        std::io::Error::last_os_error()
-    );
+    let rc = unsafe { libc::setxattr(target.as_ptr(), name.as_ptr(), b"always".as_ptr().cast(), 6, 0) };
+    assert_eq!(rc, 0, "setxattr failed: {}", std::io::Error::last_os_error());
 }
 
 fn wait_for(backing: &std::path::Path, content: &[u8]) -> bool {
@@ -625,10 +554,7 @@ fn a_pinned_file_reads_offline() {
     rig.server.put("/keep/manual.pdf", b"the whole manual");
     fs::read_dir(&rig.mnt).unwrap().count();
     pin_always(&rig.path("keep"));
-    assert!(wait_for(
-        &rig.data().join("cache/keep/manual.pdf"),
-        b"the whole manual"
-    ));
+    assert!(wait_for(&rig.data().join("cache/keep/manual.pdf"), b"the whole manual"));
 
     rig.server.offline(true);
     assert_eq!(
@@ -650,10 +576,7 @@ fn a_local_edit_to_a_pinned_file_pushes() {
     fs::write(rig.path("keep/notes.txt"), b"v2 edited under the pin").unwrap();
     rig.settle();
 
-    assert_eq!(
-        rig.server.get("/keep/notes.txt").unwrap(),
-        b"v2 edited under the pin"
-    );
+    assert_eq!(rig.server.get("/keep/notes.txt").unwrap(), b"v2 edited under the pin");
     assert_eq!(
         fs::read(rig.data().join("cache/keep/notes.txt")).unwrap(),
         b"v2 edited under the pin",
@@ -665,26 +588,17 @@ fn a_local_edit_to_a_pinned_file_pushes() {
 #[ignore = "e2e"]
 fn a_remote_change_to_a_pinned_file_arrives_on_restart_unopened() {
     let Some(mut rig) = Rig::start() else { return };
-    rig.server.put_at(
-        "/keep/report.txt",
-        b"monday",
-        SystemTime::now() - Duration::from_secs(60),
-    );
+    rig.server
+        .put_at("/keep/report.txt", b"monday", SystemTime::now() - Duration::from_secs(60));
     fs::read_dir(&rig.mnt).unwrap().count();
     pin_always(&rig.path("keep"));
-    assert!(wait_for(
-        &rig.data().join("cache/keep/report.txt"),
-        b"monday"
-    ));
+    assert!(wait_for(&rig.data().join("cache/keep/report.txt"), b"monday"));
 
     rig.server.put("/keep/report.txt", b"tuesday, longer");
     rig.restart();
 
     assert!(
-        wait_for(
-            &rig.data().join("cache/keep/report.txt"),
-            b"tuesday, longer"
-        ),
+        wait_for(&rig.data().join("cache/keep/report.txt"), b"tuesday, longer"),
         "the startup pin sweep pulls the new version with no open"
     );
 }

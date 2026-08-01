@@ -6,12 +6,10 @@ fn ls_serves_the_stale_listing_when_the_server_is_unreachable() {
     let data = std::env::temp_dir().join(format!("fdrive-stale-ls-{}", std::process::id()));
     fs::create_dir_all(&data).unwrap();
     let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
-    let adapter = Adapter::new(Arc::new(sdk), rt.handle().clone(), &data).unwrap();
+    let adapter = Adapter::new(rt.handle().clone(), Arc::new(sdk), &data).unwrap();
 
     let dir = RelPath::new("d");
-    let expired = Instant::now()
-        .checked_sub(Duration::from_secs(600))
-        .unwrap();
+    let expired = Instant::now().checked_sub(Duration::from_secs(600)).unwrap();
     adapter.engine.local().meta.lock().unwrap().insert(
         dir.clone(),
         (
@@ -50,7 +48,7 @@ fn a_write_lands_on_the_replaced_file_not_the_dead_inode() {
     let _ = fs::remove_dir_all(&data);
     fs::create_dir_all(&data).unwrap();
     let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
-    let adapter = Adapter::new(Arc::new(sdk), rt.handle().clone(), &data).unwrap();
+    let adapter = Adapter::new(rt.handle().clone(), Arc::new(sdk), &data).unwrap();
 
     let path = RelPath::new("doc.txt");
     let backing = adapter.backing(&path);

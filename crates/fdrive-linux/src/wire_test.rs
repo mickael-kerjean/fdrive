@@ -32,15 +32,8 @@ fn forgetting_an_unlooked_or_root_inode_is_a_noop() {
     let mut t = table();
     let ino = t.ino(&RelPath::new("listed-only")); // readdir-style, never bumped
     t.forget(ino, 1);
-    assert!(
-        t.paths.contains_key(&ino),
-        "no lookup count, nothing to forget"
-    );
+    assert!(t.paths.contains_key(&ino), "no lookup count, nothing to forget");
     t.bump(ROOT);
     t.forget(ROOT, 1);
-    assert_eq!(
-        t.paths.get(&ROOT),
-        Some(&RelPath::root()),
-        "root is never freed"
-    );
+    assert_eq!(t.paths.get(&ROOT), Some(&RelPath::root()), "root is never freed");
 }

@@ -5,41 +5,12 @@ use crate::path::RelPath;
 
 const FILE: &str = "fdrive.toml";
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(transparent)]
-pub struct Ignore(BTreeSet<String>);
-
-impl Default for Ignore {
-    fn default() -> Self {
-        Self(
-            ["node_modules", ".DS_Store", "Thumbs.db", "desktop.ini"]
-                .map(String::from)
-                .into(),
-        )
-    }
-}
-
-impl Ignore {
-    pub fn matches(&self, path: &RelPath) -> bool {
-        path.as_str().split('/').any(|name| self.0.contains(name))
-    }
-}
-
-pub fn ignore(data: &Path) -> Ignore {
-    #[derive(Default, serde::Deserialize)]
-    struct File {
-        #[serde(default)]
-        sync: Sync,
-    }
-    #[derive(Default, serde::Deserialize)]
-    struct Sync {
-        ignore: Option<Ignore>,
-    }
-    load::<File>(&data.join(FILE))
-        .unwrap_or_default()
-        .sync
-        .ignore
-        .unwrap_or_default()
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+struct ConfigFile {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session: Option<Session>,
+    #[serde(flatten)]
+    rest: toml::Table,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -48,14 +19,6 @@ pub struct Session {
     pub token: String,
     #[serde(default)]
     pub insecure: bool,
-}
-
-#[derive(Default, serde::Serialize, serde::Deserialize)]
-struct ConfigFile {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    session: Option<Session>,
-    #[serde(flatten)]
-    rest: toml::Table,
 }
 
 pub fn recall(data: &Path) -> Option<Session> {
@@ -109,6 +72,44 @@ fn update(data: &Path, session: Option<Session>) {
 fn load<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     toml::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct Ignore(BTreeSet<String>);
+
+impl Default for Ignore {
+    fn default() -> Self {
+        Self(
+            ["node_modules", ".DS_Store", "Thumbs.db", "desktop.ini"]
+                .map(String::from)
+                .into(),
+        )
+    }
+}
+
+impl Ignore {
+    pub fn matches(&self, path: &RelPath) -> bool {
+        path.as_str().split('/').any(|name| self.0.contains(name))
+    }
+}
+
+pub fn ignore(data: &Path) -> Ignore {
+    #[derive(Default, serde::Deserialize)]
+    struct File {
+        #[serde(default)]
+        sync: Sync,
+    }
+    #[derive(Default, serde::Deserialize)]
+    struct Sync {
+        ignore: Option<Ignore>,
+    }
+    load::<File>(&data.join(FILE))
+        .unwrap_or_default()
+        .sync
+        .ignore
+        .unwrap_or_default()
+}
+
 
 #[cfg(test)]
 #[path = "config_test.rs"]

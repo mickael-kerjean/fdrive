@@ -35,41 +35,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tray, mut events) = gui::init(data.clone(), mount.clone(), prompt_login).await?;
 
     'app: loop {
-        if let Some(creds) = credentials.as_ref() {
-            tray.set(Status::Syncing, true).await;
-            match run(creds, &mount, &data, &mut events, &tray).await {
-                Ok(SessionEnd::Quit) => break 'app,
-                Ok(SessionEnd::Logout) => {
-                    credentials = None;
-                    tray.set(Status::LoggedOut, false).await;
-                }
-                Ok(SessionEnd::Restart) => {}
-                Err(err) if launching => {
-                    log::error!("session: {err}");
-                    tray.shutdown().await;
-                    return Err(err);
-                }
-                Err(err) => {
-                    log::error!("session: {err}");
-                    credentials = None;
-                    tray.set(Status::Error, false).await;
-                }
-            }
-            launching = false;
-            continue;
-        }
-        tokio::select! {
-            event = events.recv() => match event {
-                None | Some(TrayEvent::Quit) => break 'app,
-                Some(TrayEvent::Login) => {
-                    if let Some(creds) = tray.login(prefill.clone()).await {
-                        credentials = Some(creds);
+        credentials = match credentials.take() {
+            None => tokio::select! {
+                event = events.recv() => match event {
+                    None | Some(TrayEvent::Quit) => break 'app,
+                    Some(TrayEvent::Login) => tray.login(prefill.clone()).await,
+                    Some(TrayEvent::Logout | TrayEvent::Restart) => None,
+                },
+                _ = tokio::signal::ctrl_c() => break 'app,
+            },
+            Some(creds) => {
+                tray.set(Status::Syncing, true).await;
+                match run(&creds, &mount, &data, &mut events, &tray).await {
+                    Ok(SessionEnd::Quit) => break 'app,
+                    Ok(SessionEnd::Logout) => {
+                        tray.set(Status::LoggedOut, false).await;
+                        None
+                    }
+                    Ok(SessionEnd::Restart) => Some(creds),
+                    Err(err) if launching => {
+                        log::error!("session: {err}");
+                        tray.shutdown().await;
+                        return Err(err);
+                    }
+                    Err(err) => {
+                        log::error!("session: {err}");
+                        tray.set(Status::Error, false).await;
+                        None
                     }
                 }
-                Some(TrayEvent::Logout | TrayEvent::Restart) => {}
-            },
-            _ = tokio::signal::ctrl_c() => break 'app,
-        }
+            }
+        };
+        launching = false;
     }
     tray.shutdown().await;
     Ok(())
@@ -82,49 +79,12 @@ async fn run(
     events: &mut UnboundedReceiver<TrayEvent>,
     tray: &Tray,
 ) -> Result<SessionEnd, Box<dyn std::error::Error>> {
-    if let Err(err) = std::fs::symlink_metadata(mount) {
-        if err.raw_os_error() == Some(libc::ENOTCONN) {
-            log::warn!("stale mount at {}, detaching", mount.display());
-            let _ = std::process::Command::new("fusermount3")
-                .arg("-uz")
-                .arg(mount)
-                .status();
-        }
-    }
-    std::fs::create_dir_all(mount)?;
-    let builder = Sdk::builder(&creds.url).insecure(creds.insecure);
-    let sdk = if creds.token.is_empty() {
-        builder
-            .login(&creds.user, &creds.password, &creds.storage)
-            .await?
-    } else {
-        builder.token(creds.token.clone())?
-    };
-    session::remember(
-        data,
-        &creds.url,
-        sdk.token().unwrap_or_default(),
-        creds.insecure,
-    );
-    let sdk = Arc::new(sdk);
-    let adapter = Arc::new(Adapter::new(
-        sdk.clone(),
-        tokio::runtime::Handle::current(),
-        data,
-    )?);
-    let mut mount_config = Config::default();
-    mount_config.mount_options = vec![
-        MountOption::FSName("filestash".to_string()),
-        MountOption::DefaultPermissions,
-    ];
-    let filesystem = MountFs::new(adapter.clone());
-    let session = fuser::spawn_mount2(filesystem, mount, &mount_config)?;
-    let mut upload_status = adapter.upload_status();
-    let mut unmounted = false;
-
+    let (adapter, session) = setup(creds, mount, data).await?;
     log::info!("mounted {}", mount.display());
     tray.attach(adapter.activity()).await;
     tray.set(Status::Ok, true).await;
+
+    let mut upload_status = adapter.upload_status();
     let end = loop {
         tokio::select! {
             event = events.recv() => match event {
@@ -133,7 +93,6 @@ async fn run(
                 Some(TrayEvent::Restart) => break SessionEnd::Restart,
                 Some(TrayEvent::Login) => {}
             },
-            _ = tokio::signal::ctrl_c() => break SessionEnd::Quit,
             _ = upload_status.changed() => {
                 let status = match *upload_status.borrow() {
                     UploadStatus::Idle => Status::Ok,
@@ -141,11 +100,11 @@ async fn run(
                     UploadStatus::Error => Status::Error,
                 };
                 tray.set(status, true).await;
-            }
+            },
+            _ = tokio::signal::ctrl_c() => break SessionEnd::Quit,
             _ = tokio::time::sleep(Duration::from_secs(2)) => {
                 if session.guard.is_finished() {
                     log::info!("unmounted externally, ending session");
-                    unmounted = true;
                     break SessionEnd::Quit;
                 }
             }
@@ -153,7 +112,7 @@ async fn run(
     };
 
     log::info!("unmounting {}", mount.display());
-    if unmounted {
+    if session.guard.is_finished() {
         let _ = session.join();
     } else {
         session.umount_and_join()?;
@@ -162,7 +121,38 @@ async fn run(
     if matches!(end, SessionEnd::Logout) {
         adapter.vacuum()?;
         session::forget(data);
-        let _ = sdk.logout().await;
+        adapter.logout().await;
     }
     Ok(end)
+}
+
+async fn setup(
+    creds: &Credentials,
+    mount: &Path,
+    data: &Path,
+) -> Result<(Arc<Adapter>, fuser::BackgroundSession), Box<dyn std::error::Error>> {
+    if let Err(err) = std::fs::symlink_metadata(mount) {
+        if err.raw_os_error() == Some(libc::ENOTCONN) {
+            log::warn!("stale mount at {}, detaching", mount.display());
+            let _ = std::process::Command::new("fusermount3").arg("-uz").arg(mount).status();
+        }
+    }
+    std::fs::create_dir_all(mount)?;
+    let builder = Sdk::builder(&creds.url).insecure(creds.insecure);
+    let sdk = if creds.token.is_empty() {
+        builder.login(&creds.user, &creds.password, &creds.storage).await?
+    } else {
+        builder.token(creds.token.clone())?
+    };
+    session::remember(data, &creds.url, sdk.token().unwrap_or_default(), creds.insecure);
+    let adapter = Arc::new(Adapter::new(tokio::runtime::Handle::current(), Arc::new(sdk), data)?);
+    let mount_config = {
+        let mut c = Config::default();
+        c.mount_options = vec![MountOption::FSName("filestash".to_string()), MountOption::DefaultPermissions];
+        c
+    };
+    let filesystem = MountFs::new(adapter.clone());
+    let session = fuser::spawn_mount2(filesystem, mount, &mount_config)?;
+
+    Ok((adapter, session))
 }

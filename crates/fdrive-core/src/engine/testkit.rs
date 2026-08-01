@@ -93,7 +93,7 @@ pub(super) fn engine(server: &MockServer) -> Arc<Engine<TempTree>> {
 pub(super) fn engine_with(server: &MockServer, tree: TempTree) -> Arc<Engine<TempTree>> {
     let mut sdk = Sdk::new(&server.base_url()).unwrap();
     sdk.set_token("TOKEN".into());
-    Engine::start(Arc::new(sdk), tokio::runtime::Handle::current(), tree)
+    Engine::start(tokio::runtime::Handle::current(), Arc::new(sdk), tree)
 }
 
 pub(super) async fn settle(engine: &Engine<TempTree>) {
