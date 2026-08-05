@@ -1,8 +1,12 @@
 import FileProvider
+import OSLog
 
-final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
+final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFileProviderEnumerating {
+    private let logger = Logger(subsystem: "app.filestash.mac.fileprovider", category: "Extension")
+
     required init(domain: NSFileProviderDomain) {
         super.init()
+        logger.info("Started domain \(domain.identifier.rawValue, privacy: .public)")
     }
 
     func invalidate() {}
@@ -12,11 +16,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void
     ) -> Progress {
-        if identifier == .rootContainer {
-            completionHandler(FileProviderItem.root, nil)
-        } else {
-            completionHandler(nil, NSFileProviderError(.noSuchItem))
-        }
+        logger.debug("Item \(identifier.rawValue, privacy: .public)")
+        let item = FileProviderItem.all.first { $0.itemIdentifier == identifier }
+        completionHandler(item, item == nil ? NSFileProviderError(.noSuchItem) : nil)
         return Progress()
     }
 
@@ -26,7 +28,23 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (URL?, NSFileProviderItem?, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
+        logger.debug("Fetch \(itemIdentifier.rawValue, privacy: .public)")
+        guard
+            let item = FileProviderItem.all.first(where: { $0.itemIdentifier == itemIdentifier }),
+            let contents = item.contents
+        else {
+            completionHandler(nil, nil, NSFileProviderError(.noSuchItem))
+            return Progress()
+        }
+
+        do {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + "-" + item.filename)
+            try contents.write(to: url)
+            completionHandler(url, item, nil)
+        } catch {
+            completionHandler(nil, nil, error)
+        }
         return Progress()
     }
 
@@ -38,7 +56,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, [], false, NSFileProviderError(.notAuthenticated))
+        completionHandler(nil, [], false, CocoaError(.featureUnsupported))
         return Progress()
     }
 
@@ -51,7 +69,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, [], false, NSFileProviderError(.notAuthenticated))
+        completionHandler(nil, [], false, CocoaError(.featureUnsupported))
         return Progress()
     }
 
@@ -62,7 +80,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         request: NSFileProviderRequest,
         completionHandler: @escaping (Error?) -> Void
     ) -> Progress {
-        completionHandler(NSFileProviderError(.notAuthenticated))
+        completionHandler(CocoaError(.featureUnsupported))
         return Progress()
     }
 
@@ -70,11 +88,12 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         for containerItemIdentifier: NSFileProviderItemIdentifier,
         request: NSFileProviderRequest
     ) throws -> NSFileProviderEnumerator {
-        switch containerItemIdentifier {
-        case .rootContainer, .workingSet:
-            return EmptyEnumerator()
-        default:
+        logger.debug("Enumerate \(containerItemIdentifier.rawValue, privacy: .public)")
+        guard containerItemIdentifier == .workingSet || FileProviderItem.all.contains(where: {
+            $0.itemIdentifier == containerItemIdentifier && $0.contentType == .folder
+        }) else {
             throw NSFileProviderError(.noSuchItem)
         }
+        return FileProviderEnumerator(container: containerItemIdentifier)
     }
 }

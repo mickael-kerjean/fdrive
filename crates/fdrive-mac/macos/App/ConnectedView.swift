@@ -18,7 +18,12 @@ struct ConnectedView: View {
 
             HStack {
                 Button("Quit") {
-                    NSApp.terminate(nil)
+                    Task {
+                        await state.disconnect()
+                        if !state.isConnected {
+                            NSApp.terminate(nil)
+                        }
+                    }
                 }
 
                 Button("Disconnect") {

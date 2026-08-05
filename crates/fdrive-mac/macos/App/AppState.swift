@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 enum SyncStatus {
@@ -24,6 +25,8 @@ enum SyncStatus {
 
 @MainActor
 final class AppState: ObservableObject {
+    private let logger = Logger(subsystem: "app.filestash.mac", category: "App")
+
     @Published var serverURL = ""
     @Published var syncStatus: SyncStatus?
     @Published var connectionError: String?
@@ -44,6 +47,8 @@ final class AppState: ObservableObject {
             try await DomainManager.add()
             syncStatus = .upToDate
         } catch {
+            let error = error as NSError
+            logger.error("Connect failed: \(error.domain, privacy: .public) \(error.code): \(error.localizedDescription, privacy: .public)")
             connectionError = error.localizedDescription
         }
     }
@@ -53,6 +58,7 @@ final class AppState: ObservableObject {
             try await DomainManager.remove()
             syncStatus = nil
         } catch {
+            logger.error("Disconnect failed: \(error.localizedDescription, privacy: .public)")
             syncStatus = .error
         }
     }
@@ -61,6 +67,7 @@ final class AppState: ObservableObject {
         do {
             try await DomainManager.open()
         } catch {
+            logger.error("Explore failed: \(error.localizedDescription, privacy: .public)")
             syncStatus = .error
         }
     }
