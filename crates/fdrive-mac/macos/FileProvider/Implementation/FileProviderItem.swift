@@ -2,61 +2,44 @@ import FileProvider
 import UniformTypeIdentifiers
 
 final class FileProviderItem: NSObject, NSFileProviderItem {
-    static let root = FileProviderItem(.rootContainer, parent: .rootContainer, name: "Filestash", type: .folder)
-    static let documents = FileProviderItem("documents", parent: .rootContainer, name: "Documents", type: .folder)
-    static let welcome = FileProviderItem(
-        "welcome.txt",
-        parent: .rootContainer,
-        name: "Welcome.txt",
-        contents: "Welcome to Filestash!\n"
-    )
-    static let notes = FileProviderItem(
-        "documents/notes.txt",
-        parent: documents.itemIdentifier,
-        name: "Notes.txt",
-        contents: "This file came from the Filestash File Provider.\n"
-    )
-
-    static let all = [root, documents, welcome, notes]
+    static let root = FileProviderItem()
 
     let itemIdentifier: NSFileProviderItemIdentifier
     let parentItemIdentifier: NSFileProviderItemIdentifier
     let filename: String
     let contentType: UTType
-    let contents: Data?
+    let documentSize: NSNumber?
+    let contentModificationDate: Date?
 
-    init(
-        _ identifier: NSFileProviderItemIdentifier,
-        parent: NSFileProviderItemIdentifier,
-        name: String,
-        type: UTType = .plainText,
-        contents: String? = nil
-    ) {
-        itemIdentifier = identifier
-        parentItemIdentifier = parent
-        filename = name
-        contentType = type
-        self.contents = contents?.data(using: .utf8)
+    private override init() {
+        itemIdentifier = .rootContainer
+        parentItemIdentifier = .rootContainer
+        filename = "Filestash"
+        contentType = .folder
+        documentSize = nil
+        contentModificationDate = nil
     }
 
-    convenience init(
-        _ identifier: String,
-        parent: NSFileProviderItemIdentifier,
-        name: String,
-        type: UTType = .plainText,
-        contents: String? = nil
-    ) {
-        self.init(.init(identifier), parent: parent, name: name, type: type, contents: contents)
+    init(path: String, parent: NSFileProviderItemIdentifier, entry: Entry) {
+        let isDirectory = entry.kind == .directory
+        let identifier = isDirectory ? path + "/" : path
+        itemIdentifier = .init(identifier)
+        parentItemIdentifier = parent
+        filename = entry.name
+        contentType = isDirectory
+            ? .folder
+            : UTType(filenameExtension: (entry.name as NSString).pathExtension) ?? .data
+        documentSize = entry.size.map(NSNumber.init(value:))
+        contentModificationDate = entry.mtimeMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
     }
 
     var capabilities: NSFileProviderItemCapabilities {
         contentType == .folder ? [.allowsReading, .allowsContentEnumerating] : [.allowsReading]
     }
 
-    var documentSize: NSNumber? { contents.map { NSNumber(value: $0.count) } }
-
     var itemVersion: NSFileProviderItemVersion {
-        let version = Data([0])
+        let value = "\(documentSize?.uint64Value ?? 0):\(contentModificationDate?.timeIntervalSince1970 ?? 0)"
+        let version = Data(value.utf8)
         return .init(contentVersion: version, metadataVersion: version)
     }
 }

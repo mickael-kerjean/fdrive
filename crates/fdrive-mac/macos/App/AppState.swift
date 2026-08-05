@@ -33,6 +33,10 @@ final class AppState: ObservableObject {
     private(set) var serverURL = ""
     private(set) var token = ""
 
+    init() {
+        RuntimeSessionStore.clear()
+    }
+
     var isConnected: Bool {
         syncStatus != nil
     }
@@ -47,9 +51,11 @@ final class AppState: ObservableObject {
         self.token = token
 
         do {
+            try RuntimeSessionStore.save(.init(serverURL: serverURL, token: token))
             try await DomainManager.add()
             syncStatus = .upToDate
         } catch {
+            RuntimeSessionStore.clear()
             self.serverURL = ""
             self.token = ""
             let error = error as NSError
@@ -61,6 +67,7 @@ final class AppState: ObservableObject {
     func disconnect() async {
         do {
             try await DomainManager.remove()
+            RuntimeSessionStore.clear()
             serverURL = ""
             token = ""
             syncStatus = nil

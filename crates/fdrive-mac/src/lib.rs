@@ -198,6 +198,11 @@ impl Adapter {
         self.runtime.block_on(self.engine.hydrate(&path, current))?;
         Ok(self.local_path(&path))
     }
+
+    pub fn thumbnail(&self, path: String) -> Result<Vec<u8>, FsError> {
+        let path = RelPath::new(&path);
+        Ok(self.runtime.block_on(self.engine.sdk().thumbnail(&path.as_file()))?)
+    }
 }
 
 impl Adapter {
