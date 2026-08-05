@@ -25,3 +25,35 @@ targets:
       properties:
         CFBundleDisplayName: Filestash
         LSUIElement: true
+    dependencies:
+      - target: FilestashFileProvider
+    entitlements:
+      path: App/Filestash.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.app.filestash.sync
+  FilestashFileProvider:
+    type: app-extension
+    platform: macOS
+    sources:
+      - FileProvider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.filestash.mac.fileprovider
+        PRODUCT_NAME: FilestashFileProvider
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 3736F8X9F9
+    info:
+      path: FileProvider/Info.plist
+      properties:
+        CFBundleDisplayName: Filestash
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.fileprovider-nonui
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
+          NSExtensionFileProviderReplicatedExtension: true
+    entitlements:
+      path: FileProvider/FilestashFileProvider.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.app.filestash.sync
