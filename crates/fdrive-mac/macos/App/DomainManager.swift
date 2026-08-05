@@ -15,12 +15,13 @@ enum DomainManager {
         try await NSFileProviderManager.remove(domain)
     }
 
-    @MainActor
     static func open() async throws {
         guard let manager = NSFileProviderManager(for: domain) else {
             throw CocoaError(.fileNoSuchFile)
         }
         let url = try await manager.getUserVisibleURL(for: .rootContainer)
-        NSWorkspace.shared.open(url)
+        await MainActor.run {
+            NSWorkspace.shared.open(url)
+        }
     }
 }
