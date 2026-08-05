@@ -2,3 +2,17 @@
 name = "fdrive-mac"
 version = "0.1.0"
 edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[dependencies]
+fdrive-core = { path = "../fdrive-core" }
+uniffi = { version = "0.29", features = ["cli"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+thiserror = "2"
+log = "0.4"
+
+[[bin]]
+name = "uniffi-bindgen-swift"
+path = "src/bin/uniffi-bindgen.rs"

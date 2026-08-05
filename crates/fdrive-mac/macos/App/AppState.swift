@@ -27,9 +27,11 @@ enum SyncStatus {
 final class AppState: ObservableObject {
     private let logger = Logger(subsystem: "app.filestash.mac", category: "App")
 
-    @Published var serverURL = ""
     @Published var syncStatus: SyncStatus?
     @Published var connectionError: String?
+
+    private(set) var serverURL = ""
+    private(set) var token = ""
 
     var isConnected: Bool {
         syncStatus != nil
@@ -39,14 +41,17 @@ final class AppState: ObservableObject {
         syncStatus?.systemImage ?? "icloud.slash"
     }
 
-    func connect() async {
-        guard !serverURL.isEmpty else { return }
+    func connect(serverURL: String, token: String) async {
         connectionError = nil
+        self.serverURL = serverURL
+        self.token = token
 
         do {
             try await DomainManager.add()
             syncStatus = .upToDate
         } catch {
+            self.serverURL = ""
+            self.token = ""
             let error = error as NSError
             logger.error("Connect failed: \(error.domain, privacy: .public) \(error.code): \(error.localizedDescription, privacy: .public)")
             connectionError = error.localizedDescription
@@ -56,6 +61,8 @@ final class AppState: ObservableObject {
     func disconnect() async {
         do {
             try await DomainManager.remove()
+            serverURL = ""
+            token = ""
             syncStatus = nil
         } catch {
             logger.error("Disconnect failed: \(error.localizedDescription, privacy: .public)")

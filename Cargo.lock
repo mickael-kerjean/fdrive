@@ -973,11 +973,11 @@ dependencies = [
 name = "fdrive-mac"
 version = "0.1.0"
 dependencies = [
- "env_logger",
  "fdrive-core",
- "libc",
  "log",
+ "thiserror 2.0.18",
  "tokio",
+ "uniffi",
 ]
 
 [[package]]
