@@ -13,6 +13,7 @@ targets:
     platform: macOS
     sources:
       - App
+      - Generated
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.filestash.mac
@@ -28,6 +29,8 @@ targets:
         LSUIElement: true
     dependencies:
       - target: FilestashFileProvider
+      - framework: Fdrive.xcframework
+        embed: false
     entitlements:
       path: App/Filestash.entitlements
       properties:
@@ -38,6 +41,7 @@ targets:
     platform: macOS
     sources:
       - FileProvider
+      - Generated
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.filestash.mac.fileprovider
@@ -47,6 +51,9 @@ targets:
         REGISTER_APP_GROUPS: "YES"
         ENABLE_DEBUG_DYLIB: "NO"
         ENABLE_PREVIEWS: "NO"
+    dependencies:
+      - framework: Fdrive.xcframework
+        embed: false
     info:
       path: FileProvider/Info.plist
       properties:
