@@ -5,11 +5,13 @@ struct FilestashApp: App {
     @StateObject private var state = AppState()
 
     var body: some Scene {
-        WindowGroup {
-            ContentView().environmentObject(state)
-        }
         MenuBarExtra("Filestash", systemImage: state.systemImage) {
-            TrayMenu().environmentObject(state)
+            if state.isConnected {
+                ConnectedView().environmentObject(state)
+            } else {
+                DisconnectView().environmentObject(state)
+            }
         }
+        .menuBarExtraStyle(.window)
     }
 }

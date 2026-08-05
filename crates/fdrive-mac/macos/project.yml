@@ -18,7 +18,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.filestash.mac
         PRODUCT_NAME: Filestash
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 3736F8X9F9
     info:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Filestash
+        LSUIElement: true
