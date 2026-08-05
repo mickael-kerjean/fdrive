@@ -26,6 +26,7 @@ enum SyncStatus {
 final class AppState: ObservableObject {
     @Published var serverURL = ""
     @Published var syncStatus: SyncStatus?
+    @Published var connectionError: String?
 
     var isConnected: Bool {
         syncStatus != nil
@@ -35,12 +36,32 @@ final class AppState: ObservableObject {
         syncStatus?.systemImage ?? "icloud.slash"
     }
 
-    func connect() {
+    func connect() async {
         guard !serverURL.isEmpty else { return }
-        syncStatus = .upToDate
+        connectionError = nil
+
+        do {
+            try await DomainManager.add()
+            syncStatus = .upToDate
+        } catch {
+            connectionError = error.localizedDescription
+        }
     }
 
-    func disconnect() {
-        syncStatus = nil
+    func disconnect() async {
+        do {
+            try await DomainManager.remove()
+            syncStatus = nil
+        } catch {
+            syncStatus = .error
+        }
+    }
+
+    func explore() async {
+        do {
+            try await DomainManager.open()
+        } catch {
+            syncStatus = .error
+        }
     }
 }

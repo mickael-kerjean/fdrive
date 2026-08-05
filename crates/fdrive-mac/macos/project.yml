@@ -20,6 +20,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 3736F8X9F9
+        REGISTER_APP_GROUPS: "YES"
     info:
       path: App/Info.plist
       properties:
@@ -43,6 +44,9 @@ targets:
         PRODUCT_NAME: FilestashFileProvider
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 3736F8X9F9
+        REGISTER_APP_GROUPS: "YES"
+        ENABLE_DEBUG_DYLIB: "NO"
+        ENABLE_PREVIEWS: "NO"
     info:
       path: FileProvider/Info.plist
       properties:
@@ -50,7 +54,8 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.fileprovider-nonui
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
-          NSExtensionFileProviderReplicatedExtension: true
+          NSExtensionFileProviderDocumentGroup: group.app.filestash.sync
+          NSExtensionFileProviderSupportsEnumeration: true
     entitlements:
       path: FileProvider/FilestashFileProvider.entitlements
       properties:

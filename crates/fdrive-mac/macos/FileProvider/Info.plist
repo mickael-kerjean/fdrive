@@ -22,7 +22,9 @@
 	<string>1</string>
 	<key>NSExtension</key>
 	<dict>
-		<key>NSExtensionFileProviderReplicatedExtension</key>
+		<key>NSExtensionFileProviderDocumentGroup</key>
+		<string>group.app.filestash.sync</string>
+		<key>NSExtensionFileProviderSupportsEnumeration</key>
 		<true/>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.fileprovider-nonui</string>
