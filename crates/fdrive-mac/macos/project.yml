@@ -13,6 +13,7 @@ targets:
     platform: macOS
     sources:
       - App
+      - Shared
       - Generated
     settings:
       base:
@@ -34,13 +35,16 @@ targets:
     entitlements:
       path: App/Filestash.entitlements
       properties:
+        com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
           - group.app.filestash.sync
+        com.apple.security.network.client: true
   FilestashFileProvider:
     type: app-extension
     platform: macOS
     sources:
       - FileProvider
+      - Shared
       - Generated
     settings:
       base:
@@ -69,3 +73,4 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
           - group.app.filestash.sync
+        com.apple.security.network.client: true

@@ -1,12 +1,12 @@
 import FileProvider
 
 final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
-    private let items: [FileProviderItem]
+    private let adapter: Adapter
+    private let container: NSFileProviderItemIdentifier
 
-    init(container: NSFileProviderItemIdentifier) {
-        items = container == .workingSet
-            ? Array(FileProviderItem.all.dropFirst())
-            : FileProviderItem.all.filter { $0.parentItemIdentifier == container && $0.itemIdentifier != .rootContainer }
+    init(adapter: Adapter, container: NSFileProviderItemIdentifier) {
+        self.adapter = adapter
+        self.container = container
     }
 
     func invalidate() {}
@@ -15,7 +15,18 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         for observer: NSFileProviderEnumerationObserver,
         startingAt page: NSFileProviderPage
     ) {
-        observer.didEnumerate(items)
-        observer.finishEnumerating(upTo: nil)
+        do {
+            let directory = container == .rootContainer || container == .workingSet
+                ? "/"
+                : container.rawValue
+            let parent = container == .workingSet ? .rootContainer : container
+            let items = try adapter.ls(path: directory).map { entry in
+                FileProviderItem(path: directory + entry.name, parent: parent, entry: entry)
+            }
+            observer.didEnumerate(items)
+            observer.finishEnumerating(upTo: nil)
+        } catch {
+            observer.finishEnumeratingWithError(mapToProviderError(error))
+        }
     }
 }
