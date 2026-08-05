@@ -203,6 +203,64 @@ impl Adapter {
         let path = RelPath::new(&path);
         Ok(self.runtime.block_on(self.engine.sdk().thumbnail(&path.as_file()))?)
     }
+
+    pub fn create(&self, path: String) -> Result<String, FsError> {
+        let path = RelPath::new(&path);
+        let local = self.engine.local().backing(&path);
+        if let Some(parent) = local.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::File::create(&local)?;
+        self.engine.created(&path);
+        self.engine.local().invalidate(&path.parent_or_root());
+        Ok(self.local_path(&path))
+    }
+
+    pub fn saved(&self, path: String) {
+        let path = RelPath::new(&path);
+        self.engine.modified(&path);
+        self.engine.released(&path);
+    }
+
+    pub fn flush(&self, timeout_ms: u64) {
+        self.runtime.block_on(self.engine.flush(Duration::from_millis(timeout_ms)));
+    }
+
+    pub fn mkdir(&self, path: String) -> Result<(), FsError> {
+        let path = RelPath::new(&path);
+        self.runtime.block_on(self.engine.sdk().mkdir(&path.as_dir()))?;
+        self.engine.local().invalidate(&path.parent_or_root());
+        Ok(())
+    }
+
+    pub fn delete(&self, path: String) -> Result<(), FsError> {
+        let is_directory = path.ends_with('/');
+        let path = RelPath::new(&path);
+        self.runtime.block_on(self.engine.delete(&path, is_directory))?;
+        let local = self.engine.local().backing(&path);
+        let _ = if is_directory {
+            fs::remove_dir_all(local)
+        } else {
+            fs::remove_file(local)
+        };
+        self.engine.local().invalidate(&path);
+        self.engine.local().invalidate(&path.parent_or_root());
+        Ok(())
+    }
+
+    pub fn rename(&self, from: String, to: String) -> Result<(), FsError> {
+        let is_directory = from.ends_with('/');
+        let from = RelPath::new(&from);
+        let to = RelPath::new(&to);
+        self.runtime.block_on(self.engine.rename(&from, &to, is_directory))?;
+        let local = self.engine.local().backing(&from);
+        if local.exists() {
+            self.engine.local().relocate(&from, &to)?;
+        }
+        self.engine.local().invalidate(&from.parent_or_root());
+        self.engine.local().invalidate(&to.parent_or_root());
+        Ok(())
+    }
 }
 
 impl Adapter {
