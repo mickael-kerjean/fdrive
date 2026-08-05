@@ -16,12 +16,15 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         startingAt page: NSFileProviderPage
     ) {
         do {
-            let directory = container == .rootContainer || container == .workingSet
-                ? "/"
-                : container.rawValue
+            let directory = container == .workingSet ? "/" : FileProviderPath.path(for: container)
             let parent = container == .workingSet ? .rootContainer : container
             let items = try adapter.ls(path: directory).map { entry in
-                FileProviderItem(path: directory + entry.name, parent: parent, entry: entry)
+                let path = FileProviderPath.child(
+                    of: directory,
+                    name: entry.name,
+                    isDirectory: entry.kind == .directory
+                )
+                return FileProviderItem(path: path, parent: parent, entry: entry)
             }
             observer.didEnumerate(items)
             observer.finishEnumerating(upTo: nil)

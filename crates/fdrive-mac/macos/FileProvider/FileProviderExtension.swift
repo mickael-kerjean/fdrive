@@ -42,15 +42,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return Progress()
         }
         do {
-            let entry = try adapter.stat(path: identifier.rawValue)
-            let parentPath = (identifier.rawValue as NSString).deletingLastPathComponent
-            let parent: NSFileProviderItemIdentifier = parentPath.isEmpty || parentPath == "/"
-                ? .rootContainer
-                : .init(parentPath + "/")
-            completionHandler(
-                FileProviderItem(path: identifier.rawValue.trimmingCharacters(in: CharacterSet(charactersIn: "/")), parent: parent, entry: entry),
-                nil
-            )
+            let path = FileProviderPath.path(for: identifier)
+            completionHandler(FileProviderItem(path: path, entry: try adapter.stat(path: path)), nil)
         } catch {
             completionHandler(nil, mapToProviderError(error))
         }
@@ -70,14 +63,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
 
         do {
-            let path = try adapter.open(path: itemIdentifier.rawValue)
-            let entry = try adapter.stat(path: itemIdentifier.rawValue)
-            let parentPath = (itemIdentifier.rawValue as NSString).deletingLastPathComponent
-            let parent: NSFileProviderItemIdentifier = parentPath.isEmpty || parentPath == "/"
-                ? .rootContainer
-                : .init(parentPath + "/")
-            let item = FileProviderItem(path: itemIdentifier.rawValue, parent: parent, entry: entry)
-            completionHandler(URL(fileURLWithPath: path), item, nil)
+            let path = FileProviderPath.path(for: itemIdentifier)
+            let localPath = try adapter.open(path: path)
+            let item = FileProviderItem(path: path, entry: try adapter.stat(path: path))
+            completionHandler(URL(fileURLWithPath: localPath), item, nil)
         } catch {
             completionHandler(nil, nil, mapToProviderError(error))
         }
@@ -92,7 +81,34 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, [], false, CocoaError(.featureUnsupported))
+        guard let adapter else {
+            completionHandler(nil, [], false, NSFileProviderError(.notAuthenticated))
+            return Progress()
+        }
+        let isDirectory = itemTemplate.contentType == .folder
+        let path = FileProviderPath.child(
+            of: FileProviderPath.path(for: itemTemplate.parentItemIdentifier),
+            name: itemTemplate.filename,
+            isDirectory: isDirectory
+        )
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                if isDirectory {
+                    try adapter.mkdir(path: path)
+                } else {
+                    let localPath = try adapter.create(path: path)
+                    if let url {
+                        try replace(at: localPath, with: url)
+                    }
+                    adapter.saved(path: path)
+                    adapter.flush(timeoutMs: 30_000)
+                }
+                let entry = try adapter.stat(path: path)
+                completionHandler(FileProviderItem(path: path, entry: entry), [], false, nil)
+            } catch {
+                completionHandler(nil, [], false, mapToProviderError(error))
+            }
+        }
         return Progress()
     }
 
@@ -105,7 +121,35 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         request: NSFileProviderRequest,
         completionHandler: @escaping (NSFileProviderItem?, NSFileProviderItemFields, Bool, Error?) -> Void
     ) -> Progress {
-        completionHandler(nil, [], false, CocoaError(.featureUnsupported))
+        guard let adapter else {
+            completionHandler(nil, [], false, NSFileProviderError(.notAuthenticated))
+            return Progress()
+        }
+        var path = FileProviderPath.path(for: item.itemIdentifier)
+        let isDirectory = path.hasSuffix("/")
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                if changedFields.contains(.filename) || changedFields.contains(.parentItemIdentifier) {
+                    let destination = FileProviderPath.child(
+                        of: FileProviderPath.path(for: item.parentItemIdentifier),
+                        name: item.filename,
+                        isDirectory: isDirectory
+                    )
+                    try adapter.rename(from: path, to: destination)
+                    path = destination
+                }
+                if changedFields.contains(.contents), let newContents {
+                    let localPath = try adapter.open(path: path)
+                    try replace(at: localPath, with: newContents)
+                    adapter.saved(path: path)
+                    adapter.flush(timeoutMs: 30_000)
+                }
+                let entry = try adapter.stat(path: path)
+                completionHandler(FileProviderItem(path: path, entry: entry), [], false, nil)
+            } catch {
+                completionHandler(nil, [], false, mapToProviderError(error))
+            }
+        }
         return Progress()
     }
 
@@ -116,7 +160,19 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         request: NSFileProviderRequest,
         completionHandler: @escaping (Error?) -> Void
     ) -> Progress {
-        completionHandler(CocoaError(.featureUnsupported))
+        guard let adapter else {
+            completionHandler(NSFileProviderError(.notAuthenticated))
+            return Progress()
+        }
+        let path = FileProviderPath.path(for: identifier)
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try adapter.delete(path: path)
+                completionHandler(nil)
+            } catch {
+                completionHandler(mapToProviderError(error))
+            }
+        }
         return Progress()
     }
 
@@ -127,6 +183,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         logger.debug("Enumerate \(containerItemIdentifier.rawValue, privacy: .public)")
         guard let adapter else { throw NSFileProviderError(.notAuthenticated) }
         return FileProviderEnumerator(adapter: adapter, container: containerItemIdentifier)
+    }
+}
+
+private func replace(at localPath: String, with contents: URL) throws {
+    let destination = URL(fileURLWithPath: localPath)
+    if FileManager.default.fileExists(atPath: localPath) {
+        _ = try FileManager.default.replaceItemAt(destination, withItemAt: contents)
+    } else {
+        try FileManager.default.copyItem(at: contents, to: destination)
     }
 }
 
