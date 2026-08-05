@@ -22,13 +22,13 @@ struct ConnectedView: View {
                 }
 
                 Button("Disconnect") {
-                    state.disconnect()
+                    Task { await state.disconnect() }
                 }
 
                 Spacer()
 
                 Button("Explore") {
-                    NSWorkspace.shared.open(FileManager.default.homeDirectoryForCurrentUser)
+                    Task { await state.explore() }
                 }
             }
             .padding()

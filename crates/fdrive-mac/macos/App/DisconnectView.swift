@@ -8,6 +8,12 @@ struct DisconnectView: View {
         VStack(alignment: .leading, spacing: 12) {
             TextField("Server URL", text: $state.serverURL)
 
+            if let error = state.connectionError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Divider()
 
             HStack {
@@ -18,7 +24,7 @@ struct DisconnectView: View {
                 Spacer()
 
                 Button("Connect") {
-                    state.connect()
+                    Task { await state.connect() }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(state.serverURL.isEmpty)
