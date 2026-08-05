@@ -1,37 +1,46 @@
-import Foundation
-import WebKit
+import SwiftUI
+
+enum SyncStatus {
+    case upToDate
+    case syncing
+    case error
+
+    var label: String {
+        switch self {
+        case .upToDate: "Everything is up to date"
+        case .syncing: "Syncing"
+        case .error: "Sync error"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .upToDate: "checkmark.icloud"
+        case .syncing: "arrow.trianglehead.2.clockwise.rotate.90.icloud"
+        case .error: "xmark.icloud"
+        }
+    }
+}
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var session: Session?
-    @Published var error: String?
+    @Published var serverURL = ""
+    @Published var syncStatus: SyncStatus?
 
-    init() {
-        let saved = SessionStore.load()
-        session = saved
-        if let saved {
-            try? MountManager.mount(server: saved.serverUrl, token: saved.token)
-        }
+    var isConnected: Bool {
+        syncStatus != nil
     }
 
-    func connect(server: String, token: String) async {
-        let session = Session(serverUrl: server, user: "", storage: "", insecure: false, token: token)
-        SessionStore.save(session)
-        do {
-            try MountManager.mount(server: server, token: token)
-            self.session = session
-        } catch {
-            self.error = error.localizedDescription
-        }
+    var systemImage: String {
+        syncStatus?.systemImage ?? "icloud.slash"
     }
 
-    func logout() async {
-        MountManager.unmount()
-        SessionStore.clear()
-        let store = WKWebsiteDataStore.default()
-        let types: Set<String> = [WKWebsiteDataTypeCookies]
-        let records = await store.dataRecords(ofTypes: types)
-        await store.removeData(ofTypes: types, for: records)
-        session = nil
+    func connect() {
+        guard !serverURL.isEmpty else { return }
+        syncStatus = .upToDate
+    }
+
+    func disconnect() {
+        syncStatus = nil
     }
 }
