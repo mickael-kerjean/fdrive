@@ -48,6 +48,7 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
             .allowsReparenting,
             .allowsRenaming,
             .allowsDeleting,
+            .allowsEvicting,
         ]
     }
 

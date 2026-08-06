@@ -32,9 +32,17 @@ final class AppState: ObservableObject {
 
     private(set) var serverURL = ""
     private(set) var token = ""
+    private var refreshTask: Task<Void, Never>?
 
     init() {
         RuntimeSessionStore.clear()
+        refreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, self.isConnected else { continue }
+                await DomainManager.refresh()
+            }
+        }
     }
 
     var isConnected: Bool {
