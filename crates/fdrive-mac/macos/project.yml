@@ -8,6 +8,25 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
 targets:
+  FilestashTestKit:
+    type: application
+    platform: macOS
+    sources:
+      - TestKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.filestash.mac
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 3736F8X9F9
+    info:
+      path: TestKit/Info.plist
+      properties:
+        CFBundleDisplayName: Filestash TestKit
+        LSUIElement: true
+    entitlements:
+      path: App/Filestash.entitlements
+    dependencies:
+      - target: FilestashFileProvider
   Filestash:
     type: application
     platform: macOS
