@@ -6,8 +6,8 @@ private enum TransferDirection {
 
     var systemImage: String {
         switch self {
-        case .upload: "arrow.up"
-        case .download: "arrow.down"
+        case .upload: "arrow.up.doc"
+        case .download: "arrow.down.doc"
         }
     }
 }
@@ -28,12 +28,13 @@ struct RecentActivityView: View {
     ]
 
     var body: some View {
-        Text("Recent activity").font(.headline)
+        Text("Activity").font(.headline)
 
         ForEach(transfers) { transfer in
             HStack(spacing: 10) {
                 Image(systemName: transfer.direction.systemImage)
-                    .frame(width: 16)
+                    .font(.system(size: 19))
+                    .frame(width: 24)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(transfer.filename)
