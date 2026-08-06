@@ -5,16 +5,13 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private let logger = Logger(subsystem: "app.filestash.mac.fileprovider", category: "Enumerator")
     private let adapter: Adapter
     private let container: NSFileProviderItemIdentifier
-    private let monitor: RemoteChangeMonitor
 
     init(
         adapter: Adapter,
-        container: NSFileProviderItemIdentifier,
-        monitor: RemoteChangeMonitor
+        container: NSFileProviderItemIdentifier
     ) {
         self.adapter = adapter
         self.container = container
-        self.monitor = monitor
     }
 
     func invalidate() {}
@@ -30,7 +27,6 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             }
             let directory = container == .workingSet ? "/" : FileProviderPath.path(for: container)
             let items = try list(directory, recursively: container == .workingSet)
-            _ = monitor.record(items, in: container)
             observer.didEnumerate(items)
             observer.finishEnumerating(upTo: nil)
         } catch {
@@ -43,28 +39,16 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         for observer: NSFileProviderChangeObserver,
         from syncAnchor: NSFileProviderSyncAnchor
     ) {
-        do {
-            if container == .trashContainer {
-                observer.finishEnumeratingChanges(upTo: monitor.currentAnchor(), moreComing: false)
-                return
-            }
-            let directory = container == .workingSet ? "/" : FileProviderPath.path(for: container)
-            let items = try list(directory, recursively: container == .workingSet)
-            let changes = monitor.record(items, in: container)
-            observer.didUpdate(items)
-            observer.didDeleteItems(withIdentifiers: changes.deleted)
-            observer.finishEnumeratingChanges(upTo: changes.anchor, moreComing: false)
-        } catch {
-            logger.error("Changes for \(self.container.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-            observer.finishEnumeratingWithError(mapToProviderError(error))
-        }
+        observer.finishEnumeratingChanges(upTo: Self.anchor, moreComing: false)
     }
 
     func currentSyncAnchor(
         completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void
     ) {
-        completionHandler(monitor.currentAnchor())
+        completionHandler(Self.anchor)
     }
+
+    private static let anchor = NSFileProviderSyncAnchor(Data("0".utf8))
 
     private func list(_ directory: String, recursively: Bool) throws -> [FileProviderItem] {
         var items: [FileProviderItem] = []
