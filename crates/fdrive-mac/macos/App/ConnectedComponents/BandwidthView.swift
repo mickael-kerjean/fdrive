@@ -1,9 +1,10 @@
 import SwiftUI
 
 struct BandwidthView: View {
-    private let downloadRate = "2.4 MB/s"
-    private let uploadRate = "640 KB/s"
-    private let samples = [0.12, 0.2, 0.16, 0.42, 0.34, 0.7, 0.52, 0.9, 0.62, 0.74, 0.38, 0.48]
+    let meter: [Sample]
+
+    private static let window = 24
+    private static let average = 5
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 12) {
@@ -12,12 +13,26 @@ struct BandwidthView: View {
                 .frame(height: 44)
 
             VStack(alignment: .trailing, spacing: 4) {
-                Label(downloadRate, systemImage: "arrow.down")
-                Label(uploadRate, systemImage: "arrow.up")
+                Label(rate(\.down), systemImage: "arrow.down")
+                Label(rate(\.up), systemImage: "arrow.up")
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
         }
+    }
+
+    private var samples: [Double] {
+        let window = meter.suffix(Self.window)
+        let peak = window.map { $0.up + $0.down }.max() ?? 0
+        guard peak > 0 else { return Array(repeating: 0, count: window.count) }
+        return window.map { Double($0.up + $0.down) / Double(peak) }
+    }
+
+    private func rate(_ direction: KeyPath<Sample, UInt64>) -> String {
+        let window = meter.suffix(Self.average)
+        guard !window.isEmpty else { return "\(formatBytes(0))/s" }
+        let total = window.reduce(UInt64(0)) { $0 + $1[keyPath: direction] }
+        return "\(formatBytes(total / UInt64(window.count)))/s"
     }
 }
 
