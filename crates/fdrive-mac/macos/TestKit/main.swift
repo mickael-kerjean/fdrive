@@ -33,6 +33,9 @@ do {
     case "is-managed":
         let values = try await itemURL().resourceValues(forKeys: [.isUbiquitousItemKey])
         guard values.isUbiquitousItem == true else { exit(1) }
+    case "activity":
+        guard arguments.count == 2 else { usage() }
+        FileHandle.standardOutput.write(try await activity())
     default:
         usage("unknown command: \(arguments[1])")
     }
@@ -65,6 +68,19 @@ func itemURL() async throws -> URL {
     return try await manager.getUserVisibleURL(for: identifier())
 }
 
+func activity() async throws -> Data {
+    let connection = try await ActivityService.connect(using: manager)
+    defer { connection.invalidate() }
+    guard let proxy = connection.remoteObjectProxy as? ActivityProviding else {
+        throw CocoaError(.featureUnsupported)
+    }
+    let data: Data? = await withCheckedContinuation { continuation in
+        proxy.snapshot { continuation.resume(returning: $0) }
+    }
+    guard let data else { throw CocoaError(.fileReadUnknown) }
+    return data
+}
+
 func checkDownloadStatus(is expected: Set<URLUbiquitousItemDownloadingStatus>) async throws {
     let values = try await itemURL().resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
     guard let status = values.ubiquitousItemDownloadingStatus, expected.contains(status) else {
@@ -74,6 +90,6 @@ func checkDownloadStatus(is expected: Set<URLUbiquitousItemDownloadingStatus>) a
 
 func usage(_ error: String? = nil) -> Never {
     if let error { fputs("\(error)\n", stderr) }
-    fputs("usage: FilestashTestKit <download|evict|is-downloaded|is-evicted|is-outdated|is-managed> <item identifier> | stabilize\n", stderr)
+    fputs("usage: FilestashTestKit <download|evict|is-downloaded|is-evicted|is-outdated|is-managed> <item identifier> | stabilize | activity\n", stderr)
     exit(2)
 }

@@ -33,6 +33,13 @@ enum DomainManager {
         }
     }
 
+    static func connectActivity() async throws -> NSXPCConnection {
+        guard let manager = NSFileProviderManager(for: domain) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return try await ActivityService.connect(using: manager)
+    }
+
     static func open() async throws {
         guard let manager = NSFileProviderManager(for: domain) else {
             throw CocoaError(.fileNoSuchFile)

@@ -3,16 +3,18 @@ import SwiftUI
 
 struct ConnectedView: View {
     @EnvironmentObject private var state: AppState
+    @StateObject private var activity = ActivityMonitor()
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
-                BandwidthView()
+                BandwidthView(meter: activity.meter)
                 Divider()
-                RecentActivityView()
+                RecentActivityView(transfers: activity.transfers)
             }
             .padding()
             .frame(width: 340)
+            .task { await activity.run() }
 
             Divider()
 

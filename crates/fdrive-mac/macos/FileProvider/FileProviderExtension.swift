@@ -6,6 +6,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     let manager: NSFileProviderManager
     private let adapter: Adapter?
     private let monitor: RemoteChangeMonitor
+    private let activityService: ActivityServiceSource?
 
     required init(domain: NSFileProviderDomain) {
         manager = NSFileProviderManager(for: domain)!
@@ -25,6 +26,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         } else {
             adapter = nil
         }
+        activityService = adapter.map(ActivityServiceSource.init(adapter:))
         super.init()
         logger.info("Started domain \(domain.identifier.rawValue, privacy: .public)")
     }
@@ -200,6 +202,16 @@ private func replace(at localPath: String, with contents: URL) throws {
         _ = try FileManager.default.replaceItemAt(destination, withItemAt: contents)
     } else {
         try FileManager.default.copyItem(at: contents, to: destination)
+    }
+}
+
+extension FileProviderExtension: NSFileProviderServicing {
+    func supportedServiceSources(
+        for itemIdentifier: NSFileProviderItemIdentifier,
+        completionHandler: @escaping ([NSFileProviderServiceSource]?, Error?) -> Void
+    ) -> Progress {
+        completionHandler(activityService.map { [$0] } ?? [], nil)
+        return Progress()
     }
 }
 

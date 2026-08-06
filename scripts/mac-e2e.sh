@@ -138,6 +138,21 @@ file_content_is() { [[ "$(cat "$1" 2>/dev/null)" == "$2" ]]; }
 server_content_is() { [[ "$(srv_cat "$1" 2>/dev/null)" == "$2" ]]; }
 files_match() { cmp -s "$1" "$2"; }
 managed_item() { "$TESTKIT" is-managed "$1"; }
+
+activity_has() {
+    "$TESTKIT" activity | jq -e \
+        --arg path "$REMOTE/$1" --arg direction "$2" --arg state "$3" \
+        'any(.transfers[]; .path == $path and .direction == $direction and .state == $state)' >/dev/null
+}
+
+activity_field() {
+    "$TESTKIT" activity | jq -r --arg path "$REMOTE/$1" --arg field "$2" \
+        'first(.transfers[] | select(.path == $path)) | .[$field]'
+}
+
+activity_meter_total() { "$TESTKIT" activity | jq '[.meter[] | .up + .down] | add'; }
+
+activity_meter_grew_by() { (($(activity_meter_total) >= $1 + $2)); }
 remove_empty_dir() { rmdir "$1" 2>/dev/null || [[ ! -e "$1" ]]; }
 
 file_count_is() {
@@ -523,6 +538,38 @@ local_batch_create() {
     done
 }
 run_test local_batch_create
+
+activity_service_answers() {
+    "$TESTKIT" activity | jq -e '(.meter | length) == 120 and (.transfers | type) == "array"' >/dev/null
+}
+run_test activity_service_answers
+
+activity_records_download() {
+    srv_save "$REMOTE/act-down.txt" "activity download payload" &&
+        wait_until "act-down.txt locally" 25 exists "$LOCAL/act-down.txt" &&
+        "$TESTKIT" download "$LOCAL/act-down.txt" &&
+        wait_until "download in activity" 25 activity_has act-down.txt down done &&
+        [[ "$(activity_field act-down.txt size)" == 25 ]] &&
+        [[ "$(activity_field act-down.txt wire)" == 25 ]]
+}
+run_test activity_records_download
+
+activity_records_upload() {
+    printf 'activity upload payload' >"$LOCAL/act-up.txt" &&
+        wait_until "act-up.txt on server" 30 srv_has "$REMOTE/" act-up.txt &&
+        wait_until "upload in activity" 25 activity_has act-up.txt up done &&
+        [[ "$(activity_field act-up.txt size)" == 23 ]]
+}
+run_test activity_records_upload
+
+activity_meter_counts_traffic() {
+    local before
+    before="$(activity_meter_total)"
+    dd if=/dev/urandom of="$LOCAL/act-meter.bin" bs=1m count=2 status=none
+    wait_until "act-meter.bin on server" 45 srv_has "$REMOTE/" act-meter.bin &&
+        wait_until "meter counts the upload" 25 activity_meter_grew_by "$before" 2097152
+}
+run_test activity_meter_counts_traffic
 
 ######## run ########
 

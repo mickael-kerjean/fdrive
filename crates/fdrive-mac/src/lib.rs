@@ -11,6 +11,8 @@ use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, Sdk};
 use tokio::runtime::Runtime;
 
+pub mod activity;
+
 uniffi::setup_scaffolding!();
 
 const META_TTL: Duration = Duration::from_secs(5);
