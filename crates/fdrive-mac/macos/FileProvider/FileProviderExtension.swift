@@ -3,9 +3,13 @@ import OSLog
 
 final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFileProviderEnumerating {
     private let logger = Logger(subsystem: "app.filestash.mac.fileprovider", category: "Extension")
+    let manager: NSFileProviderManager
     private let adapter: Adapter?
+    private let monitor: RemoteChangeMonitor
 
     required init(domain: NSFileProviderDomain) {
+        manager = NSFileProviderManager(for: domain)!
+        monitor = RemoteChangeMonitor()
         if
             let session = RuntimeSessionStore.load(),
             let dataDirectory = FileManager.default
@@ -182,7 +186,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     ) throws -> NSFileProviderEnumerator {
         logger.debug("Enumerate \(containerItemIdentifier.rawValue, privacy: .public)")
         guard let adapter else { throw NSFileProviderError(.notAuthenticated) }
-        return FileProviderEnumerator(adapter: adapter, container: containerItemIdentifier)
+        return FileProviderEnumerator(
+            adapter: adapter,
+            container: containerItemIdentifier,
+            monitor: monitor
+        )
     }
 }
 
