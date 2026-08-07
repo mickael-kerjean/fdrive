@@ -14,12 +14,19 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         self.container = container
     }
 
-    func invalidate() {}
+    deinit {
+        logger.debug("Enumerator deinit \(self.container.rawValue, privacy: .public)")
+    }
+
+    func invalidate() {
+        logger.debug("Enumerator invalidate \(self.container.rawValue, privacy: .public)")
+    }
 
     func enumerateItems(
         for observer: NSFileProviderEnumerationObserver,
         startingAt page: NSFileProviderPage
     ) {
+        logger.debug("Items \(self.container.rawValue, privacy: .public)")
         do {
             if container == .trashContainer {
                 observer.finishEnumerating(upTo: nil)
@@ -39,6 +46,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         for observer: NSFileProviderChangeObserver,
         from syncAnchor: NSFileProviderSyncAnchor
     ) {
+        logger.debug("Changes \(self.container.rawValue, privacy: .public)")
         observer.finishEnumeratingChanges(upTo: Self.anchor, moreComing: false)
     }
 

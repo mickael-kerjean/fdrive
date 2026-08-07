@@ -184,7 +184,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         for containerItemIdentifier: NSFileProviderItemIdentifier,
         request: NSFileProviderRequest
     ) throws -> NSFileProviderEnumerator {
-        logger.debug("Enumerate \(containerItemIdentifier.rawValue, privacy: .public)")
+        logger.debug("Enumerate \(containerItemIdentifier.rawValue, privacy: .public) viewer=\(request.isFileViewerRequest) system=\(request.isSystemRequest)")
         guard let adapter else { throw NSFileProviderError(.notAuthenticated) }
         return FileProviderEnumerator(
             adapter: adapter,
