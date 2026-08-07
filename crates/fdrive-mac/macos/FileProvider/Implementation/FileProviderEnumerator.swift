@@ -65,7 +65,9 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             let watched = signals.targets()
             logger.debug("Changes reporting \(watched.count) watched containers: \(watched.map(\.rawValue).joined(separator: ","), privacy: .public)")
             for target in watched {
-                observer.didUpdate(try list(FileProviderPath.path(for: target), recursively: false))
+                let items = try list(FileProviderPath.path(for: target), recursively: false)
+                metadata.record(items, in: target)
+                observer.didUpdate(items)
             }
             if !watched.isEmpty {
                 metadata.advance()
