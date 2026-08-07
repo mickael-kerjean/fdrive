@@ -1,6 +1,6 @@
 import FileProvider
 
-final class ActivityServiceSource: NSObject, NSFileProviderServiceSource, NSXPCListenerDelegate, ActivityProviding {
+final class ActivityService: NSObject, NSFileProviderServiceSource, NSXPCListenerDelegate, ActivityProviding {
     let serviceName = activityServiceName
     private let adapter: Adapter
     private let listener = NSXPCListener.anonymous()

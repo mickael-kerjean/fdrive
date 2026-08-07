@@ -1,7 +1,7 @@
 import FileProvider
 import Foundation
 
-final class FileProviderMetadataService {
+final class MetadataService {
     private let lock = NSLock()
     private var revision: UInt64 = 1
 

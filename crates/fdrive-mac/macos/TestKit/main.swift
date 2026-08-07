@@ -69,7 +69,7 @@ func itemURL() async throws -> URL {
 }
 
 func activity() async throws -> Data {
-    let connection = try await ActivityService.connect(using: manager)
+    let connection = try await ActivityChannel.connect(using: manager)
     defer { connection.invalidate() }
     guard let proxy = connection.remoteObjectProxy as? ActivityProviding else {
         throw CocoaError(.featureUnsupported)
