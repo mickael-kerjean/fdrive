@@ -12,6 +12,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             }
         }
     })
+    private let metadata = FileProviderMetadataService()
     private let activityService: ActivityServiceSource?
 
     required init(domain: NSFileProviderDomain) {
@@ -202,6 +203,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         return FileProviderEnumerator(
             adapter: adapter,
             container: containerItemIdentifier,
+            signals: signals,
+            metadata: metadata,
             onInvalidate: track ? { [signals] in signals.remove(containerItemIdentifier) } : {}
         )
     }
