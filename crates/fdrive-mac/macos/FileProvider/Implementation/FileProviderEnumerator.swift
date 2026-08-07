@@ -5,13 +5,16 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private let logger = Logger(subsystem: "app.filestash.mac.fileprovider", category: "Enumerator")
     private let adapter: Adapter
     private let container: NSFileProviderItemIdentifier
+    private let onInvalidate: () -> Void
 
     init(
         adapter: Adapter,
-        container: NSFileProviderItemIdentifier
+        container: NSFileProviderItemIdentifier,
+        onInvalidate: @escaping () -> Void = {}
     ) {
         self.adapter = adapter
         self.container = container
+        self.onInvalidate = onInvalidate
     }
 
     deinit {
@@ -20,6 +23,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
 
     func invalidate() {
         logger.debug("Enumerator invalidate \(self.container.rawValue, privacy: .public)")
+        onInvalidate()
     }
 
     func enumerateItems(

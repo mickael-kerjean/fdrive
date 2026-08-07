@@ -5,6 +5,13 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     private let logger = Logger(subsystem: "app.filestash.mac.fileprovider", category: "Extension")
     let manager: NSFileProviderManager
     private let adapter: Adapter?
+    private lazy var signals = SignalService(trigger: { [manager, logger] in
+        manager.signalEnumerator(for: .workingSet) { error in
+            if let error {
+                logger.error("Sync request failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    })
     private let activityService: ActivityServiceSource?
 
     required init(domain: NSFileProviderDomain) {
@@ -186,9 +193,16 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     ) throws -> NSFileProviderEnumerator {
         logger.debug("Enumerate \(containerItemIdentifier.rawValue, privacy: .public) viewer=\(request.isFileViewerRequest) system=\(request.isSystemRequest)")
         guard let adapter else { throw NSFileProviderError(.notAuthenticated) }
+        let track = request.isFileViewerRequest
+            && containerItemIdentifier != .workingSet
+            && containerItemIdentifier != .trashContainer
+        if track {
+            signals.add(containerItemIdentifier)
+        }
         return FileProviderEnumerator(
             adapter: adapter,
-            container: containerItemIdentifier
+            container: containerItemIdentifier,
+            onInvalidate: track ? { [signals] in signals.remove(containerItemIdentifier) } : {}
         )
     }
 }
