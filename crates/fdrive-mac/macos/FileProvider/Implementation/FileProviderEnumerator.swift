@@ -42,9 +42,13 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
                 observer.finishEnumerating(upTo: nil)
                 return
             }
-            let directory = container == .workingSet ? "/" : FileProviderPath.path(for: container)
-            let items = try list(directory, recursively: container == .workingSet)
-            observer.didEnumerate(items)
+            if container == .workingSet {
+                let items = try list("/")
+                metadata.record(items, in: .rootContainer)
+                observer.didEnumerate(items)
+            } else {
+                observer.didEnumerate(try list(FileProviderPath.path(for: container)))
+            }
             observer.finishEnumerating(upTo: nil)
         } catch {
             logger.error("Listing \(self.container.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
@@ -65,12 +69,14 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             let watched = signals.targets()
             logger.debug("Changes reporting \(watched.count) watched containers: \(watched.map(\.rawValue).joined(separator: ","), privacy: .public)")
             for target in watched {
-                let items = try list(FileProviderPath.path(for: target), recursively: false)
-                metadata.record(items, in: target)
-                observer.didUpdate(items)
-            }
-            if !watched.isEmpty {
-                metadata.advance()
+                let items = try list(FileProviderPath.path(for: target))
+                let delta = metadata.delta(items, in: target)
+                if !delta.updated.isEmpty {
+                    observer.didUpdate(delta.updated)
+                }
+                if !delta.deleted.isEmpty {
+                    observer.didDeleteItems(withIdentifiers: delta.deleted)
+                }
             }
             observer.finishEnumeratingChanges(upTo: metadata.version(), moreComing: false)
         } catch {
@@ -87,16 +93,11 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         completionHandler(anchor)
     }
 
-    private func list(_ directory: String, recursively: Bool) throws -> [FileProviderItem] {
-        var items: [FileProviderItem] = []
-        for entry in try adapter.ls(path: directory) {
+    private func list(_ directory: String) throws -> [FileProviderItem] {
+        try adapter.ls(path: directory).map { entry in
             let isDirectory = entry.kind == .directory
             let path = FileProviderPath.child(of: directory, name: entry.name, isDirectory: isDirectory)
-            items.append(FileProviderItem(path: path, parent: FileProviderPath.parent(of: path), entry: entry))
-            if recursively, isDirectory {
-                items += try list(path, recursively: true)
-            }
+            return FileProviderItem(path: path, parent: FileProviderPath.parent(of: path), entry: entry)
         }
-        return items
     }
 }

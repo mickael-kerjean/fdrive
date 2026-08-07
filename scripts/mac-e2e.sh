@@ -51,6 +51,7 @@ execute_test() {
 cleanup() {
     local status=$?
     ((FAILURES == 0)) || status=1
+    osascript -e "tell application \"Finder\" to close (every Finder window whose name is \"$(basename "$REMOTE")\")" >/dev/null 2>&1 || true
     [[ -e "$LOCAL" ]] && rm -rf "$LOCAL"
     srv_rm "$REMOTE/"
     local register="/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
@@ -577,6 +578,8 @@ run_test activity_meter_counts_traffic
 [[ -d "$ROOT" ]] || { echo "missing File Provider root: $ROOT" >&2; exit 2; }
 xcodebuild -project "$PROJECT" -scheme FilestashTestKit -destination 'platform=macOS' \
     -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/Filestash-fdrive" build >/dev/null || exit 2
+"/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister" \
+    -f -R -trusted "${TESTKIT%/Contents/MacOS/FilestashTestKit}" 2>/dev/null || true
 BASE="$(plutil -extract serverURL raw "$SESSION")"
 BASE="${BASE%/}"
 TOKEN="$(plutil -extract token raw "$SESSION")"
@@ -589,8 +592,7 @@ wait_until "test directory on server" 30 srv_has "$(dirname "$REMOTE")/" "$(base
     echo "local test directory did not upload" >&2
     exit 1
 }
-# Ask Finder to enumerate this directory so out-of-band changes can target its
-# enumerator instead of only refreshing the domain root.
-ls "$LOCAL" >/dev/null
+open "$LOCAL"
+wait_until "test window watched" 15 test -e "$LOCAL"
 
 for fn in "${TESTS[@]}"; do execute_test "$fn"; done
