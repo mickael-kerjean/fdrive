@@ -6,14 +6,14 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private let adapter: Adapter
     private let container: NSFileProviderItemIdentifier
     private let signals: SignalService
-    private let metadata: FileProviderMetadataService
+    private let metadata: MetadataService
     private let onInvalidate: () -> Void
 
     init(
         adapter: Adapter,
         container: NSFileProviderItemIdentifier,
         signals: SignalService,
-        metadata: FileProviderMetadataService,
+        metadata: MetadataService,
         onInvalidate: @escaping () -> Void = {}
     ) {
         self.adapter = adapter

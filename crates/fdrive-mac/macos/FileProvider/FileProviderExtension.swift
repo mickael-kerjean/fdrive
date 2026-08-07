@@ -12,8 +12,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             }
         }
     })
-    private let metadata = FileProviderMetadataService()
-    private let activityService: ActivityServiceSource?
+    private let metadata = MetadataService()
+    private let activityService: ActivityService?
 
     required init(domain: NSFileProviderDomain) {
         manager = NSFileProviderManager(for: domain)!
@@ -32,7 +32,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         } else {
             adapter = nil
         }
-        activityService = adapter.map(ActivityServiceSource.init(adapter:))
+        activityService = adapter.map(ActivityService.init(adapter:))
         super.init()
         logger.info("Started domain \(domain.identifier.rawValue, privacy: .public)")
     }

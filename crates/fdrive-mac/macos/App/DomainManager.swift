@@ -20,7 +20,7 @@ enum DomainManager {
         guard let manager = NSFileProviderManager(for: domain) else {
             throw CocoaError(.fileNoSuchFile)
         }
-        return try await ActivityService.connect(using: manager)
+        return try await ActivityChannel.connect(using: manager)
     }
 
     static func open() async throws {

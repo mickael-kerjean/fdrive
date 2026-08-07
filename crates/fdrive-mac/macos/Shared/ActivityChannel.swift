@@ -8,7 +8,7 @@ protocol ActivityProviding {
     func snapshot(reply: @escaping (Data?) -> Void)
 }
 
-enum ActivityService {
+enum ActivityChannel {
     static func connect(using manager: NSFileProviderManager) async throws -> NSXPCConnection {
         let url = try await manager.getUserVisibleURL(for: .rootContainer)
         let scoped = url.startAccessingSecurityScopedResource()
