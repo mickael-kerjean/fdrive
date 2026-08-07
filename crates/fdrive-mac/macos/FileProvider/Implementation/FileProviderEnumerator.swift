@@ -5,15 +5,21 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private let logger = Logger(subsystem: "app.filestash.mac.fileprovider", category: "Enumerator")
     private let adapter: Adapter
     private let container: NSFileProviderItemIdentifier
+    private let signals: SignalService
+    private let metadata: FileProviderMetadataService
     private let onInvalidate: () -> Void
 
     init(
         adapter: Adapter,
         container: NSFileProviderItemIdentifier,
+        signals: SignalService,
+        metadata: FileProviderMetadataService,
         onInvalidate: @escaping () -> Void = {}
     ) {
         self.adapter = adapter
         self.container = container
+        self.signals = signals
+        self.metadata = metadata
         self.onInvalidate = onInvalidate
     }
 
@@ -50,17 +56,34 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         for observer: NSFileProviderChangeObserver,
         from syncAnchor: NSFileProviderSyncAnchor
     ) {
-        logger.debug("Changes \(self.container.rawValue, privacy: .public)")
-        observer.finishEnumeratingChanges(upTo: Self.anchor, moreComing: false)
+        logger.debug("Changes \(self.container.rawValue, privacy: .public) from=\(String(data: syncAnchor.rawValue, encoding: .utf8) ?? "?", privacy: .public)")
+        guard container == .workingSet else {
+            observer.finishEnumeratingChanges(upTo: metadata.version(), moreComing: false)
+            return
+        }
+        do {
+            let watched = signals.targets()
+            logger.debug("Changes reporting \(watched.count) watched containers: \(watched.map(\.rawValue).joined(separator: ","), privacy: .public)")
+            for target in watched {
+                observer.didUpdate(try list(FileProviderPath.path(for: target), recursively: false))
+            }
+            if !watched.isEmpty {
+                metadata.advance()
+            }
+            observer.finishEnumeratingChanges(upTo: metadata.version(), moreComing: false)
+        } catch {
+            logger.error("Changes failed: \(error.localizedDescription, privacy: .public)")
+            observer.finishEnumeratingWithError(mapToProviderError(error))
+        }
     }
 
     func currentSyncAnchor(
         completionHandler: @escaping (NSFileProviderSyncAnchor?) -> Void
     ) {
-        completionHandler(Self.anchor)
+        let anchor = metadata.version()
+        logger.debug("Anchor requested for \(self.container.rawValue, privacy: .public) -> \(String(data: anchor.rawValue, encoding: .utf8) ?? "?", privacy: .public)")
+        completionHandler(anchor)
     }
-
-    private static let anchor = NSFileProviderSyncAnchor(Data("0".utf8))
 
     private func list(_ directory: String, recursively: Bool) throws -> [FileProviderItem] {
         var items: [FileProviderItem] = []

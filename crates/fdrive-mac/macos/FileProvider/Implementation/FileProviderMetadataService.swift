@@ -5,7 +5,7 @@ final class FileProviderMetadataService {
     private let lock = NSLock()
     private var revision: UInt64 = 1
 
-    func current() -> NSFileProviderSyncAnchor {
+    func version() -> NSFileProviderSyncAnchor {
         lock.lock()
         defer { lock.unlock() }
         return NSFileProviderSyncAnchor(Data(String(revision).utf8))
