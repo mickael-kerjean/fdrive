@@ -1,4 +1,5 @@
 import OSLog
+import ServiceManagement
 import SwiftUI
 
 enum SyncStatus {
@@ -38,6 +39,7 @@ final class AppState: ObservableObject {
             serverURL = session.url
             token = session.token
             syncStatus = .upToDate
+            try? SMAppService.mainApp.register()
             Task {
                 do {
                     try await DomainManager.add()
@@ -66,6 +68,7 @@ final class AppState: ObservableObject {
             RuntimeSessionStore.save(url: serverURL, token: token, insecure: serverURL.hasPrefix("http://"))
             try await DomainManager.add()
             syncStatus = .upToDate
+            try? SMAppService.mainApp.register()
         } catch {
             RuntimeSessionStore.clear()
             self.serverURL = ""
@@ -79,6 +82,7 @@ final class AppState: ObservableObject {
     func disconnect() async {
         do {
             try await DomainManager.remove()
+            try? await SMAppService.mainApp.unregister()
             let session = RuntimeSessionStore.load()
             RuntimeSessionStore.clear()
             if let session {
