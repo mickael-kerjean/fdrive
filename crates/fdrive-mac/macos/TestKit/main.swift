@@ -8,7 +8,7 @@ guard arguments.count >= 2 else {
 
 let domain = NSFileProviderDomain(
     identifier: .init(rawValue: "filestash"),
-    displayName: "Filestash"
+    displayName: ""
 )
 guard let manager = NSFileProviderManager(for: domain) else {
     fputs("File Provider manager is unavailable\n", stderr)

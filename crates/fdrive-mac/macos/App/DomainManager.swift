@@ -4,7 +4,7 @@ import FileProvider
 enum DomainManager {
     private static let domain = NSFileProviderDomain(
         identifier: NSFileProviderDomainIdentifier(rawValue: "filestash"),
-        displayName: "Filestash"
+        displayName: ""
     )
 
     static func add() async throws {

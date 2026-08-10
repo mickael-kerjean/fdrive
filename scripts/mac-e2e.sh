@@ -7,7 +7,7 @@ set -u
 FILTER="${FILTER:-*}"
 KEEP_GOING=false
 REMOTE="${REMOTE:-/mac-e2e-$$}"
-ROOT="${FDRIVE_MAC_ROOT:-$HOME/Library/CloudStorage/Filestash-Filestash}"
+ROOT="${FDRIVE_MAC_ROOT:-$HOME/Library/CloudStorage/Filestash}"
 SESSION="$HOME/Library/Group Containers/group.app.filestash.sync/session.json"
 TESTKIT="$HOME/Library/Developer/Xcode/DerivedData/Filestash-fdrive/Build/Products/Debug/FilestashTestKit.app/Contents/MacOS/FilestashTestKit"
 APP="$HOME/Library/Developer/Xcode/DerivedData/Filestash-fdrive/Build/Products/Debug/Filestash.app"
