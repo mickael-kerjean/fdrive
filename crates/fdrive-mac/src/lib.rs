@@ -111,9 +111,9 @@ pub fn normalize_server(input: String) -> String {
     sdk::normalize_server(&input)
 }
 
-#[uniffi::export]
-pub fn probe(url: String, insecure: bool) -> Result<String, FsError> {
-    Ok(Sdk::builder(&url).insecure(insecure).probe_blocking()?)
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn probe(url: String, insecure: bool) -> Result<String, FsError> {
+    Ok(Sdk::builder(&url).insecure(insecure).probe().await?)
 }
 
 #[uniffi::export]
@@ -133,11 +133,6 @@ pub fn assemble_token(cookies: HashMap<String, String>) -> String {
 pub fn session_recall(data_dir: String) -> Option<Session> {
     let session = fdrive_core::config::recall(Path::new(&data_dir))?;
     Some(Session { url: session.url, token: session.token, insecure: session.insecure })
-}
-
-#[uniffi::export]
-pub fn session_recall_server(data_dir: String) -> Option<String> {
-    fdrive_core::config::recall_server(Path::new(&data_dir))
 }
 
 #[uniffi::export]

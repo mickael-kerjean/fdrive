@@ -23,10 +23,10 @@ fn session_round_trip() {
     assert_eq!(session.token, "TOKEN");
     assert!(!session.insecure);
     super::forget(&data);
-    assert!(super::recall(&data).is_none());
+    let session = super::recall(&data).unwrap();
+    assert!(!session.ok(), "no usable session after logout");
     assert_eq!(
-        super::recall_server(&data).as_deref(),
-        Some("https://demo.filestash.app"),
+        session.url, "https://demo.filestash.app",
         "logout keeps the server url for the next login"
     );
 }
@@ -35,7 +35,7 @@ fn session_round_trip() {
 fn forget_without_a_session_removes_an_empty_config() {
     let data = tmp();
     super::forget(&data);
-    assert!(super::recall_server(&data).is_none());
+    assert!(super::recall(&data).is_none());
     assert!(
         !data.join("fdrive.toml").exists(),
         "empty config is removed"
@@ -56,8 +56,9 @@ fn login_and_logout_leave_the_rest_of_the_config_alone() {
         "foreign table survives: {text}"
     );
     assert!(!text.contains("\"T\""), "token is gone: {text}");
-    assert!(super::recall(&data).is_none(), "no usable session remains");
-    assert_eq!(super::recall_server(&data).as_deref(), Some("https://x"));
+    let session = super::recall(&data).unwrap();
+    assert!(!session.ok(), "no usable session remains");
+    assert_eq!(session.url, "https://x");
 }
 
 #[test]

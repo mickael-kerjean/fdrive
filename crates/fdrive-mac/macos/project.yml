@@ -48,6 +48,8 @@ targets:
       properties:
         CFBundleDisplayName: Filestash
         LSUIElement: true
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoadsInWebContent: true
     dependencies:
       - target: FilestashFileProvider
       - framework: Fdrive.xcframework

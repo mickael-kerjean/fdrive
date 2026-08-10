@@ -13,5 +13,10 @@ struct FilestashApp: App {
             }
         }
         .menuBarExtraStyle(.window)
+
+        Window("Sign In", id: "login") {
+            LoginView().environmentObject(state)
+        }
+        .windowResizability(.contentSize)
     }
 }

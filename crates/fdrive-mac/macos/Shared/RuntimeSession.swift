@@ -1,5 +1,9 @@
 import Foundation
 
+extension Session {
+    var ok: Bool { !url.isEmpty && !token.isEmpty }
+}
+
 enum RuntimeSessionStore {
     static let dataDirectory = FileManager.default
         .containerURL(forSecurityApplicationGroupIdentifier: "group.app.filestash.sync")?

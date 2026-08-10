@@ -18,7 +18,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     required init(domain: NSFileProviderDomain) {
         manager = NSFileProviderManager(for: domain)!
         if
-            let session = RuntimeSessionStore.load(),
+            let session = RuntimeSessionStore.load(), session.ok,
             let dataDirectory = RuntimeSessionStore.dataDirectory
         {
             adapter = try? Adapter(

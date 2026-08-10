@@ -3,13 +3,13 @@ import SwiftUI
 
 struct DisconnectView: View {
     @EnvironmentObject private var state: AppState
-    @State private var serverURL = "http://debian.tailbcbddf.ts.net:8334/"
-    @State private var token = "a8lBj6Z4ibBN6oNs9T7sg3UEe9OX2HafIfcde5FWtnSP8L6yk0uL6YnBzICoVBuehQdkQEyeFYvosPD6SugVI0Kqb3C1xKYNfW8MSjLmGIq7BfTfpLnwa6ycD0m3Gpy16ZbWMTJTMMA-6ScH4KYzY5dth-tFz-BSNMdO_DCwkGhnqh4_KhlBi-wLQ_oC"
+    @Environment(\.openWindow) private var openWindow
+    @State private var serverURL = RuntimeSessionStore.load()?.url ?? ""
+    @State private var probing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            TextField("Server URL", text: $serverURL)
-            SecureField("Token", text: $token)
+            TextField("Server", text: $serverURL)
 
             if let error = state.connectionError {
                 Text(error)
@@ -26,14 +26,30 @@ struct DisconnectView: View {
 
                 Spacer()
 
-                Button("Connect") {
-                    Task { await state.connect(serverURL: serverURL, token: token) }
+                Button("Login") {
+                    login()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(serverURL.isEmpty || token.isEmpty)
+                .disabled(serverURL.isEmpty || probing)
             }
         }
         .padding()
         .frame(width: 300)
+    }
+
+    private func login() {
+        state.connectionError = nil
+        probing = true
+        let base = normalizeServer(input: serverURL)
+        Task {
+            defer { probing = false }
+            guard (try? await probe(url: base, insecure: base.hasPrefix("http://"))) != nil else {
+                state.connectionError = "\(base) does not look like a Filestash server"
+                return
+            }
+            state.server = base
+            openWindow(id: "login")
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }

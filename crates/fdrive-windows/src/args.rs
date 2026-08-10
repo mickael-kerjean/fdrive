@@ -75,7 +75,9 @@ pub fn init() -> Setup {
     if args.user.is_some() && args.password.as_deref().unwrap_or("").is_empty() {
         fail("--user needs --password (or FILESTASH_PASSWORD)");
     }
-    let stored = fdrive_core::config::recall(&data).map(Credentials::from);
+    let stored = fdrive_core::config::recall(&data)
+        .filter(|session| session.ok())
+        .map(Credentials::from);
     let server = args.server.as_deref().map(normalize_server);
     let credentials = match (&server, args.token, &args.user) {
         (Some(url), Some(token), _) => Some(Credentials {
@@ -96,7 +98,7 @@ pub fn init() -> Setup {
         (None, ..) => stored,
     };
     let fresh_credentials = server.is_some() && credentials.is_some();
-    let stored_server = fdrive_core::config::recall_server(&data);
+    let stored_server = fdrive_core::config::recall(&data).map(|session| session.url);
     Setup {
         root,
         data,

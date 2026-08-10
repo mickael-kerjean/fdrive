@@ -21,14 +21,16 @@ pub struct Session {
     pub insecure: bool,
 }
 
-pub fn recall(data: &Path) -> Option<Session> {
-    let session = load::<ConfigFile>(&data.join(FILE))?.session?;
-    (!session.url.is_empty() && !session.token.is_empty()).then_some(session)
+impl Session {
+    pub fn ok(&self) -> bool {
+        !self.url.is_empty() && !self.token.is_empty()
+    }
 }
 
-pub fn recall_server(data: &Path) -> Option<String> {
-    let session = load::<ConfigFile>(&data.join(FILE))?.session?;
-    (!session.url.is_empty()).then_some(session.url)
+pub fn recall(data: &Path) -> Option<Session> {
+    load::<ConfigFile>(&data.join(FILE))?
+        .session
+        .filter(|session| !session.url.is_empty())
 }
 
 pub fn remember(data: &Path, url: &str, token: &str, insecure: bool) {

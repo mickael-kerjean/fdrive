@@ -66,7 +66,9 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
             ..Default::default()
         }),
         (Some(_), None, None) => None,
-        (None, ..) => fdrive_core::config::recall(&data).map(Credentials::from),
+        (None, ..) => fdrive_core::config::recall(&data)
+            .filter(|session| session.ok())
+            .map(Credentials::from),
     };
     Ok(Setup {
         mount: args.mount,
