@@ -29,6 +29,8 @@ enum DomainManager {
         }
         let url = try await manager.getUserVisibleURL(for: .rootContainer)
         await MainActor.run {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             NSWorkspace.shared.open(url)
         }
     }
