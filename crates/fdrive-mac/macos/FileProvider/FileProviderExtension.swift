@@ -194,18 +194,15 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     ) throws -> NSFileProviderEnumerator {
         logger.debug("Enumerate \(containerItemIdentifier.rawValue, privacy: .public) viewer=\(request.isFileViewerRequest) system=\(request.isSystemRequest)")
         guard let adapter else { throw NSFileProviderError(.notAuthenticated) }
-        let track = request.isFileViewerRequest
-            && containerItemIdentifier != .workingSet
+        let track = containerItemIdentifier != .workingSet
             && containerItemIdentifier != .trashContainer
-        if track {
-            signals.add(containerItemIdentifier)
-        }
+            && !request.isSystemRequest
         return FileProviderEnumerator(
             adapter: adapter,
             container: containerItemIdentifier,
             signals: signals,
             metadata: metadata,
-            onInvalidate: track ? { [signals] in signals.remove(containerItemIdentifier) } : {}
+            tracked: track
         )
     }
 }
@@ -255,6 +252,33 @@ extension FileProviderExtension: NSFileProviderThumbnailing {
             completionHandler(nil)
         }
         return progress
+    }
+}
+
+extension FileProviderExtension: NSFileProviderCustomAction {
+    func performAction(
+        identifier actionIdentifier: NSFileProviderExtensionActionIdentifier,
+        onItemsWithIdentifiers itemIdentifiers: [NSFileProviderItemIdentifier],
+        completionHandler: @escaping (Error?) -> Void
+    ) -> Progress {
+        logger.info("Action \(actionIdentifier.rawValue, privacy: .public) on \(itemIdentifiers.map(\.rawValue).joined(separator: ","), privacy: .public)")
+        MaterializedItemsObserver.collect(from: manager.enumeratorForMaterializedItems()) { materialized in
+            var targets = Set(itemIdentifiers)
+            for candidate in materialized {
+                let isFolder = candidate.rawValue.hasSuffix("/")
+                let isUnderSelection = itemIdentifiers.contains { selected in
+                    selected == .rootContainer || candidate.rawValue.hasPrefix(selected.rawValue)
+                }
+                if isFolder && isUnderSelection {
+                    targets.insert(candidate)
+                }
+            }
+            for target in targets {
+                self.signals.add(target)
+            }
+            completionHandler(nil)
+        }
+        return Progress()
     }
 }
 

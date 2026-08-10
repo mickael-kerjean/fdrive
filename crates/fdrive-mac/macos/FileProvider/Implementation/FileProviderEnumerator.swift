@@ -4,23 +4,32 @@ import OSLog
 final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private let logger = Logger(subsystem: "app.filestash.mac.fileprovider", category: "Enumerator")
     private let adapter: Adapter
-    private let container: NSFileProviderItemIdentifier
+    let container: NSFileProviderItemIdentifier
     private let signals: SignalService
     private let metadata: MetadataService
-    private let onInvalidate: () -> Void
 
     init(
         adapter: Adapter,
         container: NSFileProviderItemIdentifier,
         signals: SignalService,
         metadata: MetadataService,
-        onInvalidate: @escaping () -> Void = {}
+        tracked: Bool
     ) {
         self.adapter = adapter
         self.container = container
         self.signals = signals
         self.metadata = metadata
-        self.onInvalidate = onInvalidate
+        super.init()
+        if tracked {
+            signals.add(container)
+            Task { [weak self] in
+                while true {
+                    try? await Task.sleep(for: .seconds(10))
+                    guard let self else { return }
+                    self.signals.add(self.container)
+                }
+            }
+        }
     }
 
     deinit {
@@ -29,7 +38,6 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
 
     func invalidate() {
         logger.debug("Enumerator invalidate \(self.container.rawValue, privacy: .public)")
-        onInvalidate()
     }
 
     func enumerateItems(

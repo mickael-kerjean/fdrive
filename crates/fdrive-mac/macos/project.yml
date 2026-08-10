@@ -87,6 +87,10 @@ targets:
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
           NSExtensionFileProviderDocumentGroup: group.app.filestash.sync
           NSExtensionFileProviderSupportsEnumeration: true
+          NSExtensionFileProviderActions:
+            - NSExtensionFileProviderActionIdentifier: app.filestash.mac.resync
+              NSExtensionFileProviderActionName: Resync
+              NSExtensionFileProviderActionActivationRule: SUBQUERY(fileproviderItems, $item, $item.contentType.identifier UTI-CONFORMS-TO "public.folder").@count == fileproviderItems.@count
     entitlements:
       path: FileProvider/FilestashFileProvider.entitlements
       properties:

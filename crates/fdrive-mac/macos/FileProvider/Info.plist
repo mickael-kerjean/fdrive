@@ -22,6 +22,17 @@
 	<string>1</string>
 	<key>NSExtension</key>
 	<dict>
+		<key>NSExtensionFileProviderActions</key>
+		<array>
+			<dict>
+				<key>NSExtensionFileProviderActionActivationRule</key>
+				<string>SUBQUERY(fileproviderItems, $item, $item.contentType.identifier UTI-CONFORMS-TO "public.folder").@count == fileproviderItems.@count</string>
+				<key>NSExtensionFileProviderActionIdentifier</key>
+				<string>app.filestash.mac.resync</string>
+				<key>NSExtensionFileProviderActionName</key>
+				<string>Resync</string>
+			</dict>
+		</array>
 		<key>NSExtensionFileProviderDocumentGroup</key>
 		<string>group.app.filestash.sync</string>
 		<key>NSExtensionFileProviderSupportsEnumeration</key>
