@@ -8,6 +8,7 @@ final class ActivityMonitor: ObservableObject {
 
     @Published private(set) var transfers: [Transfer] = []
     @Published private(set) var meter: [Sample] = []
+    private(set) var received = Date.distantPast
 
     private var connection: NSXPCConnection?
     private var version: UInt64?
@@ -21,10 +22,12 @@ final class ActivityMonitor: ObservableObject {
     }
 
     private func poll() async {
-        guard let snapshot = await fetch(), snapshot.version != version else { return }
+        guard let snapshot = await fetch() else { return }
+        meter = snapshot.meter
+        received = Date()
+        guard snapshot.version != version else { return }
         version = snapshot.version
         transfers = snapshot.transfers
-        meter = snapshot.meter
     }
 
     private func fetch() async -> ActivitySnapshot? {

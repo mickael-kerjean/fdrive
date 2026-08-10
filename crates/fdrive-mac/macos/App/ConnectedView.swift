@@ -8,7 +8,7 @@ struct ConnectedView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
-                BandwidthView(meter: activity.meter)
+                BandwidthView(meter: activity.meter, received: activity.received)
                 Divider()
                 RecentActivityView(transfers: activity.transfers)
             }
