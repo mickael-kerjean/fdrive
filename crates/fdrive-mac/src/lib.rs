@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -97,6 +97,57 @@ pub fn ping(url: String, insecure: bool, token: String) -> bool {
         return false;
     };
     runtime.block_on(sdk.ls("/")).is_ok()
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Session {
+    pub url: String,
+    pub token: String,
+    pub insecure: bool,
+}
+
+#[uniffi::export]
+pub fn normalize_server(input: String) -> String {
+    sdk::normalize_server(&input)
+}
+
+#[uniffi::export]
+pub fn probe(url: String, insecure: bool) -> Result<String, FsError> {
+    Ok(Sdk::builder(&url).insecure(insecure).probe_blocking()?)
+}
+
+#[uniffi::export]
+pub fn logout(url: String, insecure: bool, token: String) -> Result<(), FsError> {
+    let runtime = runtime()?;
+    let sdk = Sdk::builder(&url).insecure(insecure).token(token)?;
+    Ok(runtime.block_on(sdk.logout())?)
+}
+
+#[uniffi::export]
+pub fn assemble_token(cookies: HashMap<String, String>) -> String {
+    let cookies: Vec<(String, String)> = cookies.into_iter().collect();
+    sdk::assemble_token(&cookies)
+}
+
+#[uniffi::export]
+pub fn session_recall(data_dir: String) -> Option<Session> {
+    let session = fdrive_core::config::recall(Path::new(&data_dir))?;
+    Some(Session { url: session.url, token: session.token, insecure: session.insecure })
+}
+
+#[uniffi::export]
+pub fn session_recall_server(data_dir: String) -> Option<String> {
+    fdrive_core::config::recall_server(Path::new(&data_dir))
+}
+
+#[uniffi::export]
+pub fn session_remember(data_dir: String, url: String, token: String, insecure: bool) {
+    fdrive_core::config::remember(Path::new(&data_dir), &url, &token, insecure);
+}
+
+#[uniffi::export]
+pub fn session_forget(data_dir: String) {
+    fdrive_core::config::forget(Path::new(&data_dir));
 }
 
 struct MacTree {

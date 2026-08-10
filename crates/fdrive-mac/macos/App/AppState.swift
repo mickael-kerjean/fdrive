@@ -34,7 +34,19 @@ final class AppState: ObservableObject {
     private(set) var token = ""
 
     init() {
-        RuntimeSessionStore.clear()
+        if let session = RuntimeSessionStore.load() {
+            serverURL = session.url
+            token = session.token
+            syncStatus = .upToDate
+            Task {
+                do {
+                    try await DomainManager.add()
+                } catch {
+                    logger.error("Reattach failed: \(error.localizedDescription, privacy: .public)")
+                    syncStatus = .error
+                }
+            }
+        }
     }
 
     var isConnected: Bool {
@@ -51,7 +63,7 @@ final class AppState: ObservableObject {
         self.token = token
 
         do {
-            try RuntimeSessionStore.save(.init(serverURL: serverURL, token: token))
+            RuntimeSessionStore.save(url: serverURL, token: token, insecure: serverURL.hasPrefix("http://"))
             try await DomainManager.add()
             syncStatus = .upToDate
         } catch {
@@ -67,7 +79,11 @@ final class AppState: ObservableObject {
     func disconnect() async {
         do {
             try await DomainManager.remove()
+            let session = RuntimeSessionStore.load()
             RuntimeSessionStore.clear()
+            if let session {
+                Task.detached { try? logout(url: session.url, insecure: session.insecure, token: session.token) }
+            }
             serverURL = ""
             token = ""
             syncStatus = nil

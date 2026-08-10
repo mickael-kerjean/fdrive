@@ -1,27 +1,22 @@
 import Foundation
 
-struct RuntimeSession: Codable {
-    let serverURL: String
-    let token: String
-}
-
 enum RuntimeSessionStore {
-    private static let file = FileManager.default
+    static let dataDirectory = FileManager.default
         .containerURL(forSecurityApplicationGroupIdentifier: "group.app.filestash.sync")?
-        .appendingPathComponent("session.json")
+        .appendingPathComponent("data")
 
-    static func save(_ session: RuntimeSession) throws {
-        guard let file else { throw CocoaError(.fileNoSuchFile) }
-        try JSONEncoder().encode(session).write(to: file, options: .atomic)
+    static func save(url: String, token: String, insecure: Bool) {
+        guard let dataDirectory else { return }
+        sessionRemember(dataDir: dataDirectory.path, url: url, token: token, insecure: insecure)
     }
 
-    static func load() -> RuntimeSession? {
-        guard let file, let data = try? Data(contentsOf: file) else { return nil }
-        return try? JSONDecoder().decode(RuntimeSession.self, from: data)
+    static func load() -> Session? {
+        guard let dataDirectory else { return nil }
+        return sessionRecall(dataDir: dataDirectory.path)
     }
 
     static func clear() {
-        guard let file else { return }
-        try? FileManager.default.removeItem(at: file)
+        guard let dataDirectory else { return }
+        sessionForget(dataDir: dataDirectory.path)
     }
 }

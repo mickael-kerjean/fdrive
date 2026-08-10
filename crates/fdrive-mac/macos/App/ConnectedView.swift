@@ -21,10 +21,8 @@ struct ConnectedView: View {
             HStack {
                 Button("Quit") {
                     Task {
-                        await state.disconnect()
-                        if !state.isConnected {
-                            NSApp.terminate(nil)
-                        }
+                        try? await DomainManager.remove()
+                        NSApp.terminate(nil)
                     }
                 }
 

@@ -19,13 +19,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         manager = NSFileProviderManager(for: domain)!
         if
             let session = RuntimeSessionStore.load(),
-            let dataDirectory = FileManager.default
-                .containerURL(forSecurityApplicationGroupIdentifier: "group.app.filestash.sync")?
-                .appendingPathComponent("data")
+            let dataDirectory = RuntimeSessionStore.dataDirectory
         {
             adapter = try? Adapter(
-                url: session.serverURL,
-                insecure: session.serverURL.hasPrefix("http://"),
+                url: session.url,
+                insecure: session.insecure,
                 token: session.token,
                 dataDir: dataDirectory.path
             )
