@@ -109,7 +109,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         try await adapter.ls(path: directory).map { entry in
             let isDirectory = entry.kind == .directory
             let path = FileProviderPath.child(of: directory, name: entry.name, isDirectory: isDirectory)
-            return FileProviderItem(path: path, parent: FileProviderPath.parent(of: path), entry: entry)
+            return FileProviderItem(path: path, entry: entry)
         }
     }
 }

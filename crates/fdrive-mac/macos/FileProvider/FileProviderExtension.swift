@@ -257,7 +257,7 @@ extension FileProviderExtension: NSFileProviderThumbnailing {
         Task {
             for identifier in itemIdentifiers {
                 do {
-                    let thumbnail = try await adapter.thumbnail(path: identifier.rawValue)
+                    let thumbnail = try await adapter.thumbnail(path: FileProviderPath.path(for: identifier))
                     perThumbnailCompletionHandler(identifier, thumbnail, nil)
                 } catch {
                     perThumbnailCompletionHandler(identifier, nil, mapToProviderError(error))

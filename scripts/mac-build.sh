@@ -53,8 +53,8 @@ ditto "$APP" "$STAGE"
 xattr -cr "$STAGE"
 ln -s /Applications "$OUT/dmg/Applications"
 
+ENT=/tmp/fdrive-entitlements.plist
 for bundle in "$STAGE/Contents/PlugIns/FilestashFileProvider.appex" "$STAGE"; do
-    ENT=/tmp/fdrive-entitlements.plist
     codesign -d --entitlements - --xml "$bundle" > "$ENT"
     plutil -remove 'com\.apple\.security\.get-task-allow' "$ENT" 2>/dev/null || true
     plutil -insert 'com\.apple\.security\.application-identifier' -string "3736F8X9F9.$(plutil -extract CFBundleIdentifier raw "$bundle/Contents/Info.plist")" "$ENT"

@@ -4,21 +4,11 @@ import SwiftUI
 
 enum SyncStatus {
     case upToDate
-    case syncing
     case error
-
-    var label: String {
-        switch self {
-        case .upToDate: "Everything is up to date"
-        case .syncing: "Syncing"
-        case .error: "Sync error"
-        }
-    }
 
     var systemImage: String {
         switch self {
         case .upToDate: "checkmark.icloud"
-        case .syncing: "arrow.trianglehead.2.clockwise.rotate.90.icloud"
         case .error: "xmark.icloud"
         }
     }
@@ -32,14 +22,9 @@ final class AppState: ObservableObject {
     @Published var connectionError: String?
     @Published var server: String?
 
-    private(set) var serverURL = ""
-    private(set) var token = ""
-
     init() {
         let session = RuntimeSessionStore.load()
         if session.ok {
-            serverURL = session.url
-            token = session.token
             syncStatus = .upToDate
             try? SMAppService.mainApp.register()
             Task {
@@ -63,9 +48,6 @@ final class AppState: ObservableObject {
 
     func connect(serverURL: String, token: String) async {
         connectionError = nil
-        self.serverURL = serverURL
-        self.token = token
-
         do {
             RuntimeSessionStore.save(url: serverURL, token: token, insecure: serverURL.hasPrefix("http://"))
             try await DomainManager.add()
@@ -73,8 +55,6 @@ final class AppState: ObservableObject {
             try? SMAppService.mainApp.register()
         } catch {
             RuntimeSessionStore.clear()
-            self.serverURL = ""
-            self.token = ""
             let error = error as NSError
             logger.error("Connect failed: \(error.domain, privacy: .public) \(error.code): \(error.localizedDescription, privacy: .public)")
             connectionError = error.localizedDescription
@@ -90,8 +70,6 @@ final class AppState: ObservableObject {
             if session.ok {
                 Task.detached { try? logout(url: session.url, insecure: session.insecure, token: session.token) }
             }
-            serverURL = ""
-            token = ""
             syncStatus = nil
         } catch {
             logger.error("Disconnect failed: \(error.localizedDescription, privacy: .public)")

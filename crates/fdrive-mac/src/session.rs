@@ -14,22 +14,6 @@ pub struct Session {
 }
 
 #[uniffi::export]
-pub fn login(url: String, insecure: bool, user: String, password: String, storage: String) -> Result<String, FsError> {
-    let runtime = runtime()?;
-    let sdk = runtime.block_on(Sdk::builder(&url).insecure(insecure).login(&user, &password, &storage))?;
-    Ok(sdk.token().unwrap_or_default().to_string())
-}
-
-#[uniffi::export]
-pub fn ping(url: String, insecure: bool, token: String) -> bool {
-    let Ok(runtime) = runtime() else { return false };
-    let Ok(sdk) = Sdk::builder(&url).insecure(insecure).token(token) else {
-        return false;
-    };
-    runtime.block_on(sdk.ls("/")).is_ok()
-}
-
-#[uniffi::export]
 pub fn normalize_server(input: String) -> String {
     sdk::normalize_server(&input)
 }

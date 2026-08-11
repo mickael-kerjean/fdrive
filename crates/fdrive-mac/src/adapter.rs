@@ -124,21 +124,13 @@ impl Adapter {
     pub async fn stat(&self, path: String) -> Result<Entry, FsError> {
         let path = RelPath::new(&path);
         if let Some(metadata) = self.engine.dirty_metadata(&path) {
-            return Ok(Entry {
+            return Ok(Entry::from(sdk::FileInfo {
                 name: path.name().to_string(),
-                kind: EntryKind::File,
+                kind: sdk::FileType::File,
                 size: Some(metadata.len()),
-                mtime_ms: metadata
-                    .modified()
-                    .ok()
-                    .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-                    .map(|duration| duration.as_millis() as i64),
-                can_read: true,
-                can_write: true,
-                can_rename: true,
-                can_reparent: true,
-                can_delete: true,
-            });
+                mtime: metadata.modified().ok(),
+                perms: sdk::Permissions::default(),
+            }));
         }
         self.listing(&path.parent_or_root())
             .await?

@@ -25,7 +25,7 @@ final class MetadataService {
         lock.lock()
         defer { lock.unlock() }
         let previous = known[container] ?? [:]
-        let updated = items.filter { previous[$0.itemIdentifier] != $0.itemVersion.contentVersion }
+        let updated = items.filter { previous[$0.itemIdentifier] != fresh[$0.itemIdentifier] }
         let deleted = previous.keys.filter { fresh[$0] == nil }
         let delta = Delta(updated: updated, deleted: deleted)
         guard !delta.isEmpty else { return delta }
