@@ -72,6 +72,7 @@ impl<T: LocalStore> Engine<T> {
                 kind: crate::sdk::FileType::File,
                 size: Some(size),
                 mtime,
+                perms: Default::default(),
             });
         }
         let extras: Vec<RelPath> = {
@@ -92,6 +93,7 @@ impl<T: LocalStore> Engine<T> {
                         kind: crate::sdk::FileType::File,
                         size: Some(md.len()),
                         mtime: md.modified().ok(),
+                        perms: Default::default(),
                     });
                 }
             }
@@ -110,6 +112,7 @@ impl<T: LocalStore> Engine<T> {
                     kind: crate::sdk::FileType::File,
                     size: Some(obs.size),
                     mtime: Some(UNIX_EPOCH + Duration::from_secs(obs.time)),
+                    perms: Default::default(),
                 });
             } else if dir.is_root() || path.is_descendant_of(dir) {
                 let rest = match dir.is_root() {
@@ -127,6 +130,7 @@ impl<T: LocalStore> Engine<T> {
                 kind: crate::sdk::FileType::Directory,
                 size: Some(0),
                 mtime: None,
+                perms: Default::default(),
             });
         }
         listing

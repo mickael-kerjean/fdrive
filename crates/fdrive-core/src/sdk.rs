@@ -66,6 +66,22 @@ pub struct FileInfo {
     pub kind: FileType,
     pub size: Option<u64>,
     pub mtime: Option<SystemTime>,
+    pub perms: Permissions,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Permissions {
+    pub read: bool,
+    pub write: bool,
+    pub rename: bool,
+    pub reparent: bool,
+    pub delete: bool,
+}
+
+impl Default for Permissions {
+    fn default() -> Self {
+        Self { read: true, write: true, rename: true, reparent: true, delete: true }
+    }
 }
 
 impl FileInfo {
@@ -85,6 +101,7 @@ impl FileInfo {
             },
             size: header("content-length").and_then(|v| v.parse().ok()),
             mtime: header("last-modified").and_then(|v| httpdate::parse_http_date(v).ok()),
+            perms: Permissions::default(),
         }
     }
 }
@@ -191,6 +208,17 @@ impl Sdk {
     }
 
     pub async fn ls(&self, path: &str) -> Result<Vec<FileInfo>> {
+        #[derive(Deserialize, Default)]
+        #[serde(default)]
+        struct Meta {
+            can_read: Option<bool>,
+            can_upload: Option<bool>,
+            can_create_file: Option<bool>,
+            can_create_directory: Option<bool>,
+            can_rename: Option<bool>,
+            can_move: Option<bool>,
+            can_delete: Option<bool>,
+        }
         #[derive(Deserialize)]
         struct Entry {
             name: String,
@@ -200,6 +228,8 @@ impl Sdk {
             time: i64,
             #[serde(rename = "type")]
             kind: String,
+            #[serde(default)]
+            metadata: Meta,
         }
         let resp = self
             .request(Method::GET, &["api", "files", "ls"], &[("path", path)])
@@ -207,16 +237,26 @@ impl Sdk {
         let entries: Vec<Entry> = unwrap_results(resp).await?;
         Ok(entries
             .into_iter()
-            .map(|e| FileInfo {
-                name: e.name,
-                kind: if e.kind == "directory" {
-                    FileType::Directory
-                } else {
-                    FileType::File
-                },
-                size: u64::try_from(e.size).ok(),
-                mtime: (e.time > 0)
-                    .then(|| SystemTime::UNIX_EPOCH + Duration::from_millis(e.time as u64)),
+            .map(|e| {
+                let dir = e.kind == "directory";
+                FileInfo {
+                    name: e.name,
+                    kind: if dir { FileType::Directory } else { FileType::File },
+                    size: u64::try_from(e.size).ok(),
+                    mtime: (e.time > 0)
+                        .then(|| SystemTime::UNIX_EPOCH + Duration::from_millis(e.time as u64)),
+                    perms: Permissions {
+                        read: e.metadata.can_read.unwrap_or(true),
+                        write: match dir {
+                            true => e.metadata.can_create_file.or(e.metadata.can_create_directory),
+                            false => e.metadata.can_upload,
+                        }
+                        .unwrap_or(true),
+                        rename: e.metadata.can_rename.unwrap_or(true),
+                        reparent: e.metadata.can_move.unwrap_or(true),
+                        delete: e.metadata.can_delete.unwrap_or(true),
+                    },
+                }
             })
             .collect())
     }

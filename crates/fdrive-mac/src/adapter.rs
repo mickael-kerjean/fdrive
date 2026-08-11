@@ -27,6 +27,11 @@ pub struct Entry {
     pub kind: EntryKind,
     pub size: Option<u64>,
     pub mtime_ms: Option<i64>,
+    pub can_read: bool,
+    pub can_write: bool,
+    pub can_rename: bool,
+    pub can_reparent: bool,
+    pub can_delete: bool,
 }
 
 impl From<sdk::FileInfo> for Entry {
@@ -42,6 +47,11 @@ impl From<sdk::FileInfo> for Entry {
                 .mtime
                 .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
                 .map(|duration| duration.as_millis() as i64),
+            can_read: info.perms.read,
+            can_write: info.perms.write,
+            can_rename: info.perms.rename,
+            can_reparent: info.perms.reparent,
+            can_delete: info.perms.delete,
         }
     }
 }
@@ -123,6 +133,11 @@ impl Adapter {
                     .ok()
                     .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
                     .map(|duration| duration.as_millis() as i64),
+                can_read: true,
+                can_write: true,
+                can_rename: true,
+                can_reparent: true,
+                can_delete: true,
             });
         }
         self.listing(&path.parent_or_root())

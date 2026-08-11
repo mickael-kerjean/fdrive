@@ -26,12 +26,14 @@ async fn overlay_masks_the_pending_world() {
                 kind: crate::sdk::FileType::File,
                 size: Some(5),
                 mtime: None,
+                perms: Default::default(),
             },
             crate::sdk::FileInfo {
                 name: "doomed".into(),
                 kind: crate::sdk::FileType::File,
                 size: Some(3),
                 mtime: None,
+                perms: Default::default(),
             },
         ],
     );
@@ -69,6 +71,7 @@ async fn listed_observes_only_what_the_replica_mirrors() {
         kind: crate::sdk::FileType::File,
         size: Some(size),
         mtime: Some(mtime),
+        perms: Default::default(),
     };
 
     let mirrored = RelPath::new("mirrored");

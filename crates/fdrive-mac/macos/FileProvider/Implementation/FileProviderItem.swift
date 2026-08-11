@@ -10,6 +10,7 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
     let contentType: UTType
     let documentSize: NSNumber?
     let contentModificationDate: Date?
+    let capabilities: NSFileProviderItemCapabilities
 
     private override init() {
         itemIdentifier = .rootContainer
@@ -18,6 +19,7 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
         contentType = .folder
         documentSize = nil
         contentModificationDate = nil
+        capabilities = [.allowsReading, .allowsWriting]
     }
 
     init(path: String, parent: NSFileProviderItemIdentifier, entry: Entry) {
@@ -32,24 +34,17 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
             : UTType(filenameExtension: (entry.name as NSString).pathExtension) ?? .data
         documentSize = entry.size.map(NSNumber.init(value:))
         contentModificationDate = entry.mtimeMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        var granted: NSFileProviderItemCapabilities = [.allowsEvicting]
+        if entry.canRead { granted.insert(.allowsReading) }
+        if entry.canWrite { granted.insert(.allowsWriting) }
+        if entry.canRename { granted.insert(.allowsRenaming) }
+        if entry.canReparent { granted.insert(.allowsReparenting) }
+        if entry.canDelete { granted.insert(.allowsDeleting) }
+        capabilities = granted
     }
 
     convenience init(path: String, entry: Entry) {
         self.init(path: path, parent: FileProviderPath.parent(of: path), entry: entry)
-    }
-
-    var capabilities: NSFileProviderItemCapabilities {
-        if itemIdentifier == .rootContainer {
-            return [.allowsReading, .allowsWriting]
-        }
-        return [
-            .allowsReading,
-            .allowsWriting,
-            .allowsReparenting,
-            .allowsRenaming,
-            .allowsDeleting,
-            .allowsEvicting,
-        ]
     }
 
     var itemVersion: NSFileProviderItemVersion {
