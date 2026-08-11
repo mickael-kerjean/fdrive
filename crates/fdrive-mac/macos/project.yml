@@ -62,7 +62,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.app.filestash.sync
+          - 3736F8X9F9.group.app.filestash.sync
         com.apple.security.network.client: true
   FilestashFileProvider:
     type: app-extension
@@ -90,7 +90,7 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.fileprovider-nonui
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
-          NSExtensionFileProviderDocumentGroup: group.app.filestash.sync
+          NSExtensionFileProviderDocumentGroup: 3736F8X9F9.group.app.filestash.sync
           NSExtensionFileProviderSupportsEnumeration: true
           NSExtensionFileProviderActions:
             - NSExtensionFileProviderActionIdentifier: app.filestash.mac.resync
@@ -101,5 +101,5 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - group.app.filestash.sync
+          - 3736F8X9F9.group.app.filestash.sync
         com.apple.security.network.client: true

@@ -2,7 +2,7 @@ import Foundation
 
 enum RuntimeSessionStore {
     static let dataDirectory = FileManager.default
-        .containerURL(forSecurityApplicationGroupIdentifier: "group.app.filestash.sync")?
+        .containerURL(forSecurityApplicationGroupIdentifier: "3736F8X9F9.group.app.filestash.sync")?
         .appendingPathComponent("data")
 
     static func save(url: String, token: String, insecure: Bool) {

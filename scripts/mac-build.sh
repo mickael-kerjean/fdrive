@@ -5,10 +5,20 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MAC="$ROOT/crates/fdrive-mac/macos"
 HEADERS="$ROOT/target/macos-headers"
 LIBRARY="$ROOT/target/aarch64-apple-darwin/release/libfdrive_mac.a"
-DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/Filestash-fdrive"
-APP="$DERIVED_DATA/Build/Products/Debug/Filestash.app"
 
-pkill -x Filestash 2>/dev/null || true
+CONFIG=Debug
+if [ "${1:-}" = "--release" ]; then
+    CONFIG=Release
+fi
+DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/Filestash-fdrive"
+if [ "$CONFIG" = Release ]; then
+    DERIVED_DATA="$DERIVED_DATA-release"
+fi
+APP="$DERIVED_DATA/Build/Products/$CONFIG/Filestash.app"
+
+if [ "$CONFIG" = Debug ]; then
+    pkill -x Filestash 2>/dev/null || true
+fi
 
 cargo build -p fdrive-mac --release --target aarch64-apple-darwin
 cargo run -p fdrive-mac --bin uniffi-bindgen-swift -- generate --library "$LIBRARY" --language swift --no-format --out-dir "$MAC/Generated"
@@ -20,8 +30,41 @@ cp "$MAC/Generated/fdriveFFI.modulemap" "$HEADERS/module.modulemap"
 xcodebuild -create-xcframework -library "$LIBRARY" -headers "$HEADERS" -output "$MAC/Fdrive.xcframework"
 
 xcodegen generate --spec "$MAC/project.yml" --project "$MAC"
-xcodebuild -project "$MAC/Filestash.xcodeproj" -scheme Filestash -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" build
+if [ "$CONFIG" = Release ]; then
+    rm -rf "$APP"
+fi
+xcodebuild -project "$MAC/Filestash.xcodeproj" -scheme Filestash -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" -configuration "$CONFIG" build
 
-codesign --verify --deep --strict "$APP"
-pluginkit -a "$APP/Contents/PlugIns/FilestashFileProvider.appex"
-open -n "$APP"
+if [ "$CONFIG" = Debug ]; then
+    codesign --verify --deep --strict "$APP"
+    pluginkit -a "$APP/Contents/PlugIns/FilestashFileProvider.appex"
+    open -n "$APP"
+    exit 0
+fi
+
+OUT="$ROOT/target/mac-release"
+STAGE="$OUT/Filestash.app"
+IDENTITY="Developer ID Application: Mickael KERJEAN (3736F8X9F9)"
+PROFILE="filestash"
+
+rm -rf "$OUT"
+mkdir -p "$OUT"
+ditto "$APP" "$STAGE"
+xattr -cr "$STAGE"
+
+for bundle in "$STAGE/Contents/PlugIns/FilestashFileProvider.appex" "$STAGE"; do
+    ENT=/tmp/fdrive-entitlements.plist
+    codesign -d --entitlements - --xml "$bundle" > "$ENT"
+    plutil -remove 'com\.apple\.security\.get-task-allow' "$ENT" 2>/dev/null || true
+    plutil -insert 'com\.apple\.security\.application-identifier' -string "3736F8X9F9.$(plutil -extract CFBundleIdentifier raw "$bundle/Contents/Info.plist")" "$ENT"
+    codesign --force --options runtime --timestamp --sign "$IDENTITY" --entitlements "$ENT" "$bundle"
+done
+codesign --verify --deep --strict "$STAGE"
+
+ditto -c -k --keepParent "$STAGE" "$OUT/Filestash.zip"
+xcrun notarytool submit "$OUT/Filestash.zip" --keychain-profile "$PROFILE" --wait
+xcrun stapler staple "$STAGE"
+rm "$OUT/Filestash.zip"
+ditto -c -k --keepParent "$STAGE" "$OUT/Filestash.zip"
+spctl --assess -vv "$STAGE"
+echo "release artifact: $OUT/Filestash.zip"
