@@ -4,7 +4,7 @@ import SwiftUI
 struct DisconnectView: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.openWindow) private var openWindow
-    @State private var serverURL = RuntimeSessionStore.load()?.url ?? ""
+    @State private var serverURL = RuntimeSessionStore.load().url
     @State private var probing = false
 
     var body: some View {

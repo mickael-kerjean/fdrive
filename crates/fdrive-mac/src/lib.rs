@@ -104,6 +104,7 @@ pub struct Session {
     pub url: String,
     pub token: String,
     pub insecure: bool,
+    pub ok: bool,
 }
 
 #[uniffi::export]
@@ -130,9 +131,10 @@ pub fn assemble_token(cookies: HashMap<String, String>) -> String {
 }
 
 #[uniffi::export]
-pub fn session_recall(data_dir: String) -> Option<Session> {
-    let session = fdrive_core::config::recall(Path::new(&data_dir))?;
-    Some(Session { url: session.url, token: session.token, insecure: session.insecure })
+pub fn session_recall(data_dir: String) -> Session {
+    let session = fdrive_core::config::load(Path::new(&data_dir));
+    let ok = session.ok();
+    Session { url: session.url, token: session.token, insecure: session.insecure, ok }
 }
 
 #[uniffi::export]

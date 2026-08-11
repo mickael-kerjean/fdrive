@@ -1,9 +1,5 @@
 import Foundation
 
-extension Session {
-    var ok: Bool { !url.isEmpty && !token.isEmpty }
-}
-
 enum RuntimeSessionStore {
     static let dataDirectory = FileManager.default
         .containerURL(forSecurityApplicationGroupIdentifier: "group.app.filestash.sync")?
@@ -14,8 +10,8 @@ enum RuntimeSessionStore {
         sessionRemember(dataDir: dataDirectory.path, url: url, token: token, insecure: insecure)
     }
 
-    static func load() -> Session? {
-        guard let dataDirectory else { return nil }
+    static func load() -> Session {
+        guard let dataDirectory else { return Session(url: "", token: "", insecure: false, ok: false) }
         return sessionRecall(dataDir: dataDirectory.path)
     }
 

@@ -13,7 +13,7 @@ struct ConfigFile {
     rest: toml::Table,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Session {
     pub url: String,
     pub token: String,
@@ -27,10 +27,10 @@ impl Session {
     }
 }
 
-pub fn recall(data: &Path) -> Option<Session> {
-    load::<ConfigFile>(&data.join(FILE))?
-        .session
-        .filter(|session| !session.url.is_empty())
+pub fn load(data: &Path) -> Session {
+    read::<ConfigFile>(&data.join(FILE))
+        .and_then(|config| config.session)
+        .unwrap_or_default()
 }
 
 pub fn remember(data: &Path, url: &str, token: &str, insecure: bool) {
@@ -48,7 +48,7 @@ pub fn remember(data: &Path, url: &str, token: &str, insecure: bool) {
 }
 
 pub fn forget(data: &Path) {
-    let kept = load::<ConfigFile>(&data.join(FILE))
+    let kept = read::<ConfigFile>(&data.join(FILE))
         .and_then(|config| config.session)
         .map(|session| Session {
             token: String::new(),
@@ -59,7 +59,7 @@ pub fn forget(data: &Path) {
 
 fn update(data: &Path, session: Option<Session>) {
     let path = data.join(FILE);
-    let mut config = load::<ConfigFile>(&path).unwrap_or_default();
+    let mut config = read::<ConfigFile>(&path).unwrap_or_default();
     if config.session == session {
         return;
     }
@@ -71,7 +71,7 @@ fn update(data: &Path, session: Option<Session>) {
     }
 }
 
-fn load<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     toml::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
@@ -105,7 +105,7 @@ pub fn ignore(data: &Path) -> Ignore {
     struct Sync {
         ignore: Option<Ignore>,
     }
-    load::<File>(&data.join(FILE))
+    read::<File>(&data.join(FILE))
         .unwrap_or_default()
         .sync
         .ignore

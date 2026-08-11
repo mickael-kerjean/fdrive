@@ -36,7 +36,8 @@ final class AppState: ObservableObject {
     private(set) var token = ""
 
     init() {
-        if let session = RuntimeSessionStore.load(), session.ok {
+        let session = RuntimeSessionStore.load()
+        if session.ok {
             serverURL = session.url
             token = session.token
             syncStatus = .upToDate
@@ -86,7 +87,7 @@ final class AppState: ObservableObject {
             try? await SMAppService.mainApp.unregister()
             let session = RuntimeSessionStore.load()
             RuntimeSessionStore.clear()
-            if let session, session.ok {
+            if session.ok {
                 Task.detached { try? logout(url: session.url, insecure: session.insecure, token: session.token) }
             }
             serverURL = ""

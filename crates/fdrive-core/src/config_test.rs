@@ -16,14 +16,15 @@ fn tmp() -> PathBuf {
 #[test]
 fn session_round_trip() {
     let data = tmp();
-    assert!(super::recall(&data).is_none());
+    assert!(!super::load(&data).ok());
     super::remember(&data, "https://demo.filestash.app", "TOKEN", false);
-    let session = super::recall(&data).unwrap();
+    let session = super::load(&data);
+    assert!(session.ok());
     assert_eq!(session.url, "https://demo.filestash.app");
     assert_eq!(session.token, "TOKEN");
     assert!(!session.insecure);
     super::forget(&data);
-    let session = super::recall(&data).unwrap();
+    let session = super::load(&data);
     assert!(!session.ok(), "no usable session after logout");
     assert_eq!(
         session.url, "https://demo.filestash.app",
@@ -35,7 +36,7 @@ fn session_round_trip() {
 fn forget_without_a_session_removes_an_empty_config() {
     let data = tmp();
     super::forget(&data);
-    assert!(super::recall(&data).is_none());
+    assert!(!super::load(&data).ok());
     assert!(
         !data.join("fdrive.toml").exists(),
         "empty config is removed"
@@ -48,7 +49,7 @@ fn login_and_logout_leave_the_rest_of_the_config_alone() {
     let config = data.join("fdrive.toml");
     std::fs::write(&config, "[sync]\nignore = [\"node_modules\"]\n").unwrap();
     super::remember(&data, "https://x", "T", true);
-    assert!(super::recall(&data).unwrap().insecure);
+    assert!(super::load(&data).insecure);
     super::forget(&data);
     let text = std::fs::read_to_string(&config).unwrap();
     assert!(
@@ -56,7 +57,7 @@ fn login_and_logout_leave_the_rest_of_the_config_alone() {
         "foreign table survives: {text}"
     );
     assert!(!text.contains("\"T\""), "token is gone: {text}");
-    let session = super::recall(&data).unwrap();
+    let session = super::load(&data);
     assert!(!session.ok(), "no usable session remains");
     assert_eq!(session.url, "https://x");
 }
@@ -89,7 +90,7 @@ fn login_leaves_the_ignore_rules_alone() {
     std::fs::write(data.join("fdrive.toml"), "[sync]\nignore = [\"target\"]\n").unwrap();
     super::remember(&data, "https://x", "T", false);
     assert!(super::ignore(&data).matches(&crate::path::RelPath::new("target")));
-    assert_eq!(super::recall(&data).unwrap().token, "T");
+    assert_eq!(super::load(&data).token, "T");
 }
 
 #[test]
