@@ -43,14 +43,15 @@ if [ "$CONFIG" = Debug ]; then
 fi
 
 OUT="$ROOT/target/mac-release"
-STAGE="$OUT/Filestash.app"
+STAGE="$OUT/dmg/Filestash.app"
 IDENTITY="Developer ID Application: Mickael KERJEAN (3736F8X9F9)"
 PROFILE="filestash"
 
 rm -rf "$OUT"
-mkdir -p "$OUT"
+mkdir -p "$OUT/dmg"
 ditto "$APP" "$STAGE"
 xattr -cr "$STAGE"
+ln -s /Applications "$OUT/dmg/Applications"
 
 for bundle in "$STAGE/Contents/PlugIns/FilestashFileProvider.appex" "$STAGE"; do
     ENT=/tmp/fdrive-entitlements.plist
@@ -61,10 +62,9 @@ for bundle in "$STAGE/Contents/PlugIns/FilestashFileProvider.appex" "$STAGE"; do
 done
 codesign --verify --deep --strict "$STAGE"
 
-ditto -c -k --keepParent "$STAGE" "$OUT/Filestash.zip"
-xcrun notarytool submit "$OUT/Filestash.zip" --keychain-profile "$PROFILE" --wait
-xcrun stapler staple "$STAGE"
-rm "$OUT/Filestash.zip"
-ditto -c -k --keepParent "$STAGE" "$OUT/Filestash.zip"
-spctl --assess -vv "$STAGE"
-echo "release artifact: $OUT/Filestash.zip"
+hdiutil create -volname Filestash -srcfolder "$OUT/dmg" -format UDZO -ov "$OUT/Filestash.dmg"
+codesign --sign "$IDENTITY" "$OUT/Filestash.dmg"
+xcrun notarytool submit "$OUT/Filestash.dmg" --keychain-profile "$PROFILE" --wait
+xcrun stapler staple "$OUT/Filestash.dmg"
+rm -rf "$OUT/dmg"
+echo "release artifact: $OUT/Filestash.dmg"
