@@ -1,7 +1,7 @@
 use fdrive_core::activity as core;
 use serde::Serialize;
 
-use crate::Adapter;
+use crate::adapter::Adapter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
