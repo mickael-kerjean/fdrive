@@ -49,11 +49,13 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             completionHandler(FileProviderItem.root, nil)
             return Progress()
         }
-        do {
-            let path = FileProviderPath.path(for: identifier)
-            completionHandler(FileProviderItem(path: path, entry: try adapter.stat(path: path)), nil)
-        } catch {
-            completionHandler(nil, mapToProviderError(error))
+        Task {
+            do {
+                let path = FileProviderPath.path(for: identifier)
+                completionHandler(FileProviderItem(path: path, entry: try await adapter.stat(path: path)), nil)
+            } catch {
+                completionHandler(nil, mapToProviderError(error))
+            }
         }
         return Progress()
     }
@@ -70,15 +72,19 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return Progress()
         }
 
-        do {
-            let path = FileProviderPath.path(for: itemIdentifier)
-            let localPath = try adapter.open(path: path)
-            let item = FileProviderItem(path: path, entry: try adapter.stat(path: path))
-            completionHandler(URL(fileURLWithPath: localPath), item, nil)
-        } catch {
-            completionHandler(nil, nil, mapToProviderError(error))
+        let progress = Progress(totalUnitCount: 1)
+        let path = FileProviderPath.path(for: itemIdentifier)
+        progress.cancellationHandler = { adapter.cancel(path: path) }
+        Task {
+            do {
+                let localPath = try await adapter.open(path: path)
+                let item = FileProviderItem(path: path, entry: try await adapter.stat(path: path))
+                completionHandler(URL(fileURLWithPath: localPath), item, nil)
+            } catch {
+                completionHandler(nil, nil, progress.isCancelled ? CocoaError(.userCancelled) : mapToProviderError(error))
+            }
         }
-        return Progress()
+        return progress
     }
 
     func createItem(
@@ -99,19 +105,19 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             name: itemTemplate.filename,
             isDirectory: isDirectory
         )
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             do {
                 if isDirectory {
-                    try adapter.mkdir(path: path)
+                    try await adapter.mkdir(path: path)
                 } else {
                     let localPath = try adapter.create(path: path)
                     if let url {
-                        try replace(at: localPath, with: url)
+                        try await replace(at: localPath, with: url)
                     }
                     adapter.saved(path: path)
-                    adapter.flush(timeoutMs: 30_000)
+                    await adapter.flush(timeoutMs: 30_000)
                 }
-                let entry = try adapter.stat(path: path)
+                let entry = try await adapter.stat(path: path)
                 completionHandler(FileProviderItem(path: path, entry: entry), [], false, nil)
             } catch {
                 completionHandler(nil, [], false, mapToProviderError(error))
@@ -135,7 +141,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
         var path = FileProviderPath.path(for: item.itemIdentifier)
         let isDirectory = path.hasSuffix("/")
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             do {
                 if changedFields.contains(.filename) || changedFields.contains(.parentItemIdentifier) {
                     let destination = FileProviderPath.child(
@@ -143,16 +149,16 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                         name: item.filename,
                         isDirectory: isDirectory
                     )
-                    try adapter.rename(from: path, to: destination)
+                    try await adapter.rename(from: path, to: destination)
                     path = destination
                 }
                 if changedFields.contains(.contents), let newContents {
-                    let localPath = try adapter.open(path: path)
-                    try replace(at: localPath, with: newContents)
+                    let localPath = try await adapter.open(path: path)
+                    try await replace(at: localPath, with: newContents)
                     adapter.saved(path: path)
-                    adapter.flush(timeoutMs: 30_000)
+                    await adapter.flush(timeoutMs: 30_000)
                 }
-                let entry = try adapter.stat(path: path)
+                let entry = try await adapter.stat(path: path)
                 completionHandler(FileProviderItem(path: path, entry: entry), [], false, nil)
             } catch {
                 completionHandler(nil, [], false, mapToProviderError(error))
@@ -173,9 +179,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return Progress()
         }
         let path = FileProviderPath.path(for: identifier)
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             do {
-                try adapter.delete(path: path)
+                try await adapter.delete(path: path)
                 completionHandler(nil)
             } catch {
                 completionHandler(mapToProviderError(error))
@@ -212,6 +218,19 @@ private func replace(at localPath: String, with contents: URL) throws {
     }
 }
 
+private func replace(at localPath: String, with contents: URL) async throws {
+    try await withCheckedThrowingContinuation { continuation in
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try replace(at: localPath, with: contents)
+                continuation.resume()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+}
+
 extension FileProviderExtension: NSFileProviderServicing {
     func supportedServiceSources(
         for itemIdentifier: NSFileProviderItemIdentifier,
@@ -235,10 +254,10 @@ extension FileProviderExtension: NSFileProviderThumbnailing {
             return progress
         }
 
-        DispatchQueue.global(qos: .utility).async {
+        Task {
             for identifier in itemIdentifiers {
                 do {
-                    let thumbnail = try adapter.thumbnail(path: identifier.rawValue)
+                    let thumbnail = try await adapter.thumbnail(path: identifier.rawValue)
                     perThumbnailCompletionHandler(identifier, thumbnail, nil)
                 } catch {
                     perThumbnailCompletionHandler(identifier, nil, mapToProviderError(error))

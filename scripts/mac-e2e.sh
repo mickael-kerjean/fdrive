@@ -8,7 +8,7 @@ FILTER="${FILTER:-*}"
 KEEP_GOING=false
 REMOTE="${REMOTE:-/mac-e2e-$$}"
 ROOT="${FDRIVE_MAC_ROOT:-$HOME/Library/CloudStorage/Filestash}"
-SESSION="$HOME/Library/Group Containers/group.app.filestash.sync/session.json"
+SESSION="$HOME/Library/Group Containers/group.app.filestash.sync/data/fdrive.toml"
 TESTKIT="$HOME/Library/Developer/Xcode/DerivedData/Filestash-fdrive/Build/Products/Debug/FilestashTestKit.app/Contents/MacOS/FilestashTestKit"
 APP="$HOME/Library/Developer/Xcode/DerivedData/Filestash-fdrive/Build/Products/Debug/Filestash.app"
 PROJECT="$(cd "$(dirname "$0")/../crates/fdrive-mac/macos" && pwd)/Filestash.xcodeproj"
@@ -580,9 +580,9 @@ xcodebuild -project "$PROJECT" -scheme FilestashTestKit -destination 'platform=m
     -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/Filestash-fdrive" build >/dev/null || exit 2
 "/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister" \
     -f -R -trusted "${TESTKIT%/Contents/MacOS/FilestashTestKit}" 2>/dev/null || true
-BASE="$(plutil -extract serverURL raw "$SESSION")"
+BASE="$(awk -F'"' '/^url/{print $2}' "$SESSION")"
 BASE="${BASE%/}"
-TOKEN="$(plutil -extract token raw "$SESSION")"
+TOKEN="$(awk -F'"' '/^token/{print $2}' "$SESSION")"
 
 trap cleanup EXIT
 

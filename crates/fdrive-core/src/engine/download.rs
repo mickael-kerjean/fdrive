@@ -1,7 +1,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use futures_util::TryStreamExt;
@@ -34,6 +34,7 @@ pub enum DownloadStatus {
 pub struct Download {
     file: fs::File,
     state: watch::Receiver<(u64, DownloadStatus)>,
+    abort: AtomicBool,
 }
 
 impl Download {
@@ -128,6 +129,12 @@ impl<T: LocalStore> Engine<T> {
         self.fetch_start(path, current).await
     }
 
+    pub fn hydrate_cancel(&self, path: &RelPath) {
+        if let Some(download) = self.transfers.downloads.lock().unwrap().get(path) {
+            download.abort.store(true, Ordering::Relaxed);
+        }
+    }
+
     pub fn download(&self, path: &RelPath) -> Option<Arc<Download>> {
         if self.ledger().dirty.contains(path) {
             return None;
@@ -183,7 +190,7 @@ impl<T: LocalStore> Engine<T> {
             .downloads
             .lock()
             .unwrap()
-            .insert(path.clone(), Arc::new(Download { file, state }));
+            .insert(path.clone(), Arc::new(Download { file, state, abort: AtomicBool::new(false) }));
         self.scheduler.stream(path.clone(), tmp, tx, current);
         Ok(())
     }
@@ -205,7 +212,12 @@ impl<T: LocalStore> Engine<T> {
             self.transfers.downloads.lock().unwrap().remove(&path);
             tx.send_modify(|s| s.1 = DownloadStatus::Failed);
         };
+        let download = self.transfers.downloads.lock().unwrap().get(&path).cloned();
+        let aborted = || download.as_ref().is_some_and(|d| d.abort.load(Ordering::Relaxed));
         let downloaded = async {
+            if aborted() {
+                return Err(io::Error::other("cancelled"));
+            }
             let upstream = self.upstream_of(&path).unwrap_or_else(|| path.clone());
             if let Some(done) = self
                 .fetch_delta(&path, &upstream, &tmp, &tx, expected, act)
@@ -217,6 +229,9 @@ impl<T: LocalStore> Engine<T> {
             let mut file = fs::File::options().write(true).truncate(true).open(&tmp)?;
             let mut size: u64 = 0;
             while let Some(chunk) = stream.try_next().await? {
+                if aborted() {
+                    return Err(io::Error::other("cancelled"));
+                }
                 io::Write::write_all(&mut file, &chunk)?;
                 size += chunk.len() as u64;
                 tx.send_modify(|s| s.0 = size);

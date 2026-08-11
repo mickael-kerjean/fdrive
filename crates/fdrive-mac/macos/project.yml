@@ -14,6 +14,7 @@ targets:
     sources:
       - TestKit
       - Shared
+      - Generated
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.filestash.mac
@@ -28,6 +29,8 @@ targets:
       path: App/Filestash.entitlements
     dependencies:
       - target: FilestashFileProvider
+      - framework: Fdrive.xcframework
+        embed: false
   Filestash:
     type: application
     platform: macOS
