@@ -6,6 +6,10 @@ use fdrive_ios::adapter::{Adapter, EntryKind};
 use fdrive_ios::FsError;
 use httpmock::prelude::*;
 
+fn block<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Runtime::new().unwrap().block_on(future)
+}
+
 struct TempDir(PathBuf);
 
 impl TempDir {
@@ -100,7 +104,7 @@ fn ls_maps_entries() {
     });
 
     let data = TempDir::new();
-    let entries = adapter(&server, &data).ls("/docs/".into()).unwrap();
+    let entries = block(adapter(&server, &data).ls("/docs/".into())).unwrap();
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].name, "report.pdf");
     assert_eq!(entries[0].kind, EntryKind::File);
@@ -122,7 +126,7 @@ fn ls_overlays_local_only_files() {
     let data = TempDir::new();
     let adapter = adapter(&server, &data);
     adapter.create("/draft.txt".into()).unwrap();
-    let entries = adapter.ls("/".into()).unwrap();
+    let entries = block(adapter.ls("/".into())).unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].name, "draft.txt");
 }
@@ -149,9 +153,9 @@ fn open_caches_the_download() {
 
     let data = TempDir::new();
     let adapter = adapter(&server, &data);
-    let local = adapter.open("/hello.txt".into()).unwrap();
+    let local = block(adapter.open("/hello.txt".into())).unwrap();
     assert_eq!(std::fs::read_to_string(&local).unwrap(), "hello world");
-    let again = adapter.open("/hello.txt".into()).unwrap();
+    let again = block(adapter.open("/hello.txt".into())).unwrap();
     assert_eq!(again, local);
     cat.assert_hits(1);
 }
@@ -171,7 +175,7 @@ fn saved_uploads_the_edit() {
     let local = adapter.create("/note.txt".into()).unwrap();
     std::fs::write(&local, b"jotted").unwrap();
     adapter.saved("/note.txt".into());
-    adapter.flush(5_000);
+    block(adapter.flush(5_000));
     save.assert_hits(1);
 }
 
@@ -194,10 +198,10 @@ fn a_dir_delete_is_a_verdict_a_file_delete_is_not() {
 
     let data = TempDir::new();
     let adapter = adapter(&server, &data);
-    adapter.delete("/docs/".into()).unwrap();
+    block(adapter.delete("/docs/".into())).unwrap();
     rm.assert_hits(1);
-    assert!(adapter.delete("/broken/".into()).is_err());
-    adapter.delete("/locked.txt".into()).unwrap();
+    assert!(block(adapter.delete("/broken/".into())).is_err());
+    block(adapter.delete("/locked.txt".into())).unwrap();
 }
 
 #[test]
@@ -219,11 +223,11 @@ fn errors_are_mapped() {
     let data = TempDir::new();
     let adapter = adapter(&server, &data);
     assert!(matches!(
-        adapter.ls("/gone/".into()).unwrap_err(),
+        block(adapter.ls("/gone/".into())).unwrap_err(),
         FsError::NotFound
     ));
     assert!(matches!(
-        adapter.ls("/secret/".into()).unwrap_err(),
+        block(adapter.ls("/secret/".into())).unwrap_err(),
         FsError::PermissionDenied
     ));
 }
@@ -249,10 +253,10 @@ fn against_real_server() {
         data.0.to_str().unwrap().into(),
     )
     .unwrap();
-    let entries = adapter.ls("/".into()).unwrap();
+    let entries = block(adapter.ls("/".into())).unwrap();
     println!("ls / -> {} entries", entries.len());
     if let Some(file) = entries.iter().find(|e| e.kind == EntryKind::File) {
-        let local = adapter.open(format!("/{}", file.name)).unwrap();
+        let local = block(adapter.open(format!("/{}", file.name))).unwrap();
         println!("cached {} at {local}", file.name);
     }
 }

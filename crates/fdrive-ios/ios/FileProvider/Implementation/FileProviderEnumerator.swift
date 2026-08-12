@@ -45,14 +45,14 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             observer.finishEnumerating(upTo: nil)
             return
         }
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             do {
                 if self.container == .workingSet {
-                    let items = try self.list("/")
+                    let items = try await self.list("/")
                     self.metadata.record(items, in: .rootContainer)
                     observer.didEnumerate(items)
                 } else {
-                    observer.didEnumerate(try self.list(FileProviderPath.path(for: self.container)))
+                    observer.didEnumerate(try await self.list(FileProviderPath.path(for: self.container)))
                 }
                 observer.finishEnumerating(upTo: nil)
             } catch {
@@ -69,10 +69,10 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             observer.finishEnumeratingChanges(upTo: metadata.version(), moreComing: false)
             return
         }
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             do {
                 for target in self.signals.targets() {
-                    let items = try self.list(FileProviderPath.path(for: target))
+                    let items = try await self.list(FileProviderPath.path(for: target))
                     let delta = self.metadata.delta(items, in: target)
                     if !delta.updated.isEmpty {
                         observer.didUpdate(delta.updated)
@@ -92,8 +92,8 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         completionHandler(metadata.version())
     }
 
-    private func list(_ directory: String) throws -> [FileProviderItem] {
-        try adapter.ls(path: directory).map { entry in
+    private func list(_ directory: String) async throws -> [FileProviderItem] {
+        try await adapter.ls(path: directory).map { entry in
             let isDirectory = entry.kind == .directory
             let path = FileProviderPath.child(of: directory, name: entry.name, isDirectory: isDirectory)
             return FileProviderItem(path: path, entry: entry)

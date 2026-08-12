@@ -92,16 +92,16 @@ impl LocalStore for CacheTree {
 
 #[derive(uniffi::Object)]
 pub struct Adapter {
-    rt: Runtime,
+    _runtime: Runtime,
     pub(crate) engine: Arc<Engine<CacheTree>>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl Adapter {
     #[uniffi::constructor]
     pub fn new(url: String, insecure: bool, token: String, data_dir: String) -> Result<Arc<Self>, FsError> {
         let sdk = Sdk::builder(&url).insecure(insecure).token(token)?;
-        let rt = runtime()?;
+        let runtime = runtime()?;
         let data_dir = PathBuf::from(data_dir);
         let cache_dir = data_dir.join("cache");
         fs::create_dir_all(&cache_dir)?;
@@ -110,18 +110,18 @@ impl Adapter {
             ledger: data_dir.join("fdrive.db"),
             meta: Mutex::new(HashMap::new()),
         };
-        let engine = Engine::start(rt.handle().clone(), Arc::new(sdk), tree);
+        let engine = Engine::start(runtime.handle().clone(), Arc::new(sdk), tree);
         engine.prune(&cache_dir)?;
         engine.recover();
-        Ok(Arc::new(Self { rt, engine }))
+        Ok(Arc::new(Self { _runtime: runtime, engine }))
     }
 
-    pub fn ls(&self, path: String) -> Result<Vec<Entry>, FsError> {
+    pub async fn ls(&self, path: String) -> Result<Vec<Entry>, FsError> {
         let path = RelPath::new(&path);
-        Ok(self.listing(&path)?.into_iter().map(Entry::from).collect())
+        Ok(self.listing(&path).await?.into_iter().map(Entry::from).collect())
     }
 
-    pub fn stat(&self, path: String) -> Result<Entry, FsError> {
+    pub async fn stat(&self, path: String) -> Result<Entry, FsError> {
         let path = RelPath::new(&path);
         if let Some(metadata) = self.engine.dirty_metadata(&path) {
             return Ok(Entry::from(sdk::FileInfo {
@@ -132,17 +132,18 @@ impl Adapter {
                 perms: sdk::Permissions::default(),
             }));
         }
-        self.listing(&path.parent_or_root())?
+        self.listing(&path.parent_or_root())
+            .await?
             .into_iter()
             .find(|entry| entry.name == path.name())
             .map(Entry::from)
             .ok_or(FsError::NotFound)
     }
 
-    pub fn open(&self, path: String) -> Result<String, FsError> {
+    pub async fn open(&self, path: String) -> Result<String, FsError> {
         let path = RelPath::new(&path);
         let mut current = None;
-        if let Ok(listing) = self.listing(&path.parent_or_root()) {
+        if let Ok(listing) = self.listing(&path.parent_or_root()).await {
             if let Some(entry) = listing.iter().find(|entry| entry.name == path.name()) {
                 let observation = Observation::of(entry);
                 if self.engine.content_current(&path, observation) {
@@ -151,7 +152,7 @@ impl Adapter {
                 current = Some(observation);
             }
         }
-        self.rt.block_on(self.engine.hydrate(&path, current))?;
+        self.engine.hydrate(&path, current).await?;
         Ok(self.local_path(&path))
     }
 
@@ -159,9 +160,9 @@ impl Adapter {
         self.engine.hydrate_cancel(&RelPath::new(&path));
     }
 
-    pub fn thumbnail(&self, path: String) -> Result<Vec<u8>, FsError> {
+    pub async fn thumbnail(&self, path: String) -> Result<Vec<u8>, FsError> {
         let path = RelPath::new(&path);
-        Ok(self.rt.block_on(self.engine.sdk().thumbnail(&path.as_file()))?)
+        Ok(self.engine.sdk().thumbnail(&path.as_file()).await?)
     }
 
     pub fn create(&self, path: String) -> Result<String, FsError> {
@@ -182,21 +183,21 @@ impl Adapter {
         self.engine.released(&path);
     }
 
-    pub fn flush(&self, timeout_ms: u64) {
-        self.rt.block_on(self.engine.flush(Duration::from_millis(timeout_ms)));
+    pub async fn flush(&self, timeout_ms: u64) {
+        self.engine.flush(Duration::from_millis(timeout_ms)).await;
     }
 
-    pub fn mkdir(&self, path: String) -> Result<(), FsError> {
+    pub async fn mkdir(&self, path: String) -> Result<(), FsError> {
         let path = RelPath::new(&path);
-        self.rt.block_on(self.engine.sdk().mkdir(&path.as_dir()))?;
+        self.engine.sdk().mkdir(&path.as_dir()).await?;
         self.engine.local().invalidate(&path.parent_or_root());
         Ok(())
     }
 
-    pub fn delete(&self, path: String) -> Result<(), FsError> {
+    pub async fn delete(&self, path: String) -> Result<(), FsError> {
         let is_directory = path.ends_with('/');
         let path = RelPath::new(&path);
-        self.rt.block_on(self.engine.delete(&path, is_directory))?;
+        self.engine.delete(&path, is_directory).await?;
         let local = self.engine.local().backing(&path);
         let _ = if is_directory {
             fs::remove_dir_all(local)
@@ -208,11 +209,11 @@ impl Adapter {
         Ok(())
     }
 
-    pub fn rename(&self, from: String, to: String) -> Result<(), FsError> {
+    pub async fn rename(&self, from: String, to: String) -> Result<(), FsError> {
         let is_directory = from.ends_with('/');
         let from = RelPath::new(&from);
         let to = RelPath::new(&to);
-        self.rt.block_on(self.engine.rename(&from, &to, is_directory))?;
+        self.engine.rename(&from, &to, is_directory).await?;
         let local = self.engine.local().backing(&from);
         if local.exists() {
             let _ = self.engine.local().relocate(&from, &to);
@@ -224,7 +225,7 @@ impl Adapter {
 }
 
 impl Adapter {
-    fn listing(&self, directory: &RelPath) -> Result<Vec<sdk::FileInfo>, FsError> {
+    async fn listing(&self, directory: &RelPath) -> Result<Vec<sdk::FileInfo>, FsError> {
         let cached = {
             let meta = self.engine.local().meta.lock().unwrap();
             meta.get(directory)
@@ -233,7 +234,7 @@ impl Adapter {
         };
         let listing = match cached {
             Some(listing) => listing,
-            None => match self.rt.block_on(self.engine.sdk().ls(&directory.as_dir())) {
+            None => match self.engine.sdk().ls(&directory.as_dir()).await {
                 Ok(fetched) => {
                     self.engine.listed(directory, &fetched);
                     self.engine

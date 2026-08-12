@@ -7,6 +7,10 @@ use std::time::{Duration, SystemTime};
 use fdrive_core::testkit::FakeServer;
 use fdrive_ios::adapter::Adapter;
 
+fn block<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Runtime::new().unwrap().block_on(future)
+}
+
 struct Rig {
     server: FakeServer,
     adapter: Arc<Adapter>,
@@ -42,7 +46,7 @@ fn rig_with(server: FakeServer) -> Rig {
 impl Rig {
     fn settle(&self) {
         std::thread::sleep(Duration::from_millis(300));
-        self.adapter.flush(10_000);
+        block(self.adapter.flush(10_000));
     }
 
     fn restart(&mut self) {
@@ -87,7 +91,7 @@ fn a_remote_file_opens_with_its_content() {
     let rig = rig();
     rig.server.put("/report.pdf", b"quarterly numbers");
 
-    let local = rig.adapter.open("/report.pdf".to_string()).unwrap();
+    let local = block(rig.adapter.open("/report.pdf".to_string())).unwrap();
     assert_eq!(fs::read(local).unwrap(), b"quarterly numbers");
     assert!(rig.server.log().is_empty(), "opening mutates nothing");
 }
@@ -101,12 +105,12 @@ fn a_remote_change_reaches_a_cached_file() {
         b"version one",
         SystemTime::now() - Duration::from_secs(60),
     );
-    let local = rig.adapter.open("/shared.txt".to_string()).unwrap();
+    let local = block(rig.adapter.open("/shared.txt".to_string())).unwrap();
     assert_eq!(fs::read(&local).unwrap(), b"version one");
 
     rig.server.put("/shared.txt", b"version two - longer");
     std::thread::sleep(Duration::from_millis(2500));
-    let local = rig.adapter.open("/shared.txt".to_string()).unwrap();
+    let local = block(rig.adapter.open("/shared.txt".to_string())).unwrap();
     assert_eq!(fs::read(&local).unwrap(), b"version two - longer");
 }
 
@@ -119,7 +123,7 @@ fn a_second_edit_travels_as_a_delta() {
     rig.settle();
 
     content[0] = b'b';
-    let local = rig.adapter.open("/big.txt".to_string()).unwrap();
+    let local = block(rig.adapter.open("/big.txt".to_string())).unwrap();
     fs::write(local, &content).unwrap();
     rig.adapter.saved("/big.txt".to_string());
     rig.settle();
@@ -135,7 +139,7 @@ fn offline_edits_land_when_the_server_recovers() {
     rig.server.offline(true);
     rig.save("/notes.txt", b"written on the plane");
     std::thread::sleep(Duration::from_millis(300));
-    rig.adapter.flush(1_000);
+    block(rig.adapter.flush(1_000));
     assert!(rig.server.log().is_empty());
 
     rig.server.offline(false);
@@ -153,7 +157,7 @@ fn a_restart_replays_pending_work_exactly_once() {
     rig.server.offline(true);
     rig.save("/pending.txt", b"queued before the crash");
     std::thread::sleep(Duration::from_millis(300));
-    rig.adapter.flush(1_000);
+    block(rig.adapter.flush(1_000));
 
     rig.restart();
     rig.server.offline(false);
@@ -171,9 +175,9 @@ fn a_restart_replays_pending_work_exactly_once() {
 fn a_delete_of_a_listed_file_propagates() {
     let rig = rig();
     rig.server.put("/doomed.txt", b"bytes");
-    rig.adapter.ls("/".to_string()).unwrap();
+    block(rig.adapter.ls("/".to_string())).unwrap();
 
-    rig.adapter.delete("/doomed.txt".to_string()).unwrap();
+    block(rig.adapter.delete("/doomed.txt".to_string())).unwrap();
     rig.settle();
 
     assert_eq!(rig.server.get("/doomed.txt"), None);
@@ -185,19 +189,19 @@ fn a_delete_of_a_listed_file_propagates() {
 fn a_known_dir_still_lists_offline() {
     let rig = rig();
     rig.server.put("/keep/manual.pdf", b"the whole manual");
-    let local = rig.adapter.open("/keep/manual.pdf".to_string()).unwrap();
+    let local = block(rig.adapter.open("/keep/manual.pdf".to_string())).unwrap();
     assert_eq!(fs::read(&local).unwrap(), b"the whole manual");
 
     rig.server.offline(true);
     std::thread::sleep(Duration::from_millis(2500));
-    let listing = rig.adapter.ls("/keep".to_string()).unwrap();
+    let listing = block(rig.adapter.ls("/keep".to_string())).unwrap();
     assert_eq!(
         listing.len(),
         1,
         "the ledger answers when the server cannot"
     );
     assert_eq!(listing[0].name, "manual.pdf");
-    let local = rig.adapter.open("/keep/manual.pdf".to_string()).unwrap();
+    let local = block(rig.adapter.open("/keep/manual.pdf".to_string())).unwrap();
     assert_eq!(fs::read(&local).unwrap(), b"the whole manual");
 }
 
@@ -207,13 +211,13 @@ fn a_wiped_client_relearns_and_never_mutates() {
     let server = FakeServer::start();
     server.put("/keep/precious.txt", b"the only copy");
     let mut rig = rig_with(server);
-    let local = rig.adapter.open("/keep/precious.txt".to_string()).unwrap();
+    let local = block(rig.adapter.open("/keep/precious.txt".to_string())).unwrap();
     assert_eq!(fs::read(local).unwrap(), b"the only copy");
 
     fs::remove_dir_all(&rig.data).unwrap();
     fs::create_dir_all(&rig.data).unwrap();
     rig.restart();
-    let local = rig.adapter.open("/keep/precious.txt".to_string()).unwrap();
+    let local = block(rig.adapter.open("/keep/precious.txt".to_string())).unwrap();
     assert_eq!(fs::read(local).unwrap(), b"the only copy");
     rig.settle();
     assert!(

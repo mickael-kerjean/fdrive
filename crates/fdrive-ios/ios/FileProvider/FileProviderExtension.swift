@@ -31,9 +31,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         logger.info("Started domain \(domain.identifier.rawValue, privacy: .public)")
     }
 
-    func invalidate() {
-        adapter?.flush(timeoutMs: 5_000)
-    }
+    func invalidate() {}
 
     func item(
         for identifier: NSFileProviderItemIdentifier,
@@ -54,9 +52,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return Progress()
         }
         let path = FileProviderPath.path(for: identifier)
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             do {
-                completionHandler(FileProviderItem(path: path, entry: try adapter.stat(path: path)), nil)
+                completionHandler(FileProviderItem(path: path, entry: try await adapter.stat(path: path)), nil)
             } catch {
                 completionHandler(nil, mapToProviderError(error))
             }
@@ -80,10 +78,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         let path = FileProviderPath.path(for: itemIdentifier)
         progress.cancellationHandler = { adapter.cancel(path: path) }
         let manager = manager
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             do {
-                let localPath = try adapter.open(path: path)
-                let item = FileProviderItem(path: path, entry: try adapter.stat(path: path))
+                let localPath = try await adapter.open(path: path)
+                let item = FileProviderItem(path: path, entry: try await adapter.stat(path: path))
                 let destination = try manager.temporaryDirectoryURL()
                     .appendingPathComponent(UUID().uuidString)
                 try FileManager.default.copyItem(at: URL(fileURLWithPath: localPath), to: destination)
@@ -113,18 +111,19 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             name: itemTemplate.filename,
             isDirectory: isDirectory
         )
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             do {
                 if isDirectory {
-                    try adapter.mkdir(path: path)
+                    try await adapter.mkdir(path: path)
                 } else {
                     let localPath = try adapter.create(path: path)
                     if let url {
                         try replace(at: localPath, with: url)
                     }
                     adapter.saved(path: path)
+                    await adapter.flush(timeoutMs: 30_000)
                 }
-                let entry = try adapter.stat(path: path)
+                let entry = try await adapter.stat(path: path)
                 completionHandler(FileProviderItem(path: path, entry: entry), [], false, nil)
             } catch {
                 completionHandler(nil, [], false, mapToProviderError(error))
@@ -148,7 +147,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
         var path = FileProviderPath.path(for: item.itemIdentifier)
         let isDirectory = path.hasSuffix("/")
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             do {
                 if changedFields.contains(.filename) || changedFields.contains(.parentItemIdentifier) {
                     let destination = FileProviderPath.child(
@@ -156,15 +155,16 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                         name: item.filename,
                         isDirectory: isDirectory
                     )
-                    try adapter.rename(from: path, to: destination)
+                    try await adapter.rename(from: path, to: destination)
                     path = destination
                 }
                 if changedFields.contains(.contents), let newContents {
-                    let localPath = try adapter.open(path: path)
+                    let localPath = try await adapter.open(path: path)
                     try replace(at: localPath, with: newContents)
                     adapter.saved(path: path)
+                    await adapter.flush(timeoutMs: 30_000)
                 }
-                let entry = try adapter.stat(path: path)
+                let entry = try await adapter.stat(path: path)
                 completionHandler(FileProviderItem(path: path, entry: entry), [], false, nil)
             } catch {
                 completionHandler(nil, [], false, mapToProviderError(error))
@@ -185,9 +185,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return Progress()
         }
         let path = FileProviderPath.path(for: identifier)
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task {
             do {
-                try adapter.delete(path: path)
+                try await adapter.delete(path: path)
                 completionHandler(nil)
             } catch {
                 completionHandler(mapToProviderError(error))
@@ -228,10 +228,10 @@ extension FileProviderExtension: NSFileProviderThumbnailing {
             return progress
         }
 
-        DispatchQueue.global(qos: .utility).async {
+        Task {
             for identifier in itemIdentifiers {
                 do {
-                    let thumbnail = try adapter.thumbnail(path: FileProviderPath.path(for: identifier))
+                    let thumbnail = try await adapter.thumbnail(path: FileProviderPath.path(for: identifier))
                     perThumbnailCompletionHandler(identifier, thumbnail, nil)
                 } catch {
                     perThumbnailCompletionHandler(identifier, nil, mapToProviderError(error))
