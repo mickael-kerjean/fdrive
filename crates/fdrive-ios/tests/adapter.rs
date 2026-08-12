@@ -2,7 +2,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
-use fdrive_ios::{Adapter, EntryKind, FsError};
+use fdrive_ios::adapter::{Adapter, EntryKind};
+use fdrive_ios::FsError;
 use httpmock::prelude::*;
 
 struct TempDir(PathBuf);
@@ -50,7 +51,7 @@ fn login_returns_reassembled_token() {
             .header("Set-Cookie", "auth1=part2; Path=/; HttpOnly");
     });
 
-    let token = fdrive_ios::login(
+    let token = fdrive_ios::session::login(
         server.base_url(),
         false,
         "alice".into(),
@@ -70,7 +71,7 @@ fn login_rejects_bad_credentials() {
         then.status(403);
     });
 
-    let err = fdrive_ios::login(
+    let err = fdrive_ios::session::login(
         server.base_url(),
         false,
         "alice".into(),
@@ -231,7 +232,7 @@ fn errors_are_mapped() {
 #[ignore]
 fn against_real_server() {
     let env = |name: &str| std::env::var(name).expect(name);
-    let token = fdrive_ios::login(
+    let token = fdrive_ios::session::login(
         env("FILESTASH_URL"),
         false,
         env("FILESTASH_USER"),

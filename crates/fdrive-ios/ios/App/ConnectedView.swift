@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-struct HomeView: View {
+struct ConnectedView: View {
     @EnvironmentObject var state: AppState
     @State private var connected: Bool?
     @State private var checkNow = 0
@@ -41,7 +41,7 @@ struct HomeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .destructive) {
-                        Task { await state.logout() }
+                        Task { await state.disconnect() }
                     } label: {
                         Image(systemName: "rectangle.portrait.and.arrow.right")
                     }
@@ -51,10 +51,11 @@ struct HomeView: View {
         }
         .tint(.fsAccent)
         .task(id: checkNow) {
-            guard let session = state.session else { return }
+            let session = RuntimeSessionStore.load()
+            guard session.ok else { return }
             while !Task.isCancelled {
                 let up = await Task.detached {
-                    ping(url: session.serverUrl, insecure: session.insecure, token: session.token)
+                    ping(url: session.url, insecure: session.insecure, token: session.token)
                 }.value
                 await MainActor.run { connected = up }
                 try? await Task.sleep(for: .seconds(10))
@@ -63,8 +64,8 @@ struct HomeView: View {
     }
 
     private var host: String {
-        guard let session = state.session else { return "" }
-        return URL(string: session.serverUrl)?.host ?? session.serverUrl
+        let url = RuntimeSessionStore.load().url
+        return URL(string: url)?.host ?? url
     }
 
     private var label: String {

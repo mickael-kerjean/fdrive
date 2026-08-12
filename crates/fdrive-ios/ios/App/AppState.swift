@@ -1,28 +1,42 @@
-import Foundation
-import WebKit
+import OSLog
+import SwiftUI
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var session: Session? = SessionStore.load()
+    private let logger = Logger(subsystem: "app.filestash.ios", category: "App")
 
-    func connect(server: String, token: String) async {
-        let session = Session(serverUrl: server, user: "", storage: "", insecure: false, token: token)
-        SessionStore.save(session)
-        // Domain registration is best-effort; the session stands on its own.
-        try? await DomainManager.addDomain(for: session)
-        self.session = session
+    @Published var connectionError: String?
+    @Published var server: String?
+    @Published private(set) var isConnected: Bool
+
+    init() {
+        isConnected = RuntimeSessionStore.load().ok
+        if isConnected {
+            Task {
+                do {
+                    try await DomainManager.add()
+                } catch {
+                    logger.error("Reattach failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
     }
 
-    func logout() async {
-        if let session {
-            Task.detached { endSession(url: session.serverUrl, insecure: session.insecure, token: session.token) }
+    func connect(serverURL: String, token: String) async {
+        connectionError = nil
+        RuntimeSessionStore.save(url: serverURL, token: token, insecure: serverURL.hasPrefix("http://"))
+        // Domain registration is best-effort; the session stands on its own.
+        try? await DomainManager.add()
+        isConnected = true
+    }
+
+    func disconnect() async {
+        try? await DomainManager.remove()
+        let session = RuntimeSessionStore.load()
+        RuntimeSessionStore.clear()
+        if session.ok {
+            Task.detached { try? logout(url: session.url, insecure: session.insecure, token: session.token) }
         }
-        try? await DomainManager.removeDomain()
-        SessionStore.clear()
-        let store = WKWebsiteDataStore.default()
-        let types: Set<String> = [WKWebsiteDataTypeCookies]
-        let records = await store.dataRecords(ofTypes: types)
-        await store.removeData(ofTypes: types, for: records)
-        session = nil
+        isConnected = false
     }
 }

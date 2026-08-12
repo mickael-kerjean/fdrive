@@ -6,10 +6,10 @@ struct FilestashApp: App {
 
     var body: some Scene {
         WindowGroup {
-            if state.session == nil {
-                LoginView().environmentObject(state)
+            if state.isConnected {
+                ConnectedView().environmentObject(state)
             } else {
-                HomeView().environmentObject(state)
+                DisconnectView().environmentObject(state)
             }
         }
     }

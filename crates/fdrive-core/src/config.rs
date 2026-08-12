@@ -67,6 +67,7 @@ fn update(data: &Path, session: Option<Session>) {
     if config.session.is_none() && config.rest.is_empty() {
         let _ = std::fs::remove_file(&path);
     } else if let Ok(text) = toml::to_string_pretty(&config) {
+        let _ = std::fs::create_dir_all(data);
         let _ = crate::write_atomic(&path, text.as_bytes());
     }
 }

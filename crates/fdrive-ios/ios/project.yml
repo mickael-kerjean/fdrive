@@ -39,8 +39,6 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.app.filestash.sync
-        keychain-access-groups:
-          - $(AppIdentifierPrefix)app.filestash.sync.shared
   FilestashFileProvider:
     type: app-extension
     platform: iOS
@@ -62,10 +60,10 @@ targets:
           NSExtensionPointIdentifier: com.apple.fileprovider-nonui
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
           NSExtensionFileProviderReplicatedExtension: true
+          NSExtensionFileProviderDocumentGroup: group.app.filestash.sync
+          NSExtensionFileProviderSupportsEnumeration: true
     entitlements:
       path: FileProvider/FilestashFileProvider.entitlements
       properties:
         com.apple.security.application-groups:
           - group.app.filestash.sync
-        keychain-access-groups:
-          - $(AppIdentifierPrefix)app.filestash.sync.shared

@@ -6,6 +6,7 @@ IOS="$ROOT/crates/fdrive-ios/ios"
 HEADERS="$ROOT/target/ios-headers"
 
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+PATH="$(dirname "$(rustup which rustc)"):$PATH"
 
 cargo build -p fdrive-ios --release --target aarch64-apple-ios
 cargo build -p fdrive-ios --release --target aarch64-apple-ios-sim
@@ -24,5 +25,15 @@ xcodebuild -create-xcframework \
     -output "$IOS/Fdrive.xcframework"
 
 xcodegen generate --spec "$IOS/project.yml" --project "$IOS"
+DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/Filestash-fdrive-ios"
 xcodebuild -project "$IOS/Filestash.xcodeproj" -scheme Filestash \
-    -destination 'generic/platform=iOS Simulator' ARCHS=arm64 build
+    -destination 'generic/platform=iOS Simulator' ARCHS=arm64 -derivedDataPath "$DERIVED_DATA" build
+
+UDID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ && /Booted/ {print $2; exit}')"
+if [ -z "$UDID" ]; then
+    UDID="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ {print $2; exit}')"
+    xcrun simctl boot "$UDID"
+fi
+open -a Simulator
+xcrun simctl install "$UDID" "$DERIVED_DATA/Build/Products/Debug-iphonesimulator/Filestash.app"
+xcrun simctl launch "$UDID" app.filestash.ios

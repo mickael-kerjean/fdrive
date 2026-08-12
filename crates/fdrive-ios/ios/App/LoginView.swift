@@ -1,76 +1,56 @@
 import SwiftUI
+import WebKit
 
 struct LoginView: View {
-    @EnvironmentObject var state: AppState
-    @State private var url: String
-    @State private var server: String?
-    @FocusState private var fieldFocused: Bool
-
-    init() {
-        _url = State(initialValue: SessionStore.lastKnown()?.serverUrl ?? "")
-    }
+    @EnvironmentObject private var state: AppState
 
     var body: some View {
-        NavigationStack {
-            if let server {
-                LoginWebView(base: server) { token in
-                    Task { await state.connect(server: server, token: token) }
+        if let server = state.server {
+            LoginWebView(base: server) { token in
+                Task { @MainActor in
+                    await state.connect(serverURL: server, token: token)
+                    state.server = nil
                 }
-                .ignoresSafeArea(edges: .bottom)
-                .navigationTitle("Sign In")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("Cancel") { self.server = nil }
-                    }
+            }
+            .ignoresSafeArea(edges: .bottom)
+            .navigationTitle("Sign In")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { state.server = nil }
                 }
-            } else {
-                connectForm
             }
         }
-        .tint(.fsAccent)
     }
+}
 
-    private var connectForm: some View {
-        VStack(spacing: 18) {
-            Text("Filestash")
-                .font(.largeTitle.bold())
+struct LoginWebView: UIViewRepresentable {
+    let base: String
+    let onToken: (String) -> Void
 
-            HStack(spacing: 10) {
-                Image(systemName: "globe")
-                    .foregroundStyle(.secondary)
-                TextField("demo.filestash.app", text: $url)
-                    .textContentType(.URL)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.go)
-                    .focused($fieldFocused)
-                    .onSubmit(connect)
+    final class Coordinator { var watch: NSKeyValueObservation? }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
+        let web = WKWebView(frame: .zero, configuration: configuration)
+        let host = URL(string: base)?.host
+        var done = false
+        context.coordinator.watch = web.observe(\.url) { web, _ in
+            guard !done, web.url?.path.hasPrefix("/files") == true else { return }
+            web.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                let token = assembleToken(cookies: cookies
+                    .filter { host == nil || $0.domain.contains(host!) }
+                    .reduce(into: [:]) { $0[$1.name] = $1.value })
+                if !done, !token.isEmpty {
+                    done = true
+                    onToken(token)
+                }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            Button(action: connect) {
-                Text("Connect")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(url.isEmpty)
         }
-        .padding(.horizontal, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        web.load(URLRequest(url: URL(string: "\(base)/login")!))
+        return web
     }
 
-    private func connect() {
-        guard !url.isEmpty else { return }
-        fieldFocused = false
-        let base = url.contains("://") ? url : "https://\(url)"
-        server = base.hasSuffix("/") ? String(base.dropLast()) : base
-    }
+    func updateUIView(_ web: WKWebView, context: Context) {}
 }
