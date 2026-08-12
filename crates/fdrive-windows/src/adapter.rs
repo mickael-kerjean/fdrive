@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -86,7 +85,7 @@ impl LocalStore for PlaceholderTree {
     }
 
     fn relocate(&self, from: &RelPath, to: &RelPath) -> io::Result<()> {
-        self.suppress(from, || fs::rename(self.abs(from), self.abs(to)))
+        self.suppress(from, || std::fs::rename(self.abs(from), self.abs(to)))
     }
 
     fn settled(&self, target: &RelPath, mtime: Option<SystemTime>) {
@@ -119,7 +118,7 @@ impl Adapter {
         root: PathBuf,
         data: &Path,
     ) -> io::Result<Arc<Self>> {
-        fs::create_dir_all(&root)?;
+        std::fs::create_dir_all(&root)?;
         Ok(Arc::new(Self {
             root: root.clone(),
             engine: Engine::start(
