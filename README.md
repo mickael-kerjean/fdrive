@@ -3,23 +3,28 @@
 A cross platform drive client that does not try to own your storage, but rather connects to it wherever it already lives. From S3 and SFTP to FTP, NFS, SMB, IPFS, Azure, Google Cloud, and beyond, it is powered by <a href="https://github.com/mickael-kerjean/filestash">Filestash</a>
 
 <p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-sync-windows.png" alt="windows screenshot" />
-    <em>Windows screenshot of <a href="https://webdav.filestash.app">this webdav</a></em>
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-windows.png" alt="windows screenshot" />
+    <em>Windows screenshot</em>
 </p>
 
 <p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-sync-apple.png" alt="apple screenshot" />
-    <em>Apple screenshot of <a href="https://webdav.filestash.app">this webdav</a></em>
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-mac.png" alt="mac screenshot" />
+    <em>Mac screenshot</em>
 </p>
 
 <p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-sync-android.png" alt="android screenshot" />
-    <em>Android screenshot of <a href="https://webdav.filestash.app">this webdav</a></em>
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-iphone.png" alt="mac screenshot" />
+    <em>Iphone screenshot</em>
 </p>
 
 <p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-sync-linux.png" alt="linux screenshot">
-    <em>Linux screenshot of <a href="https://webdav.filestash.app">this webdav</a></em>
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-android.png" alt="android screenshot" />
+    <em>Android screenshot</em>
+</p>
+
+<p align="center">
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-linux.png" alt="linux screenshot">
+    <em>Linux screenshot</em>
 </p>
 
 ## Architecture
@@ -61,9 +66,9 @@ Inside the core, sync is a journal: filesystem events are recorded, coalesced in
 - [ ] Deep integration with Filestash for file versioning
 - [ ] Deep integration with Filestash for search
 - [ ] Explorer actions: surface share links and friends right from the file manager
-- [ ] MacOS FileProvider: fuse-t fills the gap until we pay Apple the $100 a year it takes to get there
+- [X] MacOS FileProvider: we are using fuse-t temporarly until we have actual apple hardware
 - [ ] Testing: test on all possible devices / configuration
-- [ ] Support for delta download: same as the existing upload but for download. Awaiting for server support
+- [X] Support for delta download: same as the existing upload but for download. Awaiting for server support
 - [ ] MDM integration: preconfigure the client and roll it out across a fleet
 - [ ] full POSIX compliance
 - [ ] finetune performance
