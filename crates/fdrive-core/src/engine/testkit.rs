@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use httpmock::MockServer;
+use httpmock::{Method, Mock, MockServer};
 
 use crate::engine::{Engine, Observation};
 use crate::path::RelPath;
@@ -110,4 +110,20 @@ pub(super) const MTIME: &str = "Wed, 21 Oct 2015 07:28:00 GMT";
 
 pub(super) fn observed(size: u64) -> Observation {
     Observation::new(size, Some(httpdate::parse_http_date(MTIME).unwrap()))
+}
+
+pub(super) fn tripwires(server: &MockServer) -> (Mock<'_>, Mock<'_>, Mock<'_>) {
+    let rm = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/rm");
+        then.status(200).body(r#"{"status":"ok"}"#);
+    });
+    let mv = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/mv");
+        then.status(200).body(r#"{"status":"ok"}"#);
+    });
+    let save = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/cat");
+        then.status(200).body(r#"{"status":"ok"}"#);
+    });
+    (rm, mv, save)
 }

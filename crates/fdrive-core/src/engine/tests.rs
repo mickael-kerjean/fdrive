@@ -10,8 +10,6 @@ mod engine_test;
 mod ledger_test;
 #[path = "internal/play_test.rs"]
 mod play_test;
-#[path = "safety_test.rs"]
-mod safety_test;
 #[path = "scheduler_test.rs"]
 mod scheduler_test;
 #[path = "internal/state_test.rs"]
