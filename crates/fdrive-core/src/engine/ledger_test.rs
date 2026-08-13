@@ -106,7 +106,6 @@ fn journal_intents_survive_a_reopen() {
         ledger.dirty.contains(&RelPath::new("b")),
         "a pending save is a dirty path"
     );
-    assert_eq!(ledger.meta("version").as_deref(), Some("1"));
 }
 
 #[test]

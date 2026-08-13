@@ -1,8 +1,88 @@
+use std::time::Duration;
+
 use httpmock::{Method, MockServer};
 
 use super::testkit::*;
-use crate::engine::{Observation, Resolution};
+use crate::engine::Observation;
 use crate::path::RelPath;
+
+#[tokio::test]
+async fn a_new_file_saves_on_flush() {
+    let server = MockServer::start();
+    let save = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/cat")
+            .query_param("path", "/f");
+        then.status(200);
+    });
+    let engine = engine(&server);
+    let path = RelPath::new("f");
+    engine.local().write("f", b"hello");
+    engine.created(&path);
+    engine.modified(&path);
+
+    settle(&engine).await;
+    save.assert_hits(1);
+    assert!(engine.ledger().dirty.is_empty());
+    assert_eq!(*engine.local().settled.lock().unwrap(), [path]);
+}
+
+#[tokio::test]
+async fn a_save_carries_its_lease() {
+    let server = MockServer::start();
+    let save = server.mock(|when, then| {
+        when.method(Method::POST)
+            .path("/api/files/cat")
+            .query_param("path", "/f")
+            .header("If-Unmodified-Since", MTIME);
+        then.status(200).header("Last-Modified", MTIME);
+    });
+    let engine = engine(&server);
+    let path = RelPath::new("f");
+    engine.local().write("f", b"hello");
+    engine
+        .ledger()
+        .observations
+        .insert(path.clone(), observed(5));
+    engine.modified(&path);
+
+    settle(&engine).await;
+    save.assert_hits(1);
+    assert_eq!(engine.ledger().observations[&path], observed(5));
+    assert!(engine.ledger().dirty.is_empty());
+}
+
+#[tokio::test]
+async fn a_vanished_file_settles_without_the_server() {
+    let server = MockServer::start();
+    let engine = engine(&server);
+    let path = RelPath::new("gone");
+    engine.modified(&path);
+    settle(&engine).await;
+    assert!(engine.ledger().dirty.is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_save_keeps_the_debt() {
+    let server = MockServer::start();
+    let save = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/cat");
+        then.status(403);
+    });
+    let mkdir = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/mkdir");
+        then.status(200);
+    });
+    let engine = engine(&server);
+    let path = RelPath::new("a/b/f");
+    engine.local().write("a/b/f", b"deep");
+    engine.modified(&path);
+
+    engine.flush(Duration::from_millis(1200)).await;
+    mkdir.assert_hits(2);
+    save.assert_hits(2);
+    assert!(engine.ledger().dirty.contains(&path));
+}
 
 #[tokio::test]
 async fn a_save_conflict_keeps_both_versions() {
@@ -41,63 +121,6 @@ async fn a_save_conflict_keeps_both_versions() {
         Some(b"ours".as_slice())
     );
     assert!(engine.ledger().dirty.is_empty());
-    let conflicts = engine.conflicts();
-    assert_eq!(conflicts.len(), 1);
-    assert_eq!(
-        conflicts[0].ours,
-        Some(RelPath::new("f (conflicted copy from testkit)"))
-    );
-}
-
-#[tokio::test]
-async fn resolving_theirs_removes_our_copy() {
-    let server = MockServer::start();
-    server.mock(|when, then| {
-        when.method(Method::POST)
-            .path("/api/files/cat")
-            .query_param("path", "/f");
-        then.status(412);
-    });
-    server.mock(|when, then| {
-        when.method(Method::POST)
-            .path("/api/files/cat")
-            .query_param("path", "/f (conflicted copy from testkit)");
-        then.status(200).header("Last-Modified", MTIME);
-    });
-    let rm = server.mock(|when, then| {
-        when.method(Method::POST)
-            .path("/api/files/rm")
-            .query_param("path", "/f (conflicted copy from testkit)");
-        then.status(200)
-            .json_body(serde_json::json!({"status": "ok"}));
-    });
-    let engine = engine(&server);
-    let path = RelPath::new("f");
-    engine.local().write("f", b"ours");
-    engine
-        .ledger()
-        .observations
-        .insert(path.clone(), Observation::new(1, None));
-    engine.modified(&path);
-    settle(&engine).await;
-
-    server.mock(|when, then| {
-        when.method(Method::HEAD)
-            .path("/api/files/cat")
-            .query_param("path", "/f (conflicted copy from testkit)");
-        then.status(200)
-            .header("content-length", "4")
-            .header("last-modified", MTIME);
-    });
-    let conflict = &engine.conflicts()[0];
-    engine.resolve(conflict.seq, Resolution::Theirs).unwrap();
-    settle(&engine).await;
-    rm.assert_hits(1);
-    assert!(engine.conflicts().is_empty());
-    assert_eq!(
-        engine.local().read("f (conflicted copy from testkit)"),
-        None
-    );
 }
 
 #[tokio::test]

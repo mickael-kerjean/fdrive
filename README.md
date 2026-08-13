@@ -38,7 +38,7 @@ Inside the core, sync is a journal: filesystem events are recorded, coalesced in
 | `fdrive-core` | `model` (the sync vocabulary: `Operation`, `Plan`, `Fate`, `Conflict`), `engine` (the journal and its state, plan replay, conflict rules, cache policy), the `LocalTree` port, the Filestash HTTP sdk |
 | `fdrive-linux` | FUSE, GTK |
 | `fdrive-windows` | Win32, CfAPI, ReadDirectoryChangesW, IShellWindows |
-| `fdrive-mac` | fuse-t |
+| `fdrive-mac` | FileProvider |
 | `fdrive-ios` | FileProvider |
 | `fdrive-android` | Storage Access Framework (Kotlin wire, UniFFI) |
 

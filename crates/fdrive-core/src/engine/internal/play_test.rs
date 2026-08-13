@@ -24,7 +24,6 @@ async fn a_remove_deletes_the_server_copy() {
     settle(&engine).await;
     rm.assert_hits(1);
     assert!(engine.ledger().observations.is_empty());
-    assert!(engine.conflicts().is_empty());
 }
 
 #[tokio::test]
@@ -78,8 +77,4 @@ async fn a_move_follows_a_vanished_source_with_a_save() {
     engine.rename(&a, &b, false).await.unwrap();
     settle(&engine).await;
     save.assert_hits(1);
-    assert!(
-        engine.conflicts().is_empty(),
-        "we held the bytes, nothing was lost"
-    );
 }

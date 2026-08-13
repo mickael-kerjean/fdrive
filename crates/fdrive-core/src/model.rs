@@ -50,13 +50,6 @@ pub struct Conflict {
     pub at: SystemTime,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Resolution {
-    Ours,
-    Theirs,
-    Both,
-}
-
 impl Conflict {
     pub(crate) fn new(
         op: Operation,
