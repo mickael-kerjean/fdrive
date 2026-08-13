@@ -20,14 +20,7 @@ const ID_OK: i32 = 1;
 const ID_CANCEL: i32 = 2;
 
 thread_local! {
-    static DIALOG: RefCell<DialogState> = const { RefCell::new(DialogState::Closed) };
-}
-
-enum DialogState {
-    Closed,
-    Open,
-    Submitted,
-    Cancelled,
+    static DIALOG: RefCell<Option<bool>> = const { RefCell::new(Some(false)) };
 }
 
 pub(super) fn prompt_login() {
@@ -141,17 +134,13 @@ fn login_dialog(prefill: Credentials) -> Option<Credentials> {
             let _ = SetFocus(Some(first));
         }
 
-        DIALOG.with_borrow_mut(|d| *d = DialogState::Open);
+        DIALOG.with_borrow_mut(|d| *d = None);
         let mut msg = MSG::default();
         loop {
-            let submitted = DIALOG.with_borrow(|d| match d {
-                DialogState::Open => None,
-                DialogState::Submitted => Some(true),
-                DialogState::Cancelled | DialogState::Closed => Some(false),
-            });
+            let submitted = DIALOG.with_borrow(|d| *d);
             if let Some(submitted) = submitted {
                 let raw = get_text(hwnd, ID_SERVER);
-                DIALOG.with_borrow_mut(|d| *d = DialogState::Closed);
+                DIALOG.with_borrow_mut(|d| *d = Some(false));
                 let _ = DestroyWindow(hwnd);
                 while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
                     let _ = TranslateMessage(&msg);
@@ -214,14 +203,14 @@ unsafe extern "system" fn login_wndproc(
     match msg {
         WM_COMMAND => {
             match (wparam.0 & 0xffff) as i32 {
-                ID_OK => DIALOG.with_borrow_mut(|d| *d = DialogState::Submitted),
-                ID_CANCEL => DIALOG.with_borrow_mut(|d| *d = DialogState::Cancelled),
+                ID_OK => DIALOG.with_borrow_mut(|d| *d = Some(true)),
+                ID_CANCEL => DIALOG.with_borrow_mut(|d| *d = Some(false)),
                 _ => {}
             }
             LRESULT(0)
         }
         WM_CLOSE => {
-            DIALOG.with_borrow_mut(|d| *d = DialogState::Cancelled);
+            DIALOG.with_borrow_mut(|d| *d = Some(false));
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),

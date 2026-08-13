@@ -27,7 +27,8 @@ use windows::Win32::Storage::CloudFilters::{
     CF_CALLBACK_TYPE_NOTIFY_RENAME, CF_CONNECTION_KEY, CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH,
     CF_CONVERT_FLAG_MARK_IN_SYNC, CF_CREATE_FLAG_NONE, CF_DEHYDRATE_FLAG_NONE, CF_FS_METADATA,
     CF_HYDRATE_FLAG_NONE, CF_IN_SYNC_STATE_IN_SYNC, CF_OPEN_FILE_FLAG_EXCLUSIVE,
-    CF_OPEN_FILE_FLAG_WRITE_ACCESS, CF_OPERATION_ACK_DELETE_FLAG_NONE, CF_OPERATION_INFO,
+    CF_OPEN_FILE_FLAG_WRITE_ACCESS, CF_OPEN_FILE_FLAGS, CF_OPERATION_ACK_DELETE_FLAG_NONE,
+    CF_OPERATION_INFO,
     CF_OPERATION_PARAMETERS, CF_OPERATION_PARAMETERS_0, CF_OPERATION_PARAMETERS_0_0,
     CF_OPERATION_PARAMETERS_0_4, CF_OPERATION_PARAMETERS_0_6, CF_OPERATION_PARAMETERS_0_7,
     CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION,
@@ -191,43 +192,53 @@ pub fn mark_in_sync_if_unmodified(
     mark_in_sync(abs, path)
 }
 
+fn with_oplock<T>(
+    abs: &Path,
+    flags: CF_OPEN_FILE_FLAGS,
+    op: impl FnOnce(HANDLE) -> io::Result<T>,
+) -> io::Result<T> {
+    let abs_w = wstr(abs);
+    let handle = unsafe { CfOpenFileWithOplock(PCWSTR(abs_w.as_ptr()), flags) }
+        .map_err(|err| io::Error::other(format!("CfOpenFileWithOplock: {err}")))?;
+    let result = op(handle);
+    unsafe { CfCloseHandle(handle) };
+    result
+}
+
 pub fn mark_in_sync(abs: &Path, path: &RelPath) -> io::Result<()> {
     let state = placeholder_state(abs)?;
-    let abs_w = wstr(abs);
     let flags = if state.placeholder {
         CF_OPEN_FILE_FLAG_WRITE_ACCESS
     } else {
         CF_OPEN_FILE_FLAG_EXCLUSIVE
     };
-    let handle = unsafe { CfOpenFileWithOplock(PCWSTR(abs_w.as_ptr()), flags) }
-        .map_err(|err| io::Error::other(format!("CfOpenFileWithOplock {path}: {err}")))?;
-    let result = if state.placeholder {
-        unsafe {
-            CfSetInSyncState(
-                handle,
-                CF_IN_SYNC_STATE_IN_SYNC,
-                CF_SET_IN_SYNC_FLAG_NONE,
-                None,
-            )
+    with_oplock(abs, flags, |handle| {
+        if state.placeholder {
+            unsafe {
+                CfSetInSyncState(
+                    handle,
+                    CF_IN_SYNC_STATE_IN_SYNC,
+                    CF_SET_IN_SYNC_FLAG_NONE,
+                    None,
+                )
+            }
+            .map_err(|err| io::Error::other(format!("CfSetInSyncState {path}: {err}")))
+        } else {
+            log::debug!("convert to placeholder path={path}");
+            let identity = path.as_str().as_bytes();
+            unsafe {
+                CfConvertToPlaceholder(
+                    handle,
+                    Some(identity.as_ptr() as *const c_void),
+                    identity.len() as u32,
+                    CF_CONVERT_FLAG_MARK_IN_SYNC,
+                    None,
+                    None,
+                )
+            }
+            .map_err(|err| io::Error::other(format!("CfConvertToPlaceholder {path}: {err}")))
         }
-        .map_err(|err| io::Error::other(format!("CfSetInSyncState {path}: {err}")))
-    } else {
-        log::debug!("convert to placeholder path={path}");
-        let identity = path.as_str().as_bytes();
-        unsafe {
-            CfConvertToPlaceholder(
-                handle,
-                Some(identity.as_ptr() as *const c_void),
-                identity.len() as u32,
-                CF_CONVERT_FLAG_MARK_IN_SYNC,
-                None,
-                None,
-            )
-        }
-        .map_err(|err| io::Error::other(format!("CfConvertToPlaceholder {path}: {err}")))
-    };
-    unsafe { CfCloseHandle(handle) };
-    result
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -327,30 +338,22 @@ pub fn delete_if_clean(abs: &Path) -> io::Result<()> {
 
 pub fn set_pinned(abs: &Path) -> io::Result<()> {
     use windows::Win32::Storage::CloudFilters::CF_PIN_STATE_PINNED;
-    let abs_w = wstr(abs);
-    let handle =
-        unsafe { CfOpenFileWithOplock(PCWSTR(abs_w.as_ptr()), CF_OPEN_FILE_FLAG_WRITE_ACCESS) }
-            .map_err(|err| io::Error::other(format!("CfOpenFileWithOplock: {err}")))?;
-    let result = unsafe { CfSetPinState(handle, CF_PIN_STATE_PINNED, CF_SET_PIN_FLAG_NONE, None) }
-        .map_err(|err| io::Error::other(format!("CfSetPinState: {err}")));
-    unsafe { CfCloseHandle(handle) };
-    result
+    with_oplock(abs, CF_OPEN_FILE_FLAG_WRITE_ACCESS, |handle| {
+        unsafe { CfSetPinState(handle, CF_PIN_STATE_PINNED, CF_SET_PIN_FLAG_NONE, None) }
+            .map_err(|err| io::Error::other(format!("CfSetPinState: {err}")))
+    })
 }
 
 pub fn set_hydration(abs: &Path, wanted: bool) -> io::Result<()> {
-    let abs_w = wstr(abs);
-    let handle =
-        unsafe { CfOpenFileWithOplock(PCWSTR(abs_w.as_ptr()), CF_OPEN_FILE_FLAG_WRITE_ACCESS) }
-            .map_err(|err| io::Error::other(format!("CfOpenFileWithOplock: {err}")))?;
-    let result = if wanted {
-        unsafe { CfHydratePlaceholder(handle, 0, -1, CF_HYDRATE_FLAG_NONE, None) }
-            .map_err(|err| io::Error::other(format!("CfHydratePlaceholder: {err}")))
-    } else {
-        unsafe { CfDehydratePlaceholder(handle, 0, -1, CF_DEHYDRATE_FLAG_NONE, None) }
-            .map_err(|err| io::Error::other(format!("CfDehydratePlaceholder: {err}")))
-    };
-    unsafe { CfCloseHandle(handle) };
-    result
+    with_oplock(abs, CF_OPEN_FILE_FLAG_WRITE_ACCESS, |handle| {
+        if wanted {
+            unsafe { CfHydratePlaceholder(handle, 0, -1, CF_HYDRATE_FLAG_NONE, None) }
+                .map_err(|err| io::Error::other(format!("CfHydratePlaceholder: {err}")))
+        } else {
+            unsafe { CfDehydratePlaceholder(handle, 0, -1, CF_DEHYDRATE_FLAG_NONE, None) }
+                .map_err(|err| io::Error::other(format!("CfDehydratePlaceholder: {err}")))
+        }
+    })
 }
 
 unsafe extern "system" fn on_fetch_data(
@@ -365,7 +368,7 @@ unsafe extern "system" fn on_fetch_data(
             "fetch callback outside the root: {:?}",
             pcwstr(info.NormalizedPath)
         );
-        transfer(info, None, &fetch, STATUS_UNSUCCESSFUL);
+        fail_fetch(info, &fetch);
         return;
     };
     log::debug!(
@@ -386,11 +389,11 @@ unsafe extern "system" fn on_fetch_data(
             } else {
                 log::error!("hydrate {path}: {err}");
             }
-            transfer(info, None, &fetch, STATUS_UNSUCCESSFUL);
+            fail_fetch(info, &fetch);
         }
         Err(payload) => {
             log::error!("panic fetching {path}: {}", panic_message(&payload));
-            transfer(info, None, &fetch, STATUS_UNSUCCESSFUL);
+            fail_fetch(info, &fetch);
         }
     }
 }
@@ -448,6 +451,14 @@ fn op_info(info: &CF_CALLBACK_INFO, kind: CF_OPERATION_TYPE) -> CF_OPERATION_INF
     }
 }
 
+unsafe fn execute(op: &CF_OPERATION_INFO, anon: CF_OPERATION_PARAMETERS_0) -> windows::core::Result<()> {
+    let mut params = CF_OPERATION_PARAMETERS {
+        ParamSize: std::mem::size_of::<CF_OPERATION_PARAMETERS>() as u32,
+        Anonymous: anon,
+    };
+    CfExecute(op, &mut params)
+}
+
 unsafe fn ack_placeholders(info: &CF_CALLBACK_INFO, status: NTSTATUS, complete: bool) {
     let op = op_info(info, CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS);
     let flags = if complete {
@@ -455,9 +466,9 @@ unsafe fn ack_placeholders(info: &CF_CALLBACK_INFO, status: NTSTATUS, complete: 
     } else {
         CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE
     };
-    let mut params = CF_OPERATION_PARAMETERS {
-        ParamSize: std::mem::size_of::<CF_OPERATION_PARAMETERS>() as u32,
-        Anonymous: CF_OPERATION_PARAMETERS_0 {
+    let result = execute(
+        &op,
+        CF_OPERATION_PARAMETERS_0 {
             TransferPlaceholders: CF_OPERATION_PARAMETERS_0_4 {
                 Flags: flags,
                 CompletionStatus: status,
@@ -467,8 +478,8 @@ unsafe fn ack_placeholders(info: &CF_CALLBACK_INFO, status: NTSTATUS, complete: 
                 EntriesProcessed: 0,
             },
         },
-    };
-    if let Err(err) = CfExecute(&op, &mut params) {
+    );
+    if let Err(err) = result {
         log::error!("CfExecute(TRANSFER_PLACEHOLDERS): {err}");
     }
 }
@@ -493,16 +504,16 @@ unsafe extern "system" fn on_notify_delete(
 
 unsafe fn ack_delete(info: &CF_CALLBACK_INFO, status: NTSTATUS) {
     let op = op_info(info, CF_OPERATION_TYPE_ACK_DELETE);
-    let mut params = CF_OPERATION_PARAMETERS {
-        ParamSize: std::mem::size_of::<CF_OPERATION_PARAMETERS>() as u32,
-        Anonymous: CF_OPERATION_PARAMETERS_0 {
+    let result = execute(
+        &op,
+        CF_OPERATION_PARAMETERS_0 {
             AckDelete: CF_OPERATION_PARAMETERS_0_7 {
                 Flags: CF_OPERATION_ACK_DELETE_FLAG_NONE,
                 CompletionStatus: status,
             },
         },
-    };
-    if let Err(err) = CfExecute(&op, &mut params) {
+    );
+    if let Err(err) = result {
         log::error!("CfExecute(ACK_DELETE): {err}");
     }
 }
@@ -538,35 +549,37 @@ unsafe extern "system" fn on_notify_rename(
         (None, _) => STATUS_SUCCESS,
     };
     let op = op_info(info, CF_OPERATION_TYPE_ACK_RENAME);
-    let mut params = CF_OPERATION_PARAMETERS {
-        ParamSize: std::mem::size_of::<CF_OPERATION_PARAMETERS>() as u32,
-        Anonymous: CF_OPERATION_PARAMETERS_0 {
+    let result = execute(
+        &op,
+        CF_OPERATION_PARAMETERS_0 {
             AckRename: CF_OPERATION_PARAMETERS_0_6 {
                 Flags: Default::default(),
                 CompletionStatus: status,
             },
         },
-    };
-    if let Err(err) = CfExecute(&op, &mut params) {
+    );
+    if let Err(err) = result {
         log::error!("CfExecute(ACK_RENAME): {err}");
     }
 }
 
 fn transfer_chunk(info: &CF_CALLBACK_INFO, offset: u64, bytes: &[u8]) -> io::Result<()> {
     let op = op_info(info, CF_OPERATION_TYPE_TRANSFER_DATA);
-    let mut params = CF_OPERATION_PARAMETERS {
-        ParamSize: std::mem::size_of::<CF_OPERATION_PARAMETERS>() as u32,
-        Anonymous: CF_OPERATION_PARAMETERS_0 {
-            TransferData: CF_OPERATION_PARAMETERS_0_0 {
-                Flags: Default::default(),
-                CompletionStatus: STATUS_SUCCESS,
-                Buffer: bytes.as_ptr() as *const c_void,
-                Offset: offset as i64,
-                Length: bytes.len() as i64,
+    unsafe {
+        execute(
+            &op,
+            CF_OPERATION_PARAMETERS_0 {
+                TransferData: CF_OPERATION_PARAMETERS_0_0 {
+                    Flags: Default::default(),
+                    CompletionStatus: STATUS_SUCCESS,
+                    Buffer: bytes.as_ptr() as *const c_void,
+                    Offset: offset as i64,
+                    Length: bytes.len() as i64,
+                },
             },
-        },
-    };
-    unsafe { CfExecute(&op, &mut params) }.map_err(|err| {
+        )
+    }
+    .map_err(|err| {
         if err.code().0 == CLOUD_CANCELED {
             io::Error::other(format!("reader gave up: {err}"))
         } else {
@@ -575,34 +588,24 @@ fn transfer_chunk(info: &CF_CALLBACK_INFO, offset: u64, bytes: &[u8]) -> io::Res
     })
 }
 
-unsafe fn transfer(
+unsafe fn fail_fetch(
     info: &CF_CALLBACK_INFO,
-    bytes: Option<&[u8]>,
     fetch: &windows::Win32::Storage::CloudFilters::CF_CALLBACK_PARAMETERS_0_1,
-    status: NTSTATUS,
 ) {
     let op = op_info(info, CF_OPERATION_TYPE_TRANSFER_DATA);
-    let (buffer, offset, length) = match bytes {
-        Some(bytes) => (bytes.as_ptr() as *const c_void, 0, bytes.len() as i64),
-        None => (
-            std::ptr::null(),
-            fetch.RequiredFileOffset,
-            fetch.RequiredLength,
-        ),
-    };
-    let mut params = CF_OPERATION_PARAMETERS {
-        ParamSize: std::mem::size_of::<CF_OPERATION_PARAMETERS>() as u32,
-        Anonymous: CF_OPERATION_PARAMETERS_0 {
+    let result = execute(
+        &op,
+        CF_OPERATION_PARAMETERS_0 {
             TransferData: CF_OPERATION_PARAMETERS_0_0 {
                 Flags: Default::default(),
-                CompletionStatus: status,
-                Buffer: buffer,
-                Offset: offset,
-                Length: length,
+                CompletionStatus: STATUS_UNSUCCESSFUL,
+                Buffer: std::ptr::null(),
+                Offset: fetch.RequiredFileOffset,
+                Length: fetch.RequiredLength,
             },
         },
-    };
-    if let Err(err) = CfExecute(&op, &mut params) {
+    );
+    if let Err(err) = result {
         if err.code().0 == CLOUD_CANCELED {
             log::debug!("CfExecute(TRANSFER_DATA): reader gave up: {err}");
         } else {
