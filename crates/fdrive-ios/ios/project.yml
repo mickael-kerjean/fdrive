@@ -43,7 +43,7 @@ targets:
     type: app-extension
     platform: iOS
     sources:
-      - FileProvider
+      - Wire
       - Shared
       - Generated
     settings:
@@ -53,7 +53,7 @@ targets:
       - framework: Fdrive.xcframework
         embed: false
     info:
-      path: FileProvider/Info.plist
+      path: Wire/Info.plist
       properties:
         CFBundleDisplayName: Filestash
         NSExtension:
@@ -63,7 +63,7 @@ targets:
           NSExtensionFileProviderDocumentGroup: group.app.filestash.sync
           NSExtensionFileProviderSupportsEnumeration: true
     entitlements:
-      path: FileProvider/FilestashFileProvider.entitlements
+      path: Wire/FilestashFileProvider.entitlements
       properties:
         com.apple.security.application-groups:
           - group.app.filestash.sync

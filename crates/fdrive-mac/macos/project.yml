@@ -66,7 +66,7 @@ targets:
     type: app-extension
     platform: macOS
     sources:
-      - FileProvider
+      - Wire
       - Shared
       - Generated
     settings:
@@ -80,7 +80,7 @@ targets:
       - framework: Fdrive.xcframework
         embed: false
     info:
-      path: FileProvider/Info.plist
+      path: Wire/Info.plist
       properties:
         CFBundleDisplayName: Filestash
         NSExtension:
@@ -93,7 +93,7 @@ targets:
               NSExtensionFileProviderActionName: Resync
               NSExtensionFileProviderActionActivationRule: SUBQUERY(fileproviderItems, $item, $item.contentType.identifier UTI-CONFORMS-TO "public.folder").@count == fileproviderItems.@count
     entitlements:
-      path: FileProvider/FilestashFileProvider.entitlements
+      path: Wire/FilestashFileProvider.entitlements
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
