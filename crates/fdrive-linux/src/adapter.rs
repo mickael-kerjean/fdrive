@@ -118,10 +118,6 @@ impl Adapter {
         Status(self)
     }
 
-    pub fn rt(&self) -> &tokio::runtime::Handle {
-        self.engine.rt()
-    }
-
     fn prune(&self) -> io::Result<()> {
         self.engine.prune(&self.engine.local().cache_dir)
     }

@@ -29,7 +29,7 @@ impl<'a> Fs<'a> {
             .and_then(|(at, listing)| (at.elapsed() < META_TTL).then(|| listing.clone()));
         let listing = match cached {
             Some(listing) => listing,
-            None => match self.0.engine.rt().block_on(self.0.engine.sdk().ls(&dir.as_dir())) {
+            None => match self.0.engine.block_on(self.0.engine.sdk().ls(&dir.as_dir())) {
                 Ok(fetched) => {
                     self.0.engine.listed(dir, &fetched);
                     self.0
@@ -101,7 +101,7 @@ impl<'a> Fs<'a> {
 
     pub fn read(self, fh: u64, path: &RelPath, offset: u64, size: u32) -> io::Result<Vec<u8>> {
         if let Some(download) = self.0.engine.download(path) {
-            return self.0.engine.rt().block_on(download.read(offset, size));
+            return self.0.engine.block_on(download.read(offset, size));
         }
         let mut buf = vec![0u8; size as usize];
         let filled = match self.file(fh, path) {
@@ -138,7 +138,7 @@ impl<'a> Fs<'a> {
         if size > 0 {
             self.0.cache().hydrate(path)?;
         } else if self.0.engine.needs_baseline(path) {
-            self.0.engine.rt().block_on(self.0.engine.overwriting(path));
+            self.0.engine.block_on(self.0.engine.overwriting(path));
         }
         let file_path = self.0.engine.local().backing(path);
         ensure_parent(&file_path)?;
@@ -161,13 +161,13 @@ impl<'a> Fs<'a> {
     }
 
     pub fn mkdir(self, path: &RelPath) -> io::Result<()> {
-        self.0.engine.rt().block_on(self.0.engine.sdk().mkdir(&path.as_dir()))?;
+        self.0.engine.block_on(self.0.engine.sdk().mkdir(&path.as_dir()))?;
         self.0.engine.local().invalidate(&path.parent_or_root());
         Ok(())
     }
 
     pub fn delete(self, path: &RelPath, is_dir: bool) -> io::Result<()> {
-        self.0.engine.rt().block_on(self.0.engine.delete(path, is_dir))?;
+        self.0.engine.block_on(self.0.engine.delete(path, is_dir))?;
         remove_path(&self.0.engine.local().backing(path))?;
         self.0.xattrs.forget(path);
         self.0.engine.local().invalidate(path);
@@ -187,7 +187,7 @@ impl<'a> Fs<'a> {
 
     pub fn rename(self, from: &RelPath, to: &RelPath) -> io::Result<()> {
         let is_dir = matches!(self.attr(from)?, Some((true, ..)));
-        self.0.engine.rt().block_on(self.0.engine.rename(from, to, is_dir))?;
+        self.0.engine.block_on(self.0.engine.rename(from, to, is_dir))?;
         let from_backing = self.0.engine.local().backing(from);
         if from_backing.exists() {
             let to_backing = self.0.engine.local().backing(to);

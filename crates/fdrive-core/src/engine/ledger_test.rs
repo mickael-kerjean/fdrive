@@ -1,5 +1,6 @@
 use super::testkit::*;
-use crate::engine::{Ledger, Observation, Plan};
+use crate::engine::{Ledger, Observation};
+use crate::model::Plan;
 use crate::path::RelPath;
 use crate::port::LocalStore;
 
@@ -58,7 +59,7 @@ fn journal_marks_survive_a_reopen_as_window_writes() {
     let (window, pending) = ledger.journal_load();
     assert_eq!(
         window,
-        vec![crate::engine::Operation::Write(RelPath::new("a/x"))]
+        vec![crate::model::Operation::Write(RelPath::new("a/x"))]
     );
     assert!(pending.is_empty());
     let dirty: Vec<&str> = ledger.dirty.iter().map(|p| p.as_str()).collect();

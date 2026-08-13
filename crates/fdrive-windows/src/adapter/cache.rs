@@ -19,7 +19,7 @@ impl Cache<'_> {
         const FLUSH_AT: usize = 1 << 20;
         let sdk = self.0.engine.sdk().clone();
         let api = path.as_file();
-        let info = self.0.engine.rt().block_on(sdk.stat(&api))?;
+        let info = self.0.engine.block_on(sdk.stat(&api))?;
         let size = info.size.unwrap_or(0);
         if size as i64 != expected {
             let mtime = info.mtime.unwrap_or_else(SystemTime::now);
@@ -28,7 +28,7 @@ impl Cache<'_> {
             );
             let this = self.0.clone();
             let what = path.clone();
-            self.0.engine.rt().spawn(async move {
+            self.0.engine.spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(750)).await;
                 let _ = tokio::task::spawn_blocking(move || {
                     if let Err(err) = this.reconcile().rebuild(&what, size, mtime) {
@@ -50,7 +50,7 @@ impl Cache<'_> {
         let result = (|| {
             let mut sent: u64 = 0;
             let mut buf: Vec<u8> = Vec::with_capacity(FLUSH_AT + ALIGN);
-            self.0.engine.rt().block_on(async {
+            self.0.engine.block_on(async {
                 let (_, mut stream) = sdk.cat(&api).await?;
                 while let Some(chunk) = stream.try_next().await? {
                     buf.extend_from_slice(&chunk);

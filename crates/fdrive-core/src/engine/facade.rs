@@ -193,8 +193,16 @@ impl<T: LocalStore> Engine<T> {
         &self.sdk
     }
 
-    pub fn rt(&self) -> &tokio::runtime::Handle {
-        &self.rt
+    pub fn block_on<F: std::future::Future>(&self, fut: F) -> F::Output {
+        self.rt.block_on(fut)
+    }
+
+    pub fn spawn<F>(&self, fut: F)
+    where
+        F: std::future::Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.rt.spawn(fut);
     }
 
     pub fn local(&self) -> &T {

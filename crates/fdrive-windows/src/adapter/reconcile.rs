@@ -190,8 +190,7 @@ impl Reconcile<'_> {
         ) {
             let engine = self.0.engine.clone();
             let what = path.clone();
-            let rt = engine.rt().clone();
-            rt.spawn(async move {
+            self.0.engine.spawn(async move {
                 *engine
                     .local()
                     .suppressed

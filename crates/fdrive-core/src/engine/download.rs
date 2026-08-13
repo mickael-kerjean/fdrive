@@ -25,7 +25,7 @@ fn part_file(abs: &Path) -> PathBuf {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DownloadStatus {
+pub(super) enum DownloadStatus {
     Running,
     Done,
     Failed,

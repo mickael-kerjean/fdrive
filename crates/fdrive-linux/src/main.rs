@@ -151,7 +151,7 @@ async fn setup(
         c.mount_options = vec![MountOption::FSName("filestash".to_string()), MountOption::DefaultPermissions];
         c
     };
-    let filesystem = MountFs::new(adapter.clone());
+    let filesystem = MountFs::new(adapter.clone(), tokio::runtime::Handle::current());
     let session = fuser::spawn_mount2(filesystem, mount, &mount_config)?;
 
     Ok((adapter, session))

@@ -16,9 +16,9 @@ mod state;
 #[path = "engine/internal/upload.rs"]
 mod upload;
 
-pub use self::{download::Download, ledger::Ledger, scheduler::UploadStatus, state::LedgerGuard};
-use self::{gates::Frozen, play::Outcome};
-pub use crate::model::{Conflict, Fate, Observation, Operation, Plan};
+pub use self::{download::Download, scheduler::UploadStatus, state::LedgerGuard};
+use self::{gates::Frozen, ledger::Ledger, play::Outcome};
+pub use crate::model::Observation;
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
