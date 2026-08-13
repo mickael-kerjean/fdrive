@@ -239,7 +239,7 @@ impl Adapter {
 
     pub fn mkdir(&self, path: String) -> Result<(), FsError> {
         let rel = rel(&path);
-        self.rt.block_on(self.engine.sdk().mkdir(&rel.as_dir()))?;
+        self.rt.block_on(self.engine.mkdir(&rel))?;
         self.engine.local().invalidate(&rel.parent_or_root());
         Ok(())
     }
@@ -276,11 +276,11 @@ impl Adapter {
         let rel = rel(&path);
         Ok(self
             .rt
-            .block_on(self.engine.sdk().thumbnail(&rel.as_file()))?)
+            .block_on(self.engine.thumbnail(&rel))?)
     }
 
     pub fn logout(&self) {
-        let _ = self.rt.block_on(self.engine.sdk().logout());
+        let _ = self.rt.block_on(self.engine.logout());
     }
 
     pub fn flush(&self, timeout_ms: u64) {
@@ -300,7 +300,7 @@ impl Adapter {
         let listing = match cached {
             Some(listing) => listing,
             None => {
-                let fetched = self.rt.block_on(self.engine.sdk().ls(&dir.as_dir()))?;
+                let fetched = self.rt.block_on(self.engine.ls(dir))?;
                 self.engine.listed(dir, &fetched);
                 self.engine
                     .local()

@@ -29,7 +29,7 @@ impl<'a> Fs<'a> {
             .and_then(|(at, listing)| (at.elapsed() < META_TTL).then(|| listing.clone()));
         let listing = match cached {
             Some(listing) => listing,
-            None => match self.0.engine.block_on(self.0.engine.sdk().ls(&dir.as_dir())) {
+            None => match self.0.engine.block_on(self.0.engine.ls(dir)) {
                 Ok(fetched) => {
                     self.0.engine.listed(dir, &fetched);
                     self.0
@@ -161,7 +161,7 @@ impl<'a> Fs<'a> {
     }
 
     pub fn mkdir(self, path: &RelPath) -> io::Result<()> {
-        self.0.engine.block_on(self.0.engine.sdk().mkdir(&path.as_dir()))?;
+        self.0.engine.block_on(self.0.engine.mkdir(path))?;
         self.0.engine.local().invalidate(&path.parent_or_root());
         Ok(())
     }

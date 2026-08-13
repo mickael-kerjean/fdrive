@@ -17,6 +17,6 @@ impl System<'_> {
     }
 
     pub async fn logout(self) {
-        let _ = self.0.engine.sdk().logout().await;
+        let _ = self.0.engine.logout().await;
     }
 }

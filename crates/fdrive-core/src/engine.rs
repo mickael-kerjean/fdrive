@@ -1,6 +1,7 @@
 mod cache;
 mod download;
 mod facade;
+mod fs;
 mod ledger;
 mod scheduler;
 mod view;
