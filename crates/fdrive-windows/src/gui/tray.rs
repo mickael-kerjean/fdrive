@@ -21,7 +21,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::dashboard::show_stats;
 use super::login::prompt_login;
-use super::{wide_path, Credentials, Ctx, Status, TrayEvent, TrayState, CTX};
+use super::{Credentials, Ctx, Status, TrayEvent, TrayState, CTX};
+
+use crate::utils::wstr;
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_TRAY_REFRESH: u32 = WM_APP + 2;
@@ -291,7 +293,7 @@ unsafe fn show_menu(hwnd: HWND) {
         CMD_LOGIN => prompt_login(),
         CMD_LOGOUT => send(TrayEvent::Logout),
         CMD_LOGS => CTX.with_borrow(|ctx| {
-            let wide = wide_path(&ctx.as_ref().expect("tray ctx").log_path);
+            let wide = wstr(&ctx.as_ref().expect("tray ctx").log_path);
             unsafe {
                 ShellExecuteW(
                     None,

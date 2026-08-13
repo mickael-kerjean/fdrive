@@ -1,8 +1,9 @@
 use std::ffi::c_void;
-use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 
 use fdrive_core::path::RelPath;
+
+use crate::utils::wstr;
 use tokio::sync::mpsc::UnboundedSender;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
@@ -14,11 +15,7 @@ use windows::Win32::Storage::FileSystem::{
 };
 
 pub fn spawn(root: &Path, changes: UnboundedSender<RelPath>) -> std::io::Result<()> {
-    let root_w: Vec<u16> = root
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
+    let root_w = wstr(root);
     let handle = unsafe {
         CreateFileW(
             PCWSTR(root_w.as_ptr()),

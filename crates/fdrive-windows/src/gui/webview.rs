@@ -4,6 +4,8 @@ use std::path::Path;
 use std::rc::Rc;
 
 use fdrive_core::sdk::assemble_token;
+
+use crate::utils::wstr;
 use windows::core::{w, GUID, HRESULT, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
     E_NOINTERFACE, E_OUTOFMEMORY, HWND, LPARAM, LRESULT, RECT, S_OK, WPARAM,
@@ -69,7 +71,7 @@ pub fn login(base: &str, insecure: bool, data: &Path) -> Result<Option<String>, 
 
         let user_data = data.join("webview");
         let _ = std::fs::create_dir_all(&user_data);
-        let user_data = wide(&user_data.to_string_lossy());
+        let user_data = wstr(&user_data);
         let options = insecure.then(Options::create);
         let on_env = {
             let state = state.clone();
@@ -193,7 +195,7 @@ unsafe fn on_controller(state: &Rc<State>, hr: HRESULT, controller: *mut c_void)
     let webview_vt = vt::<WebViewVtbl>(webview);
     let _ = (webview_vt.add_source_changed)(webview, on_source, &mut token);
     com_release(on_source);
-    let url = wide(&format!("{}/login", state.base));
+    let url = wstr(&format!("{}/login", state.base));
     let _ = (webview_vt.navigate)(webview, PCWSTR(url.as_ptr()));
 }
 
@@ -229,7 +231,7 @@ unsafe fn on_source_changed(state: &Rc<State>) {
             on_cookies(&state, hr, list)
         })
     };
-    let uri = wide(&format!("{}/api/", state.base));
+    let uri = wstr(&format!("{}/api/", state.base));
     let _ =
         (vt::<CookieManagerVtbl>(manager).get_cookies)(manager, PCWSTR(uri.as_ptr()), on_cookies);
     com_release(on_cookies);
@@ -300,7 +302,7 @@ fn load_runtime() -> Result<CreateEnvironment, String> {
             continue;
         }
         unsafe {
-            let dll = wide(&dll.to_string_lossy());
+            let dll = wstr(&dll);
             let Ok(library) = LoadLibraryW(PCWSTR(dll.as_ptr())) else {
                 continue;
             };
@@ -654,12 +656,9 @@ impl ComObject for Options {
     }
 }
 
-fn wide(text: &str) -> Vec<u16> {
-    text.encode_utf16().chain(std::iter::once(0)).collect()
-}
 
 unsafe fn co_str(text: &str, out: *mut PWSTR) -> HRESULT {
-    let utf16 = wide(text);
+    let utf16 = wstr(text);
     let ptr = CoTaskMemAlloc(utf16.len() * 2) as *mut u16;
     if ptr.is_null() {
         return E_OUTOFMEMORY;

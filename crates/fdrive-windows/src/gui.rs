@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -9,6 +8,8 @@ use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetDlgItem, GetWindowTextLengthW, GetWindowTextW, SetWindowTextW, SW_SHOWNORMAL,
 };
+
+use crate::utils::wstr;
 
 mod alert;
 mod dashboard;
@@ -120,15 +121,8 @@ thread_local! {
     static CTX: RefCell<Option<Ctx>> = const { RefCell::new(None) };
 }
 
-fn wide_path(path: &std::path::Path) -> Vec<u16> {
-    path.as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
-}
-
 pub fn open_folder(path: &std::path::Path) {
-    let wide = wide_path(path);
+    let wide = wstr(path);
     unsafe {
         ShellExecuteW(
             None,
@@ -142,7 +136,7 @@ pub fn open_folder(path: &std::path::Path) {
 }
 
 fn set_text(hwnd: HWND, id: i32, text: &str) {
-    let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    let wide = wstr(text);
     unsafe {
         if let Ok(ctl) = GetDlgItem(Some(hwnd), id) {
             let _ = SetWindowTextW(ctl, PCWSTR(wide.as_ptr()));

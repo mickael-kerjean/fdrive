@@ -23,6 +23,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use super::CTX;
 
+use crate::utils::wstr;
+
 const ID_STATS_STATUS: i32 = 201;
 const ID_STATS_LIST: i32 = 202;
 const STATS_TIMER: usize = 1;
@@ -166,7 +168,7 @@ unsafe fn insert_column(
     width: i32,
     format: windows::Win32::UI::Controls::LVCOLUMNW_FORMAT,
 ) {
-    let mut title: Vec<u16> = title.encode_utf16().chain([0]).collect();
+    let mut title = wstr(title);
     let column = LVCOLUMNW {
         mask: LVCF_TEXT | LVCF_WIDTH | LVCF_FMT,
         fmt: format,
@@ -311,7 +313,7 @@ fn set_rates(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
 }
 
 unsafe fn set_status_text(status: HWND, part: usize, text: &str) {
-    let wide: Vec<u16> = text.encode_utf16().chain([0]).collect();
+    let wide = wstr(text);
     SendMessageW(
         status,
         SB_SETTEXTW,
@@ -340,7 +342,7 @@ unsafe fn render_transfers(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
 }
 
 unsafe fn insert_row(list: HWND, index: usize, columns: [&str; 3]) {
-    let mut name: Vec<u16> = columns[0].encode_utf16().chain([0]).collect();
+    let mut name = wstr(columns[0]);
     let item = LVITEMW {
         mask: LVIF_TEXT,
         iItem: index as i32,
@@ -354,7 +356,7 @@ unsafe fn insert_row(list: HWND, index: usize, columns: [&str; 3]) {
         Some(LPARAM((&item as *const LVITEMW) as isize)),
     );
     for (subitem, text) in columns.iter().enumerate().skip(1) {
-        let mut text: Vec<u16> = text.encode_utf16().chain([0]).collect();
+        let mut text = wstr(text);
         let item = LVITEMW {
             mask: LVIF_TEXT,
             iItem: index as i32,

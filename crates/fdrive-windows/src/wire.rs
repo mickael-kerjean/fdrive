@@ -2,14 +2,15 @@ pub mod shell;
 pub mod viewer;
 pub mod watcher;
 
-use std::ffi::{c_void, OsStr};
+use std::ffi::c_void;
 use std::io;
-use std::os::windows::ffi::OsStrExt;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fdrive_core::path::RelPath;
+
+use crate::utils::wstr;
 use windows::core::{GUID, PCWSTR};
 use windows::Win32::Foundation::{
     CloseHandle, HANDLE, NTSTATUS, STATUS_ACCESS_DENIED, STATUS_SUCCESS, STATUS_UNSUCCESSFUL,
@@ -70,7 +71,7 @@ pub struct Connection {
 }
 
 pub fn unregister(root: &Path) -> io::Result<()> {
-    let root_w = wide(root.as_os_str());
+    let root_w = wstr(root);
     unsafe { CfUnregisterSyncRoot(PCWSTR(root_w.as_ptr())) }
         .map_err(|err| io::Error::other(format!("CfUnregisterSyncRoot: {err}")))
 }
@@ -104,7 +105,7 @@ pub fn connect(root: &Path, callbacks: Callbacks) -> io::Result<Connection> {
             Callback: None,
         },
     ];
-    let root_w = wide(root.as_os_str());
+    let root_w = wstr(root);
     let key = unsafe {
         CfConnectSyncRoot(
             PCWSTR(root_w.as_ptr()),
@@ -141,13 +142,9 @@ pub fn create_dir_placeholder(root: &Path, path: &RelPath, mtime: SystemTime) ->
 }
 
 fn place(root: &Path, path: &RelPath, attrs: u32, size: u64, mtime: SystemTime) -> io::Result<()> {
-    let parent = path.parent_or_root();
-    let mut parent_abs = root.to_path_buf();
-    if !parent.is_root() {
-        parent_abs.extend(parent.as_str().split('/'));
-    }
-    let parent_w = wide(parent_abs.as_os_str());
-    let name_w = wide(OsStr::new(path.name()));
+    let parent_abs = abs_of(root, &path.parent_or_root());
+    let parent_w = wstr(&parent_abs);
+    let name_w = wstr(path.name());
     let identity = path.as_str().as_bytes();
     let time = filetime(mtime);
     let mut info = CF_PLACEHOLDER_CREATE_INFO {
@@ -196,7 +193,7 @@ pub fn mark_in_sync_if_unmodified(
 
 pub fn mark_in_sync(abs: &Path, path: &RelPath) -> io::Result<()> {
     let state = placeholder_state(abs)?;
-    let abs_w = wide(abs.as_os_str());
+    let abs_w = wstr(abs);
     let flags = if state.placeholder {
         CF_OPEN_FILE_FLAG_WRITE_ACCESS
     } else {
@@ -241,7 +238,7 @@ pub struct PlaceholderState {
 }
 
 pub fn placeholder_state(abs: &Path) -> io::Result<PlaceholderState> {
-    let abs_w = wide(abs.as_os_str());
+    let abs_w = wstr(abs);
     let handle = unsafe {
         CreateFileW(
             PCWSTR(abs_w.as_ptr()),
@@ -287,7 +284,7 @@ pub fn delete_if_clean(abs: &Path) -> io::Result<()> {
         FileDispositionInfo, SetFileInformationByHandle, DELETE, FILE_DISPOSITION_INFO,
         FILE_READ_ATTRIBUTES, FILE_SHARE_MODE,
     };
-    let abs_w = wide(abs.as_os_str());
+    let abs_w = wstr(abs);
     let handle = unsafe {
         CreateFileW(
             PCWSTR(abs_w.as_ptr()),
@@ -330,7 +327,7 @@ pub fn delete_if_clean(abs: &Path) -> io::Result<()> {
 
 pub fn set_pinned(abs: &Path) -> io::Result<()> {
     use windows::Win32::Storage::CloudFilters::CF_PIN_STATE_PINNED;
-    let abs_w = wide(abs.as_os_str());
+    let abs_w = wstr(abs);
     let handle =
         unsafe { CfOpenFileWithOplock(PCWSTR(abs_w.as_ptr()), CF_OPEN_FILE_FLAG_WRITE_ACCESS) }
             .map_err(|err| io::Error::other(format!("CfOpenFileWithOplock: {err}")))?;
@@ -341,7 +338,7 @@ pub fn set_pinned(abs: &Path) -> io::Result<()> {
 }
 
 pub fn set_hydration(abs: &Path, wanted: bool) -> io::Result<()> {
-    let abs_w = wide(abs.as_os_str());
+    let abs_w = wstr(abs);
     let handle =
         unsafe { CfOpenFileWithOplock(PCWSTR(abs_w.as_ptr()), CF_OPEN_FILE_FLAG_WRITE_ACCESS) }
             .map_err(|err| io::Error::other(format!("CfOpenFileWithOplock: {err}")))?;
@@ -671,10 +668,6 @@ pub fn abs_of(root: &Path, path: &RelPath) -> PathBuf {
         abs.extend(path.as_str().split('/'));
         abs
     }
-}
-
-fn wide(s: &OsStr) -> Vec<u16> {
-    s.encode_wide().chain(std::iter::once(0)).collect()
 }
 
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
