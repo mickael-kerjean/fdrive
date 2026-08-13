@@ -1,14 +1,10 @@
 import Foundation
 
-private let byteFormatter: ByteCountFormatter = {
+func formatBytes(_ count: UInt64) -> String {
     let formatter = ByteCountFormatter()
     formatter.countStyle = .file
     formatter.allowsNonnumericFormatting = false
-    return formatter
-}()
-
-func formatBytes(_ count: UInt64) -> String {
-    byteFormatter.string(fromByteCount: Int64(count))
+    return formatter.string(fromByteCount: Int64(count)).replacingOccurrences(of: " ", with: "")
 }
 
 extension Transfer {
@@ -34,15 +30,13 @@ extension Transfer {
         case (_, .down): "Downloaded"
         case (_, .up): "Uploaded"
         }
-        return mode == .delta ? "\(verb) (delta)" : verb
+        return mode == .delta ? "\(verb) (Δ\(formatBytes(wire)))" : verb
     }
 
     private var volume: String {
         switch (mode, state) {
-        case (.delta, _):
-            "\(formatBytes(wire)) of \(formatBytes(size))"
-        case (_, .running) where progress > 0:
-            "\(formatBytes(progress)) of \(formatBytes(size))"
+        case (.full, .running) where progress > 0:
+            "\(formatBytes(progress)) / \(formatBytes(size))"
         default:
             formatBytes(size)
         }
