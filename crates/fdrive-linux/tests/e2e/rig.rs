@@ -98,7 +98,7 @@ fn mount(server: &FakeServer, rt: &tokio::runtime::Runtime, mnt: &Path, data: &P
     let adapter = Arc::new(Adapter::new(rt.handle().clone(), Arc::new(sdk), data).unwrap());
     let mut config = Config::default();
     config.mount_options = vec![MountOption::FSName("fdrive-e2e".to_string()), MountOption::DefaultPermissions];
-    let session = fuser::spawn_mount2(MountFs::new(adapter.clone()), mnt, &config).unwrap();
+    let session = fuser::spawn_mount2(MountFs::new(adapter.clone(), rt.handle().clone()), mnt, &config).unwrap();
     (adapter, session)
 }
 

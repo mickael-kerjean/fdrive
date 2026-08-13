@@ -19,7 +19,6 @@ impl Fs<'_> {
         let listing = match self
             .0
             .engine
-            .rt()
             .block_on(self.0.engine.sdk().ls(&dir.as_dir()))
         {
             Ok(listing) => listing,
@@ -36,7 +35,7 @@ impl Fs<'_> {
         if self.0.engine.local().is_suppressed(path) {
             return Ok(());
         }
-        self.0.engine.rt().block_on(self.0.engine.delete(path, is_dir))
+        self.0.engine.block_on(self.0.engine.delete(path, is_dir))
     }
 
     pub fn on_rename(self, from: &RelPath, to: &RelPath, is_dir: bool) -> io::Result<()> {
@@ -45,7 +44,6 @@ impl Fs<'_> {
         }
         self.0
             .engine
-            .rt()
             .block_on(self.0.engine.rename(from, to, is_dir))
     }
 

@@ -361,10 +361,10 @@ impl Filesystem for MountFs {
 }
 
 impl MountFs {
-    pub fn new(adapter: Arc<Adapter>) -> Self {
+    pub fn new(adapter: Arc<Adapter>, rt: tokio::runtime::Handle) -> Self {
         let root = RelPath::root();
         Self {
-            rt: adapter.rt().clone(),
+            rt,
             wire: Arc::new(Wire {
                 adapter,
                 inodes: Mutex::new(InodeTable {
