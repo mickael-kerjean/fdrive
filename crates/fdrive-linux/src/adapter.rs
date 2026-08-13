@@ -1,22 +1,28 @@
 use std::collections::HashMap;
-use std::fs;
-use std::io::{self};
-use std::os::unix::fs::FileExt;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
-use fdrive_core::engine::UploadStatus;
-use fdrive_core::engine::{Engine, Observation};
+use fdrive_core::engine::Engine;
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
-use fdrive_core::sdk::{self, FileInfo, FileType, Sdk};
-use tokio::sync::watch;
+use fdrive_core::sdk::{FileInfo, Sdk};
 
 use crate::xattr::XattrDb;
 
-const META_TTL: Duration = Duration::from_secs(5);
-const PIN_XATTR: &str = "user.fdrive.pin";
+mod cache;
+mod fs;
+mod status;
+mod system;
+mod utils;
+mod xattr;
+
+pub use cache::Cache;
+pub use fs::Fs;
+pub use status::Status;
+pub use system::System;
+pub use xattr::Xattr;
 
 pub struct Adapter {
     engine: Arc<Engine<CacheTree>>,
@@ -41,7 +47,7 @@ struct HandleTable {
 
 struct Handle {
     path: RelPath,
-    file: Option<Arc<fs::File>>,
+    file: Option<Arc<std::fs::File>>,
     writable: bool,
 }
 
@@ -52,8 +58,8 @@ impl LocalStore for CacheTree {
 
     fn relocate(&self, from: &RelPath, to: &RelPath) -> io::Result<()> {
         let to_backing = self.backing(to);
-        ensure_parent(&to_backing)?;
-        fs::rename(self.backing(from), to_backing)
+        utils::ensure_parent(&to_backing)?;
+        std::fs::rename(self.backing(from), to_backing)
     }
 
     fn settled(&self, target: &RelPath, _mtime: Option<SystemTime>) {
@@ -80,7 +86,7 @@ impl CacheTree {
 impl Adapter {
     pub fn new(rt: tokio::runtime::Handle, sdk: Arc<Sdk>, data_dir: &Path) -> io::Result<Self> {
         let cache_dir = data_dir.join("cache");
-        fs::create_dir_all(&cache_dir)?;
+        std::fs::create_dir_all(&cache_dir)?;
         let tree = CacheTree {
             cache_dir,
             ledger: data_dir.join("fdrive.db"),
@@ -96,302 +102,42 @@ impl Adapter {
         Ok(adapter)
     }
 
-    pub async fn flush(&self, timeout: Duration) {
-        self.engine.flush(timeout).await;
+    pub fn fs(&self) -> Fs<'_> {
+        Fs(self)
     }
 
-    pub fn upload_status(&self) -> watch::Receiver<UploadStatus> {
-        self.engine.upload_status()
+    pub fn cache(&self) -> Cache<'_> {
+        Cache(self)
     }
 
-    pub fn activity(&self) -> Arc<fdrive_core::activity::Activity> {
-        self.engine.activity()
+    pub fn system(&self) -> System<'_> {
+        System(self)
+    }
+
+    pub fn status(&self) -> Status<'_> {
+        Status(self)
     }
 
     pub fn rt(&self) -> &tokio::runtime::Handle {
         self.engine.rt()
     }
 
-    pub fn xattrs(&self) -> &XattrDb {
-        &self.xattrs
-    }
-
-    pub fn xattr_set(&self, path: &RelPath, name: &str, value: &[u8], flags: i32) -> Result<(), fuser::Errno> {
-        if name == PIN_XATTR {
-            match value {
-                b"always" => self.engine.pin(path),
-                b"auto" => self.engine.unpin(path),
-                _ => return Err(fuser::Errno::EINVAL),
-            }
-            return Ok(());
-        }
-        self.xattrs.set(path, name, value, flags)
-    }
-
-    pub fn xattr_get(&self, path: &RelPath, name: &str) -> Option<Vec<u8>> {
-        if name == PIN_XATTR {
-            return self.engine.pinned(path).then(|| b"always".to_vec());
-        }
-        self.xattrs.get(path, name)
-    }
-
-    pub fn xattr_remove(&self, path: &RelPath, name: &str) -> Result<(), fuser::Errno> {
-        if name == PIN_XATTR {
-            self.engine.unpin(path);
-            return Ok(());
-        }
-        self.xattrs.remove(path, name)
-    }
-
     fn prune(&self) -> io::Result<()> {
         self.engine.prune(&self.engine.local().cache_dir)
     }
 
-    fn backing(&self, path: &RelPath) -> PathBuf {
-        self.engine.local().backing(path)
-    }
-
-    fn invalidate(&self, dir: &RelPath) {
-        self.engine.local().invalidate(dir);
-    }
-
-    pub fn ls(&self, dir: &RelPath) -> io::Result<Vec<FileInfo>> {
-        let listing = match self.cached_listing(dir) {
-            Some(listing) => listing,
-            None => match self.engine.rt().block_on(self.engine.sdk().ls(&dir.as_dir())) {
-                Ok(fetched) => {
-                    self.engine.listed(dir, &fetched);
-                    self.engine
-                        .local()
-                        .meta
-                        .lock()
-                        .unwrap()
-                        .insert(dir.clone(), (Instant::now(), fetched.clone()));
-                    fetched
-                }
-                Err(err @ (sdk::Error::NotFound | sdk::Error::PermissionDenied)) => return Err(err.into()),
-                Err(err) => {
-                    let meta = self.engine.local().meta.lock().unwrap();
-                    match meta.get(dir) {
-                        Some((_, listing)) => {
-                            log::debug!("ls {dir} unreachable, serving stale: {err}");
-                            listing.clone()
-                        }
-                        None => {
-                            drop(meta);
-                            log::debug!("ls {dir} unreachable, serving the ledger: {err}");
-                            self.engine.remembered(dir)
-                        }
-                    }
-                }
-            },
-        };
-        Ok(self.engine.overlay(dir, listing))
-    }
-
-    fn cached_listing(&self, dir: &RelPath) -> Option<Vec<FileInfo>> {
-        let meta = self.engine.local().meta.lock().unwrap();
-        let (at, listing) = meta.get(dir)?;
-        (at.elapsed() < META_TTL).then(|| listing.clone())
-    }
-
     fn entry(&self, path: &RelPath) -> io::Result<Option<FileInfo>> {
         let parent = path.parent_or_root();
-        match self.ls(&parent) {
+        match self.fs().ls(&parent) {
             Ok(listing) => Ok(listing.iter().find(|e| e.name == path.name()).cloned()),
             Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(err),
         }
     }
-
-    pub fn attr(&self, path: &RelPath) -> io::Result<Option<(bool, u64, SystemTime)>> {
-        if path.is_root() {
-            return Ok(Some((true, 0, SystemTime::UNIX_EPOCH)));
-        }
-        if let Some(md) = self.engine.dirty_metadata(path) {
-            return Ok(Some((false, md.len(), md.modified().unwrap_or(SystemTime::UNIX_EPOCH))));
-        }
-        Ok(self.entry(path)?.map(|e| {
-            (
-                e.kind == FileType::Directory,
-                e.size.unwrap_or(0),
-                e.mtime.unwrap_or(SystemTime::UNIX_EPOCH),
-            )
-        }))
-    }
-
-    pub fn hydrate(&self, path: &RelPath) -> io::Result<()> {
-        let current = self.remote(path);
-        if current.is_some_and(|current| self.engine.content_current(path, current)) {
-            return Ok(());
-        }
-        self.engine.rt().block_on(self.engine.hydrate(path, current))
-    }
-
-    pub fn hydrate_start(&self, path: &RelPath) -> io::Result<()> {
-        let current = self.remote(path);
-        if current.is_some_and(|current| self.engine.content_current(path, current)) {
-            return Ok(());
-        }
-        self.engine.rt().block_on(self.engine.hydrate_start(path, current))
-    }
-
-    fn remote(&self, path: &RelPath) -> Option<Observation> {
-        self.entry(path).ok().flatten().map(|e| Observation::of(&e))
-    }
-
-    pub fn opened(&self, path: &RelPath, writable: bool) -> u64 {
-        if writable {
-            self.engine.write_opened(path);
-        }
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(self.backing(path))
-            .ok()
-            .map(Arc::new);
-        self.handles.open(path, file, writable)
-    }
-
-    pub fn closed(&self, fh: u64) {
-        if let Some(handle) = self.handles.close(fh) {
-            if handle.writable {
-                self.engine.write_closed(&handle.path);
-            }
-            self.engine.released(&handle.path);
-        }
-    }
-
-    pub fn read(&self, fh: u64, path: &RelPath, offset: u64, size: u32) -> io::Result<Vec<u8>> {
-        if let Some(download) = self.engine.download(path) {
-            return self.engine.rt().block_on(download.read(offset, size));
-        }
-        let mut buf = vec![0u8; size as usize];
-        let filled = match self.fresh_handle_file(fh, path) {
-            Some(file) => fill_at(&file, &mut buf, offset)?,
-            None => fill_at(&fs::File::open(self.backing(path))?, &mut buf, offset)?,
-        };
-        buf.truncate(filled);
-        Ok(buf)
-    }
-
-    fn fresh_handle_file(&self, fh: u64, path: &RelPath) -> Option<Arc<fs::File>> {
-        use std::os::unix::fs::MetadataExt;
-        let file = self.handles.get(fh)?;
-        let same = file
-            .metadata()
-            .ok()
-            .zip(fs::metadata(self.backing(path)).ok())
-            .is_some_and(|(a, b)| a.ino() == b.ino() && a.dev() == b.dev());
-        if same {
-            return Some(file);
-        }
-        let reopened = Arc::new(fs::OpenOptions::new().read(true).write(true).open(self.backing(path)).ok()?);
-        self.handles.set(fh, reopened.clone());
-        Some(reopened)
-    }
-
-    pub fn write(&self, fh: u64, path: &RelPath, offset: u64, data: &[u8]) -> io::Result<u32> {
-        match self.fresh_handle_file(fh, path) {
-            Some(file) => {
-                self.engine.modified(path);
-                file.write_all_at(data, offset)?;
-            }
-            None => {
-                self.hydrate(path)?;
-                self.engine.modified(path);
-                let file_path = self.backing(path);
-                ensure_parent(&file_path)?;
-                fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(false)
-                    .open(&file_path)?
-                    .write_all_at(data, offset)?;
-            }
-        }
-        Ok(data.len() as u32)
-    }
-
-    pub fn truncate(&self, path: &RelPath, size: u64) -> io::Result<()> {
-        if size > 0 {
-            self.hydrate(path)?;
-        } else if self.engine.needs_baseline(path) {
-            self.engine.rt().block_on(self.engine.overwriting(path));
-        }
-        let file_path = self.backing(path);
-        ensure_parent(&file_path)?;
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&file_path)?;
-        self.engine.modified(path);
-        file.set_len(size)?;
-        Ok(())
-    }
-
-    pub fn create(&self, path: &RelPath) -> io::Result<()> {
-        let file_path = self.backing(path);
-        ensure_parent(&file_path)?;
-        self.engine.created(path);
-        fs::File::create(&file_path)?;
-        Ok(())
-    }
-
-    pub fn mkdir(&self, path: &RelPath) -> io::Result<()> {
-        self.engine.rt().block_on(self.engine.sdk().mkdir(&path.as_dir()))?;
-        self.invalidate(&path.parent_or_root());
-        Ok(())
-    }
-
-    pub fn delete(&self, path: &RelPath, is_dir: bool) -> io::Result<()> {
-        self.engine.rt().block_on(self.engine.delete(path, is_dir))?;
-        remove_path(&self.backing(path))?;
-        self.xattrs.forget(path);
-        self.invalidate(path);
-        self.engine.local().drop(&path.parent_or_root(), path.name());
-        Ok(())
-    }
-
-    pub fn rmdir(&self, path: &RelPath) -> io::Result<()> {
-        self.invalidate(path);
-        match self.ls(path) {
-            Ok(listing) if listing.is_empty() => self.delete(path, true),
-            Ok(_) => Err(io::Error::from_raw_os_error(libc::ENOTEMPTY)),
-            Err(err) if err.kind() == io::ErrorKind::NotFound => self.delete(path, true),
-            Err(err) => Err(err),
-        }
-    }
-
-    pub fn rename(&self, from: &RelPath, to: &RelPath) -> io::Result<()> {
-        let is_dir = matches!(self.attr(from)?, Some((true, ..)));
-        self.engine.rt().block_on(self.engine.rename(from, to, is_dir))?;
-        let from_backing = self.backing(from);
-        if from_backing.exists() {
-            let to_backing = self.backing(to);
-            ensure_parent(&to_backing)?;
-            remove_path(&to_backing)?;
-            fs::rename(&from_backing, &to_backing)?;
-        }
-        self.xattrs.remap(from, to);
-        self.invalidate(&from.parent_or_root());
-        self.invalidate(&to.parent_or_root());
-        Ok(())
-    }
-
-    pub fn vacuum(&self) -> io::Result<()> {
-        self.engine.local().meta.lock().unwrap().clear();
-        self.prune()
-    }
-
-    pub async fn logout(&self) {
-        let _ = self.engine.sdk().logout().await;
-    }
 }
 
 impl Handles {
-    fn open(&self, path: &RelPath, file: Option<Arc<fs::File>>, writable: bool) -> u64 {
+    fn open(&self, path: &RelPath, file: Option<Arc<std::fs::File>>, writable: bool) -> u64 {
         let mut t = self.0.lock().unwrap();
         t.next += 1;
         let fh = t.next;
@@ -410,46 +156,15 @@ impl Handles {
         self.0.lock().unwrap().open.remove(&fh)
     }
 
-    fn get(&self, fh: u64) -> Option<Arc<fs::File>> {
+    fn get(&self, fh: u64) -> Option<Arc<std::fs::File>> {
         self.0.lock().unwrap().open.get(&fh)?.file.clone()
     }
 
-    fn set(&self, fh: u64, file: Arc<fs::File>) {
+    fn set(&self, fh: u64, file: Arc<std::fs::File>) {
         if let Some(handle) = self.0.lock().unwrap().open.get_mut(&fh) {
             handle.file = Some(file);
         }
     }
-}
-
-fn ensure_parent(path: &Path) -> io::Result<()> {
-    match path.parent() {
-        Some(parent) => fs::create_dir_all(parent),
-        None => Ok(()),
-    }
-}
-
-fn fill_at(file: &fs::File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
-    let mut filled = 0;
-    while filled < buf.len() {
-        match file.read_at(&mut buf[filled..], offset + filled as u64)? {
-            0 => break,
-            n => filled += n,
-        }
-    }
-    Ok(filled)
-}
-
-fn remove_path(path: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(md) if md.is_dir() => fs::remove_dir_all(path),
-        Ok(_) => fs::remove_file(path),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(err),
-    }
-    .or_else(|err| match err.kind() {
-        io::ErrorKind::NotFound => Ok(()),
-        _ => Err(err),
-    })
 }
 
 #[cfg(test)]

@@ -81,10 +81,10 @@ async fn run(
 ) -> Result<SessionEnd, Box<dyn std::error::Error>> {
     let (adapter, session) = setup(creds, mount, data).await?;
     log::info!("mounted {}", mount.display());
-    tray.attach(adapter.activity()).await;
+    tray.attach(adapter.status().activity()).await;
     tray.set(Status::Ok, true).await;
 
-    let mut upload_status = adapter.upload_status();
+    let mut upload_status = adapter.status().watch();
     let end = loop {
         tokio::select! {
             event = events.recv() => match event {
@@ -117,11 +117,11 @@ async fn run(
     } else {
         session.umount_and_join()?;
     }
-    adapter.flush(Duration::from_secs(30)).await;
+    adapter.system().flush(Duration::from_secs(30)).await;
     if matches!(end, SessionEnd::Logout) {
-        adapter.vacuum()?;
+        adapter.system().vacuum()?;
         session::forget(data);
-        adapter.logout().await;
+        adapter.system().logout().await;
     }
     Ok(end)
 }
