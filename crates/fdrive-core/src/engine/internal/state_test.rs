@@ -152,3 +152,79 @@ async fn a_failed_remove_stays_owed() {
     assert!(engine.ledger().observations.contains_key(&path));
     assert_eq!(engine.state.lock().unwrap().pending(), 1);
 }
+
+#[tokio::test]
+async fn a_wiped_db_with_a_leftover_cache_mutates_nothing() {
+    let server = MockServer::start();
+    let (rm, mv, save) = tripwires(&server);
+    let tree = TempTree::new();
+    tree.write("was-dirty-before-the-wipe.txt", b"leftover");
+    let engine = engine_with(&server, tree);
+
+    settle(&engine).await;
+
+    rm.assert_hits(0);
+    mv.assert_hits(0);
+    save.assert_hits(0);
+}
+
+#[tokio::test]
+async fn a_journal_with_children_behind_their_dir_still_drains() {
+    let owner = TempTree::new();
+    {
+        let db = rusqlite::Connection::open(&owner.state).unwrap();
+        db.execute_batch(
+            "CREATE TABLE journal(seq INTEGER PRIMARY KEY, op TEXT NOT NULL, path TEXT NOT NULL, dest TEXT, base TEXT, size INTEGER, time INTEGER);
+             INSERT INTO journal(op, path) VALUES ('d', 'd/sub');
+             INSERT INTO journal(op, path) VALUES ('d', 'd');
+             INSERT INTO journal(op, path, size, time) VALUES ('r', 'd/sub/f', 1, 1);
+             INSERT INTO journal(op, path, size, time) VALUES ('r', 'd/g', 1, 1);",
+        )
+        .unwrap();
+    }
+    let server = MockServer::start();
+    let (rm, mv, save) = tripwires(&server);
+    let engine = engine_with(&server, TempTree::reopen(&owner));
+
+    settle(&engine).await;
+
+    assert!(
+        engine.state.lock().unwrap().idle(),
+        "the wave drains instead of deadlocking"
+    );
+    rm.assert_hits(4);
+    mv.assert_hits(0);
+    save.assert_hits(0);
+}
+
+#[tokio::test]
+async fn a_crash_with_a_pending_remove_replays_it_exactly_once() {
+    let server = MockServer::start();
+    let mut down = server.mock(|when, then| {
+        when.method(Method::POST).path("/api/files/rm");
+        then.status(500);
+    });
+    let mut alive = server.mock(|when, then| {
+        when.method(Method::HEAD).path("/api/files/cat");
+        then.status(200).header("content-length", "5");
+    });
+    let owner = TempTree::new();
+    let path = RelPath::new("doomed.txt");
+    {
+        let crashed = engine_with(&server, TempTree::reopen(&owner));
+        crashed.ledger().observe(&path, observed(5));
+        crashed.delete(&path, false).await.unwrap();
+        crashed.flush(Duration::from_secs(1)).await;
+    }
+    down.delete();
+    alive.delete();
+
+    let (rm, mv, save) = tripwires(&server);
+    let engine = engine_with(&server, TempTree::reopen(&owner));
+    settle(&engine).await;
+
+    rm.assert_hits(1);
+    mv.assert_hits(0);
+    save.assert_hits(0);
+    assert!(engine.ledger().observations.is_empty());
+}

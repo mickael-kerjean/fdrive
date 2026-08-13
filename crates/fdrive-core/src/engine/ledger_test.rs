@@ -1,3 +1,5 @@
+use httpmock::MockServer;
+
 use super::testkit::*;
 use crate::engine::{Ledger, Observation};
 use crate::model::Plan;
@@ -135,4 +137,31 @@ fn pins_survive_a_reopen() {
     let ledger = Ledger::open(&file).unwrap();
     let pins: Vec<&str> = ledger.pins.iter().map(|p| p.as_str()).collect();
     assert_eq!(pins, ["keep"]);
+}
+
+#[tokio::test]
+async fn garbage_plans_in_the_db_never_reach_the_server() {
+    let owner = TempTree::new();
+    {
+        let db = rusqlite::Connection::open(&owner.state).unwrap();
+        db.execute_batch(
+            "CREATE TABLE journal(seq INTEGER PRIMARY KEY, op TEXT NOT NULL, path TEXT NOT NULL, dest TEXT, base TEXT, size INTEGER, time INTEGER);
+             INSERT INTO journal(op, path, size, time) VALUES ('r', 'ghost/../../../etc/passwd', 5, 5);
+             INSERT INTO journal(op, path, dest, size, time) VALUES ('m', 'no/where', 'else/where', 1, 1);",
+        )
+        .unwrap();
+    }
+    let server = MockServer::start();
+    let (rm, mv, save) = tripwires(&server);
+    let engine = engine_with(&server, TempTree::reopen(&owner));
+
+    settle(&engine).await;
+
+    rm.assert_hits(0);
+    mv.assert_hits(0);
+    save.assert_hits(0);
+    assert!(
+        engine.state.lock().unwrap().idle(),
+        "the garbage is retired, not retried"
+    );
 }
