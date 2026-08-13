@@ -31,16 +31,14 @@ A cross platform drive client that does not try to own your storage, but rather 
 
 We use the hexagonal architecture / ports and adapters pattern. The core owns all policy, everything that decides *what moves where* lives there, once. Each platform adapts its own UI and filesystem technology to it.
 
-Inside the core, sync is a journal: filesystem events are recorded, coalesced into plans, and replayed against the server under leases, a plan only lands if the server still holds the version we last saw, anything newer wins and becomes a conflict you can act on.
-
 | crate | technology |
 |---|---|
 | `fdrive-core` | `model` (the sync vocabulary: `Operation`, `Plan`, `Fate`, `Conflict`), `engine` (the journal and its state, plan replay, conflict rules, cache policy), the `LocalTree` port, the Filestash HTTP sdk |
 | `fdrive-linux` | FUSE, GTK |
-| `fdrive-windows` | Win32, CfAPI, ReadDirectoryChangesW, IShellWindows |
+| `fdrive-windows` | CfAPI, Win32 |
 | `fdrive-mac` | FileProvider |
 | `fdrive-ios` | FileProvider |
-| `fdrive-android` | Storage Access Framework (Kotlin wire, UniFFI) |
+| `fdrive-android` | Storage Access Framework |
 
 ## Features
 
