@@ -1,8 +1,8 @@
 mod cache;
 mod download;
-mod facade;
 mod fs;
 mod ledger;
+mod lifecycle;
 mod scheduler;
 mod view;
 
@@ -18,7 +18,7 @@ mod state;
 mod upload;
 
 pub use self::{download::Download, scheduler::UploadStatus, state::LedgerGuard};
-use self::{gates::Frozen, ledger::Ledger, play::Outcome};
+use self::{ledger::Ledger, play::Outcome};
 pub use crate::model::Observation;
 
 use std::collections::BTreeSet;

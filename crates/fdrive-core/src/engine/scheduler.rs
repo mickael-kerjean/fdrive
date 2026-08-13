@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Weak;
@@ -9,6 +10,7 @@ use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use super::download::DownloadStatus;
+use super::state::Step;
 use super::{Engine, Outcome};
 use crate::model::Observation;
 use crate::path::RelPath;
@@ -187,5 +189,54 @@ async fn run<T: LocalStore>(
             },
             _ = tokio::time::sleep_until(wake.map(Instant::from_std).unwrap_or_else(Instant::now)), if wake.is_some() => {}
         }
+    }
+}
+
+impl<T: LocalStore> Engine<T> {
+    pub async fn flush(&self, timeout: Duration) {
+        self.scheduler.flush(timeout).await;
+    }
+
+    pub fn upload_status(&self) -> watch::Receiver<UploadStatus> {
+        self.scheduler.status()
+    }
+
+    pub(super) fn kick(&self) {
+        self.scheduler.kick();
+    }
+
+    pub(super) fn step(&self, slots: usize, force: bool) -> Step {
+        self.state().step(slots, force, &self.ignore, |p| {
+            fs::metadata(self.local.backing(p)).is_ok_and(|md| md.len() == 0)
+        })
+    }
+
+    pub(super) fn settle(&self, seq: i64, outcome: Outcome) -> bool {
+        let (failing, conflict) = self.state().settle(seq, outcome);
+        if let Some(c) = conflict {
+            log::warn!("conflict on {}", c.op);
+        }
+        failing
+    }
+
+    pub(super) fn rush(&self) {
+        self.state().rush();
+    }
+
+    pub(super) fn pending(&self) -> usize {
+        self.state().pending()
+    }
+
+    pub(super) fn stall_report(&self) -> String {
+        let state = self.state();
+        let mut sample = state.pending_sample(5);
+        let total = state.pending();
+        if total > sample.len() {
+            sample.push(format!("... {} more", total - sample.len()));
+        }
+        format!(
+            "{total} pending plans, none retired: [{}]",
+            sample.join(", ")
+        )
     }
 }
