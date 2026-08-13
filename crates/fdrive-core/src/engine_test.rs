@@ -68,7 +68,6 @@ async fn the_vim_dance_is_one_save() {
     mv.assert_hits(0);
     rm.assert_hits(0);
     assert!(engine.ledger().dirty.is_empty());
-    assert!(engine.conflicts().is_empty());
 }
 
 #[tokio::test]
@@ -118,7 +117,6 @@ async fn the_backup_dance_moves_then_saves() {
     let keys: Vec<&str> = ledger.observations.keys().map(|p| p.as_str()).collect();
     assert_eq!(keys, ["x", "x_original"]);
     drop(ledger);
-    assert!(engine.conflicts().is_empty());
 }
 
 #[tokio::test]
@@ -182,7 +180,6 @@ async fn dir_delete_never_ships_doomed_content() {
     rm_dir.assert_hits(1);
     assert!(engine.ledger().observations.is_empty());
     assert!(engine.ledger().dirty.is_empty());
-    assert!(engine.conflicts().is_empty());
 }
 
 #[tokio::test]
@@ -211,7 +208,6 @@ async fn dir_delete_is_one_recursive_rm() {
     rm_file.assert_hits(0);
     rm_dir.assert_hits(1);
     assert!(engine.ledger().observations.is_empty());
-    assert!(engine.conflicts().is_empty());
 }
 
 #[tokio::test]
@@ -383,7 +379,6 @@ async fn a_move_out_of_a_dying_dir_saves_the_file() {
 
     rm_dir.assert_hits(1);
     save.assert_hits(1);
-    assert!(engine.conflicts().is_empty());
 }
 
 #[tokio::test]
@@ -423,7 +418,6 @@ async fn a_move_into_a_dying_dir_dooms_the_source() {
     rm_src.assert_hits(1);
     mv.assert_hits(0);
     assert!(engine.ledger().observations.is_empty());
-    assert!(engine.conflicts().is_empty());
 }
 
 #[tokio::test]
@@ -442,7 +436,6 @@ async fn dir_delete_takes_unseen_files_with_it() {
     engine.delete(&dir, true).await.unwrap();
     settle(&engine).await;
     rm.assert_hits(1);
-    assert!(engine.conflicts().is_empty());
 }
 
 #[tokio::test]

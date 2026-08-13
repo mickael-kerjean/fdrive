@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use fdrive_core::engine::{Engine, Resolution, UploadStatus};
+use fdrive_core::engine::{Engine, UploadStatus};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::Sdk;
@@ -233,7 +233,7 @@ async fn a_restart_finishes_a_dir_delete() {
 }
 
 #[tokio::test]
-async fn simultaneous_edits_conflict_and_resolve() {
+async fn simultaneous_edits_keep_both_copies() {
     let server = FakeServer::start();
     let engine = connect(&server, Platform::fresh());
     let path = create(&engine, "report.txt", b"v1");
@@ -252,18 +252,6 @@ async fn simultaneous_edits_conflict_and_resolve() {
         server.names("/"),
         ["report (conflicted copy from testkit).txt", "report.txt"]
     );
-    let conflict = &engine.conflicts()[0];
-    assert_eq!(
-        conflict.ours.as_ref().unwrap().as_str(),
-        "report (conflicted copy from testkit).txt"
-    );
-
-    engine.resolve(conflict.seq, Resolution::Ours).unwrap();
-    settle(&engine).await;
-
-    assert_eq!(server.get("/report.txt").unwrap(), b"ours");
-    assert_eq!(server.names("/"), ["report.txt"]);
-    assert!(engine.conflicts().is_empty());
 }
 
 #[tokio::test]

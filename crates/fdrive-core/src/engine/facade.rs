@@ -12,7 +12,6 @@ use crate::path::RelPath;
 use crate::port::LocalStore;
 use crate::sdk::{Error as SdkError, Sdk};
 
-use super::conflict::Conflicts;
 use super::gates::Transfers;
 use super::state::{LedgerGuard, State, Step};
 use super::{scheduler, Engine, Frozen, Outcome, UploadStatus};
@@ -22,7 +21,6 @@ impl<T: LocalStore> Engine<T> {
         let ledger_file = local.ledger();
         let ignore = crate::config::ignore(ledger_file.parent().unwrap_or(Path::new("")));
         let state = State::open(&ledger_file);
-        let conflicts = Conflicts::load(state.ledger.conflicts_load());
         let (scheduler, driver) = scheduler::prepare();
         let engine = Arc::new(Self {
             local,
@@ -31,7 +29,6 @@ impl<T: LocalStore> Engine<T> {
             state: Mutex::new(state),
             transfers: Transfers::default(),
             frozen: Mutex::new(BTreeSet::new()),
-            conflicts,
             scheduler,
             rt: rt.clone(),
             activity: Arc::default(),
@@ -118,7 +115,7 @@ impl<T: LocalStore> Engine<T> {
     pub(super) fn settle(&self, seq: i64, outcome: Outcome) -> bool {
         let (failing, conflict) = self.state().settle(seq, outcome);
         if let Some(c) = conflict {
-            self.conflicted(c);
+            log::warn!("conflict on {}", c.op);
         }
         failing
     }

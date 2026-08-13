@@ -1,19 +1,24 @@
 mod cache;
-mod conflict;
-mod delta;
 mod download;
 mod facade;
-mod gates;
 mod ledger;
-mod play;
 mod scheduler;
-mod state;
-mod upload;
 mod view;
+
+#[path = "engine/internal/delta.rs"]
+mod delta;
+#[path = "engine/internal/gates.rs"]
+mod gates;
+#[path = "engine/internal/play.rs"]
+mod play;
+#[path = "engine/internal/state.rs"]
+mod state;
+#[path = "engine/internal/upload.rs"]
+mod upload;
 
 pub use self::{download::Download, ledger::Ledger, scheduler::UploadStatus, state::LedgerGuard};
 use self::{gates::Frozen, play::Outcome};
-pub use crate::model::{Conflict, Fate, Observation, Operation, Plan, Resolution};
+pub use crate::model::{Conflict, Fate, Observation, Operation, Plan};
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -23,7 +28,7 @@ use crate::path::RelPath;
 use crate::port::LocalStore;
 use crate::sdk::Sdk;
 
-use self::{conflict::Conflicts, gates::Transfers, state::State};
+use self::{gates::Transfers, state::State};
 
 pub struct Engine<T: LocalStore> {
     local: T,
@@ -34,7 +39,6 @@ pub struct Engine<T: LocalStore> {
 
     transfers: Transfers,
     frozen: Mutex<BTreeSet<RelPath>>,
-    conflicts: Conflicts,
 
     scheduler: scheduler::Handle,
     rt: tokio::runtime::Handle,

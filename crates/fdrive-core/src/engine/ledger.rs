@@ -2,15 +2,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 
-use crate::model::{secs, Conflict, Observation, Operation, Plan};
+use crate::model::{Observation, Operation, Plan};
 use crate::path::RelPath;
 
 #[derive(Default)]
 pub struct Ledger {
-    pub observations: BTreeMap<RelPath, Observation>,
-    pub pins: BTreeSet<RelPath>,
+    pub(super) observations: BTreeMap<RelPath, Observation>,
+    pub(super) pins: BTreeSet<RelPath>,
 
-    pub dirty: BTreeSet<RelPath>,
+    pub(super) dirty: BTreeSet<RelPath>,
     pub(super) unreadable: bool,
     db: Option<rusqlite::Connection>,
 }
@@ -40,7 +40,6 @@ impl Ledger {
                 file,
                 "CREATE TABLE IF NOT EXISTS observations(path TEXT PRIMARY KEY, size INTEGER NOT NULL, time INTEGER NOT NULL);
                  CREATE TABLE IF NOT EXISTS journal(seq INTEGER PRIMARY KEY, op TEXT NOT NULL, path TEXT NOT NULL, dest TEXT, base TEXT, size INTEGER, time INTEGER);
-                 CREATE TABLE IF NOT EXISTS conflicts(seq INTEGER PRIMARY KEY, op TEXT NOT NULL, path TEXT NOT NULL, dest TEXT, expected_size INTEGER, expected_time INTEGER, found_size INTEGER, found_time INTEGER, ours TEXT, at INTEGER NOT NULL);
                  CREATE TABLE IF NOT EXISTS pins(path TEXT PRIMARY KEY);
                  CREATE TABLE IF NOT EXISTS signatures(path TEXT PRIMARY KEY, sig BLOB NOT NULL);
                  CREATE TABLE IF NOT EXISTS meta(name TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -92,20 +91,13 @@ impl Ledger {
         }
     }
 
-    pub fn meta(&self, name: &str) -> Option<String> {
-        let db = self.db.as_ref()?;
-        db.prepare_cached("SELECT value FROM meta WHERE name = ?1")
-            .and_then(|mut stmt| stmt.query_row([name], |row| row.get(0)))
-            .ok()
-    }
-
-    pub fn pin_set(&mut self, path: &RelPath) {
+    pub(super) fn pin_set(&mut self, path: &RelPath) {
         if self.pins.insert(path.clone()) {
             self.exec("INSERT INTO pins(path) VALUES (?1)", [path.as_str()]);
         }
     }
 
-    pub fn pin_clear(&mut self, path: &RelPath) {
+    pub(super) fn pin_clear(&mut self, path: &RelPath) {
         if self.pins.remove(path) {
             self.exec("DELETE FROM pins WHERE path = ?1", [path.as_str()]);
         }
@@ -256,67 +248,6 @@ impl Ledger {
         self.exec("DELETE FROM journal WHERE seq = ?1", [seq]);
     }
 
-    pub(super) fn conflict_add(&self, c: &Conflict) -> i64 {
-        let (op, path, dest) = c.what();
-        self.exec(
-            "INSERT INTO conflicts(op, path, dest, expected_size, expected_time, found_size, found_time, ours, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            rusqlite::params![
-                op,
-                path.as_str(),
-                dest.map(|d| d.as_str().to_string()),
-                c.expected.map(|o| o.size as i64),
-                c.expected.map(|o| o.time as i64),
-                c.found.map(|o| o.size as i64),
-                c.found.map(|o| o.time as i64),
-                c.ours.as_ref().map(|p| p.as_str().to_string()),
-                secs(Some(c.at)) as i64,
-            ],
-        );
-        self.db
-            .as_ref()
-            .map(|db| db.last_insert_rowid())
-            .unwrap_or_default()
-    }
-
-    pub(super) fn conflict_retire(&self, seq: i64) {
-        self.exec("DELETE FROM conflicts WHERE seq = ?1", [seq]);
-    }
-
-    pub(super) fn conflicts_load(&self) -> Vec<Conflict> {
-        let Some(db) = &self.db else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        let mut read = || -> rusqlite::Result<()> {
-            let mut stmt = db.prepare(
-                "SELECT seq, op, path, dest, expected_size, expected_time, found_size, found_time, ours, at FROM conflicts ORDER BY seq",
-            )?;
-            let mut rows = stmt.query([])?;
-            while let Some(row) = rows.next()? {
-                let op: String = row.get(1)?;
-                let path = RelPath::new(&row.get::<_, String>(2)?);
-                let dest: Option<String> = row.get(3)?;
-                if let Some(c) = Conflict::from_row(
-                    row.get(0)?,
-                    &op,
-                    path,
-                    dest.map(|d| RelPath::new(&d)),
-                    row_obs(row.get(4)?, row.get(5)?),
-                    row_obs(row.get(6)?, row.get(7)?),
-                    row.get::<_, Option<String>>(8)?.map(|p| RelPath::new(&p)),
-                    row.get::<_, i64>(9)? as u64,
-                ) {
-                    out.push(c);
-                }
-            }
-            Ok(())
-        };
-        if let Err(err) = read() {
-            log::error!("ledger conflicts: {err}");
-        }
-        out
-    }
-
     pub fn observe(&mut self, path: &RelPath, obs: Observation) {
         self.observations.insert(path.clone(), obs);
         self.exec(
@@ -332,14 +263,14 @@ impl Ledger {
         self.exec("DELETE FROM signatures WHERE path = ?1", [path.as_str()]);
     }
 
-    pub fn sign_set(&mut self, path: &RelPath, sig: &[u8]) {
+    pub(super) fn sign_set(&mut self, path: &RelPath, sig: &[u8]) {
         self.exec(
             "INSERT OR REPLACE INTO signatures(path, sig) VALUES (?1, ?2)",
             rusqlite::params![path.as_str(), sig],
         );
     }
 
-    pub fn sign_get(&self, path: &RelPath) -> Option<Vec<u8>> {
+    pub(super) fn sign_get(&self, path: &RelPath) -> Option<Vec<u8>> {
         self.db
             .as_ref()?
             .prepare_cached("SELECT sig FROM signatures WHERE path = ?1")
@@ -367,7 +298,7 @@ impl Ledger {
         );
     }
 
-    pub fn remap(&mut self, from: &RelPath, to: &RelPath) {
+    pub(super) fn remap(&mut self, from: &RelPath, to: &RelPath) {
         self.exec(
             &format!("DELETE FROM signatures WHERE {SUBTREE}"),
             [to.as_str()],

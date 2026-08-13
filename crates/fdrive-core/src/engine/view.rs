@@ -10,7 +10,7 @@ use super::Engine;
 use crate::model::{Fate, Observation};
 
 impl<T: LocalStore> Engine<T> {
-    pub fn fates(&self) -> BTreeMap<RelPath, Fate> {
+    pub(super) fn fates(&self) -> BTreeMap<RelPath, Fate> {
         self.state().view().fates
     }
 
