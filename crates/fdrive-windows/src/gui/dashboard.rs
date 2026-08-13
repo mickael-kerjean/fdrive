@@ -290,20 +290,9 @@ fn set_rates(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
     let Ok(status) = (unsafe { GetDlgItem(Some(hwnd), ID_STATS_STATUS) }) else {
         return;
     };
-    let n = 5.min(snap.meter.len()).max(1);
-    let (up, down) = snap.meter[snap.meter.len() - n..]
-        .iter()
-        .fold((0, 0), |(up, down), (bucket_up, bucket_down)| {
-            (up + bucket_up, down + bucket_down)
-        });
-    let down = format!(
-        "  Download  {}/s",
-        fdrive_core::activity::fmt_compact(down / n as u64)
-    );
-    let up = format!(
-        "  Upload  {}/s",
-        fdrive_core::activity::fmt_compact(up / n as u64)
-    );
+    let (up, down) = fdrive_core::activity::mean_rate(snap);
+    let down = format!("  Download  {}/s", fdrive_core::activity::fmt_compact(down));
+    let up = format!("  Upload  {}/s", fdrive_core::activity::fmt_compact(up));
     let traffic = fdrive_core::activity::sparkline(snap, 24);
     unsafe {
         set_status_text(status, 0, &traffic);

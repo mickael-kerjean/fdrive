@@ -115,16 +115,13 @@ pub fn ensure_autostart(opt_out: &Path) {
 }
 
 pub fn set_autostart(enabled: bool) -> io::Result<()> {
-    let key = windows_registry::CURRENT_USER
-        .create(RUN_KEY)
-        .map_err(|err| io::Error::other(format!("{err}")))?;
+    let key = windows_registry::CURRENT_USER.create(RUN_KEY).map_err(win_err)?;
     if enabled {
         let exe = std::env::current_exe()?;
         key.set_string(RUN_VALUE, format!("\"{}\"", exe.display()))
-            .map_err(|err| io::Error::other(format!("{err}")))?;
+            .map_err(win_err)?;
     } else if autostart_enabled() {
-        key.remove_value(RUN_VALUE)
-            .map_err(|err| io::Error::other(format!("{err}")))?;
+        key.remove_value(RUN_VALUE).map_err(win_err)?;
     }
     Ok(())
 }

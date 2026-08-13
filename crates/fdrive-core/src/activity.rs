@@ -195,16 +195,17 @@ pub fn sparkline(snap: &Snapshot, width: usize) -> String {
         .collect()
 }
 
-pub fn rate_line(snap: &Snapshot) -> String {
+pub fn mean_rate(snap: &Snapshot) -> (u64, u64) {
     let n = 5.min(snap.meter.len()).max(1);
     let (up, down) = snap.meter[snap.meter.len() - n..]
         .iter()
         .fold((0, 0), |(u, d), (bu, bd)| (u + bu, d + bd));
-    format!(
-        "↓{}/s ↑{}/s",
-        fmt_compact(down / n as u64),
-        fmt_compact(up / n as u64)
-    )
+    (up / n as u64, down / n as u64)
+}
+
+pub fn rate_line(snap: &Snapshot) -> String {
+    let (up, down) = mean_rate(snap);
+    format!("↓{}/s ↑{}/s", fmt_compact(down), fmt_compact(up))
 }
 
 pub fn fmt_bytes(n: u64) -> String {
