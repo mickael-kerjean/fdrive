@@ -23,7 +23,7 @@ fn ls_serves_the_stale_listing_when_the_server_is_unreachable() {
         ),
     );
 
-    let listing = adapter.ls(&dir).unwrap();
+    let listing = adapter.fs().ls(&dir).unwrap();
     assert_eq!(listing.len(), 1);
     assert_eq!(listing[0].name, "a.txt");
 
@@ -31,11 +31,11 @@ fn ls_serves_the_stale_listing_when_the_server_is_unreachable() {
         &RelPath::new("pinned/manual.pdf"),
         fdrive_core::engine::Observation::new(9, None),
     );
-    let remembered = adapter.ls(&RelPath::new("pinned")).unwrap();
+    let remembered = adapter.fs().ls(&RelPath::new("pinned")).unwrap();
     assert_eq!(remembered.len(), 1, "no stale listing, the ledger answers");
     assert_eq!(remembered[0].name, "manual.pdf");
     assert!(
-        adapter.ls(&RelPath::new("never-seen")).unwrap().is_empty(),
+        adapter.fs().ls(&RelPath::new("never-seen")).unwrap().is_empty(),
         "an unknown dir is what the ledger remembers: nothing"
     );
     let _ = fs::remove_dir_all(&data);
@@ -54,14 +54,14 @@ fn a_write_lands_on_the_replaced_file_not_the_dead_inode() {
     let backing = adapter.backing(&path);
     fs::create_dir_all(backing.parent().unwrap()).unwrap();
     fs::write(&backing, b"original").unwrap();
-    let fh = adapter.opened(&path, true);
+    let fh = adapter.fs().opened(&path, true);
 
     let part = backing.with_extension("part");
     fs::write(&part, b"hydrated").unwrap();
     fs::rename(&part, &backing).unwrap();
 
-    adapter.write(fh, &path, 0, b"edit").unwrap();
-    adapter.closed(fh);
+    adapter.fs().write(fh, &path, 0, b"edit").unwrap();
+    adapter.fs().closed(fh);
 
     assert_eq!(fs::read(&backing).unwrap(), b"editated");
     let _ = fs::remove_dir_all(&data);

@@ -59,7 +59,7 @@ fn rmdir_vetoes_a_directory_that_is_not_empty_on_the_server() {
     let (rt, data) = (Runtime::new().unwrap(), TempDir::new());
     let adapter = adapter(&server, &data, &rt);
 
-    let err = adapter.rmdir(&RelPath::new("d")).unwrap_err();
+    let err = adapter.fs().rmdir(&RelPath::new("d")).unwrap_err();
     assert_eq!(err.raw_os_error(), Some(libc::ENOTEMPTY));
     rm.assert_hits(0);
 }
@@ -75,8 +75,8 @@ fn rmdir_of_an_empty_directory_deletes_it() {
     let (rt, data) = (Runtime::new().unwrap(), TempDir::new());
     let adapter = adapter(&server, &data, &rt);
 
-    adapter.rmdir(&RelPath::new("d")).unwrap();
-    rt.block_on(adapter.flush(std::time::Duration::from_secs(10)));
+    adapter.fs().rmdir(&RelPath::new("d")).unwrap();
+    rt.block_on(adapter.system().flush(std::time::Duration::from_secs(10)));
     rm.assert_hits(1);
 }
 
@@ -97,12 +97,12 @@ fn a_delete_storm_is_one_recursive_rm() {
     let (rt, data) = (Runtime::new().unwrap(), TempDir::new());
     let adapter = adapter(&server, &data, &rt);
 
-    adapter.ls(&RelPath::new("d")).unwrap();
+    adapter.fs().ls(&RelPath::new("d")).unwrap();
     for name in ["d/a.txt", "d/b.txt", "d/c.txt"] {
-        adapter.delete(&RelPath::new(name), false).unwrap();
+        adapter.fs().delete(&RelPath::new(name), false).unwrap();
     }
-    adapter.rmdir(&RelPath::new("d")).unwrap();
-    rt.block_on(adapter.flush(std::time::Duration::from_secs(10)));
+    adapter.fs().rmdir(&RelPath::new("d")).unwrap();
+    rt.block_on(adapter.system().flush(std::time::Duration::from_secs(10)));
     rm.assert_hits(1);
 }
 
@@ -120,5 +120,5 @@ fn rmdir_of_a_directory_gone_from_the_server_succeeds() {
     let (rt, data) = (Runtime::new().unwrap(), TempDir::new());
     let adapter = adapter(&server, &data, &rt);
 
-    adapter.rmdir(&RelPath::new("d")).unwrap();
+    adapter.fs().rmdir(&RelPath::new("d")).unwrap();
 }

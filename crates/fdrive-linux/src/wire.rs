@@ -93,7 +93,7 @@ impl Filesystem for MountFs {
         self.go(move |wire| {
             if let Some(size) = size {
                 log::debug!("truncate path={path} size={size}");
-                if let Err(err) = wire.adapter.truncate(&path, size) {
+                if let Err(err) = wire.adapter.fs().truncate(&path, size) {
                     return reply.error(Errno::from(err));
                 }
             }
@@ -116,7 +116,7 @@ impl Filesystem for MountFs {
                     .unwrap_or_default()
                     .trim()
             );
-            let listing = match wire.adapter.ls(&dir) {
+            let listing = match wire.adapter.fs().ls(&dir) {
                 Ok(listing) => listing,
                 Err(err) => return reply.error(Errno::from(err)),
             };
@@ -150,7 +150,7 @@ impl Filesystem for MountFs {
         };
         self.go(move |wire| {
             log::debug!("mkdir path={path}");
-            if let Err(err) = wire.adapter.mkdir(&path) {
+            if let Err(err) = wire.adapter.fs().mkdir(&path) {
                 return reply.error(Errno::from(err));
             }
             match wire.attr(&path) {
@@ -169,12 +169,12 @@ impl Filesystem for MountFs {
         };
         self.go(move |wire| {
             log::debug!("create path={path}");
-            if let Err(err) = wire.adapter.create(&path) {
+            if let Err(err) = wire.adapter.fs().create(&path) {
                 return reply.error(Errno::from(err));
             }
             let attr = wire.make_attr(wire.ino(&path), false, 0, SystemTime::now());
             wire.bump(attr.ino.0);
-            let fh = wire.adapter.opened(&path, true);
+            let fh = wire.adapter.fs().opened(&path, true);
             reply.created(&TTL, &attr, Generation(0), FileHandle(fh), FopenFlags::empty());
         });
     }
@@ -187,14 +187,14 @@ impl Filesystem for MountFs {
             log::debug!("open path={path} flags={flags:x}");
             let writable = flags.0 & libc::O_ACCMODE != libc::O_RDONLY;
             let result = if flags.0 & libc::O_TRUNC != 0 {
-                wire.adapter.truncate(&path, 0)
+                wire.adapter.fs().truncate(&path, 0)
             } else if writable {
-                wire.adapter.hydrate(&path)
+                wire.adapter.cache().hydrate(&path)
             } else {
-                wire.adapter.hydrate_start(&path)
+                wire.adapter.cache().prefetch(&path)
             };
             match result {
-                Ok(()) => reply.opened(FileHandle(wire.adapter.opened(&path, writable)), FopenFlags::empty()),
+                Ok(()) => reply.opened(FileHandle(wire.adapter.fs().opened(&path, writable)), FopenFlags::empty()),
                 Err(err) => reply.error(Errno::from(err)),
             }
         });
@@ -214,7 +214,7 @@ impl Filesystem for MountFs {
         let Some(path) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
-        self.go(move |wire| match wire.adapter.read(fh.0, &path, offset, size) {
+        self.go(move |wire| match wire.adapter.fs().read(fh.0, &path, offset, size) {
             Ok(data) => reply.data(&data),
             Err(err) => reply.error(Errno::from(err)),
         });
@@ -237,7 +237,7 @@ impl Filesystem for MountFs {
             return reply.error(Errno::ENOENT);
         };
         let data = data.to_vec();
-        self.go(move |wire| match wire.adapter.write(fh.0, &path, offset, &data) {
+        self.go(move |wire| match wire.adapter.fs().write(fh.0, &path, offset, &data) {
             Ok(written) => reply.written(written),
             Err(err) => reply.error(Errno::from(err)),
         });
@@ -249,7 +249,7 @@ impl Filesystem for MountFs {
         };
         self.go(move |wire| {
             log::debug!("rm path={path}");
-            match wire.adapter.delete(&path, false) {
+            match wire.adapter.fs().delete(&path, false) {
                 Ok(()) => reply.ok(),
                 Err(err) => reply.error(Errno::from(err)),
             }
@@ -262,7 +262,7 @@ impl Filesystem for MountFs {
         };
         self.go(move |wire| {
             log::debug!("rmdir path={path}");
-            match wire.adapter.rmdir(&path) {
+            match wire.adapter.fs().rmdir(&path) {
                 Ok(()) => reply.ok(),
                 Err(err) => reply.error(Errno::from(err)),
             }
@@ -284,7 +284,7 @@ impl Filesystem for MountFs {
         };
         self.go(move |wire| {
             log::debug!("mv from={from} to={to}");
-            match wire.adapter.rename(&from, &to) {
+            match wire.adapter.fs().rename(&from, &to) {
                 Ok(()) => {
                     wire.remap(&from, &to);
                     reply.ok();
@@ -312,7 +312,7 @@ impl Filesystem for MountFs {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        self.wire.adapter.closed(fh.0);
+        self.wire.adapter.fs().closed(fh.0);
         reply.ok();
     }
 
@@ -323,7 +323,7 @@ impl Filesystem for MountFs {
         let Some(name) = name.to_str() else {
             return reply.error(Errno::EINVAL);
         };
-        match self.wire.adapter.xattr_set(&path, name, value, flags) {
+        match self.wire.adapter.fs().xattr().set(&path, name, value, flags) {
             Ok(()) => reply.ok(),
             Err(errno) => reply.error(errno),
         }
@@ -333,7 +333,7 @@ impl Filesystem for MountFs {
         let Some(path) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
-        match name.to_str().and_then(|name| self.wire.adapter.xattr_get(&path, name)) {
+        match name.to_str().and_then(|name| self.wire.adapter.fs().xattr().get(&path, name)) {
             Some(value) => xattr_reply(reply, &value, size),
             None => reply.error(Errno::ENODATA),
         }
@@ -343,7 +343,7 @@ impl Filesystem for MountFs {
         let Some(path) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
-        xattr_reply(reply, &self.wire.adapter.xattrs().list(&path), size);
+        xattr_reply(reply, &self.wire.adapter.fs().xattr().list(&path), size);
     }
 
     fn removexattr(&self, _req: &Request, ino: INodeNo, name: &OsStr, reply: ReplyEmpty) {
@@ -353,7 +353,7 @@ impl Filesystem for MountFs {
         let Some(name) = name.to_str() else {
             return reply.error(Errno::EINVAL);
         };
-        match self.wire.adapter.xattr_remove(&path, name) {
+        match self.wire.adapter.fs().xattr().remove(&path, name) {
             Ok(()) => reply.ok(),
             Err(errno) => reply.error(errno),
         }
@@ -440,7 +440,7 @@ impl Wire {
     }
 
     fn attr(&self, path: &RelPath) -> Option<FileAttr> {
-        let (is_dir, size, mtime) = self.adapter.attr(path).ok()??;
+        let (is_dir, size, mtime) = self.adapter.fs().attr(path).ok()??;
         Some(self.make_attr(self.ino(path), is_dir, size, mtime))
     }
 

@@ -67,12 +67,12 @@ impl Rig {
 
     pub fn settle(&self) {
         std::thread::sleep(Duration::from_millis(500));
-        self.rt.block_on(self.adapter.flush(Duration::from_secs(10)));
+        self.rt.block_on(self.adapter.system().flush(Duration::from_secs(10)));
     }
 
     pub fn settle_for(&self, timeout: Duration) {
         std::thread::sleep(Duration::from_millis(500));
-        self.rt.block_on(self.adapter.flush(timeout));
+        self.rt.block_on(self.adapter.system().flush(timeout));
     }
 
     pub fn restart(&mut self) {
