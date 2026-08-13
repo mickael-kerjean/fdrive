@@ -2,8 +2,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 use crate::path::RelPath;
+use crate::port::LocalStore;
 
-use super::Download;
+use super::{Download, Engine};
 
 #[derive(Default)]
 pub(super) struct Transfers {
@@ -41,6 +42,43 @@ impl Drop for Frozen<'_> {
         let mut set = self.set.lock().unwrap();
         for path in &self.paths {
             set.remove(path);
+        }
+    }
+}
+
+impl<T: LocalStore> Engine<T> {
+    pub(super) fn freeze(&self, paths: &[&RelPath]) -> Frozen<'_> {
+        let paths: Vec<RelPath> = paths.iter().map(|p| (*p).clone()).collect();
+        let mut set = self.frozen.lock().unwrap();
+        for path in &paths {
+            set.insert(path.clone());
+        }
+        Frozen {
+            set: &self.frozen,
+            paths,
+        }
+    }
+
+    pub(super) fn is_frozen(&self, path: &RelPath) -> bool {
+        self.frozen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| path == p || path.is_descendant_of(p))
+    }
+
+    pub(super) async fn wait_uploads(&self, path: &RelPath, subtree: bool) {
+        let gates: Vec<Arc<tokio::sync::Mutex<()>>> = self
+            .transfers
+            .uploading
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(p, _)| *p == path || (subtree && p.is_descendant_of(path)))
+            .map(|(_, gate)| gate.clone())
+            .collect();
+        for gate in gates {
+            let _gate = gate.lock().await;
         }
     }
 }
