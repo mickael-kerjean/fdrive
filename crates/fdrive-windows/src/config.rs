@@ -11,39 +11,23 @@ pub struct AppConfig {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct WindowsConfig {
-    #[serde(default = "default_provider_name")]
     pub provider_name: String,
-    #[serde(default = "default_true")]
     pub allow_pinning: bool,
-    #[serde(default = "default_refresh")]
     pub refresh_secs: u64,
-    #[serde(default)]
     pub icon: Option<String>,
 }
 
 impl Default for WindowsConfig {
     fn default() -> Self {
         Self {
-            provider_name: default_provider_name(),
+            provider_name: "Filestash".to_string(),
             allow_pinning: true,
-            refresh_secs: default_refresh(),
+            refresh_secs: 10,
             icon: None,
         }
     }
-}
-
-fn default_provider_name() -> String {
-    "Filestash".to_string()
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn default_refresh() -> u64 {
-    10
 }
 
 impl AppConfig {

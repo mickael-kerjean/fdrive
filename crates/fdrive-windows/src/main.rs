@@ -138,7 +138,7 @@ async fn run(
         root.to_path_buf(),
         data,
     )?;
-    let mut upload_status = adapter.upload_status();
+    let mut upload_status = adapter.status().watch();
 
     let rest = creds
         .url
@@ -165,7 +165,7 @@ async fn run(
             provider_id: wire::PROVIDER_ID,
         },
     )?;
-    let connection = adapter.connect(root)?;
+    let connection = adapter.system().connect(root)?;
     log::info!("sync root {} connected", root.display());
     if browse {
         gui::open_folder(root);
@@ -175,9 +175,9 @@ async fn run(
     watcher::spawn(root, changes_tx)?;
     let (views_tx, mut views) = tokio::sync::mpsc::unbounded_channel();
     viewer::spawn(root, views_tx)?;
-    adapter.recover().await?;
+    adapter.system().recover().await?;
 
-    tray.attach(adapter.activity());
+    tray.attach(adapter.status().activity());
     tray.set_status(Status::Ok);
     let refresh_every = Duration::from_secs(config.windows.refresh_secs.max(2));
     let mut refreshed: HashMap<RelPath, Instant> = HashMap::new();
@@ -197,10 +197,10 @@ async fn run(
                     Some(TrayEvent::Refresh) => {
                         let adapter = adapter.clone();
                         let tray = tray.clone();
-                        let status = adapter.upload_status();
+                        let status = adapter.status().watch();
                         tokio::spawn(async move {
                             tray.set_status(Status::Syncing);
-                            if let Err(err) = adapter.resync().await {
+                            if let Err(err) = adapter.system().resync().await {
                                 log::warn!("refresh: {err}");
                             }
                             tray.set_status(tray_status(*status.borrow()));
@@ -210,7 +210,7 @@ async fn run(
                 }
             },
             Some(path) = changes.recv() => {
-                adapter.on_change(&path).await;
+                adapter.fs().on_change(&path).await;
             }
             Some((dir, newly)) = views.recv() => {
                 let due = newly
@@ -221,7 +221,7 @@ async fn run(
                     refreshed.insert(dir.clone(), Instant::now());
                     let adapter = adapter.clone();
                     tokio::spawn(async move {
-                        if let Err(err) = adapter.refresh(&dir).await {
+                        if let Err(err) = adapter.fs().refresh(&dir).await {
                             log::warn!("refresh {dir}: {err}");
                         }
                     });
@@ -234,7 +234,7 @@ async fn run(
                 if sweep_task.as_ref().is_none_or(|task| task.is_finished()) {
                     let adapter = adapter.clone();
                     sweep_task = Some(tokio::spawn(async move {
-                        if let Err(err) = adapter.recover().await {
+                        if let Err(err) = adapter.system().recover().await {
                             log::error!("sweep: {err}");
                         }
                     }));
@@ -244,10 +244,10 @@ async fn run(
     };
 
     log::info!("disconnecting");
-    adapter.flush(Duration::from_secs(30)).await;
+    adapter.system().flush(Duration::from_secs(30)).await;
     if matches!(end, SessionEnd::Logout) {
         connection.disconnect();
-        if let Err(err) = adapter.vacuum() {
+        if let Err(err) = adapter.system().vacuum() {
             log::warn!("vacuum on logout: {err}");
         }
         match shell::unregister(&sync_root_id) {
