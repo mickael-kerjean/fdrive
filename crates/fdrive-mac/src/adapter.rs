@@ -162,7 +162,7 @@ impl Adapter {
 
     pub async fn thumbnail(&self, path: String) -> Result<Vec<u8>, FsError> {
         let path = RelPath::new(&path);
-        Ok(self.engine.sdk().thumbnail(&path.as_file()).await?)
+        Ok(self.engine.thumbnail(&path).await?)
     }
 
     pub fn create(&self, path: String) -> Result<String, FsError> {
@@ -189,7 +189,7 @@ impl Adapter {
 
     pub async fn mkdir(&self, path: String) -> Result<(), FsError> {
         let path = RelPath::new(&path);
-        self.engine.sdk().mkdir(&path.as_dir()).await?;
+        self.engine.mkdir(&path).await?;
         self.engine.local().invalidate(&path.parent_or_root());
         Ok(())
     }
@@ -236,7 +236,7 @@ impl Adapter {
         let listing = match cached {
             Some(listing) => listing,
             None => {
-                let listing = self.engine.sdk().ls(&directory.as_dir()).await?;
+                let listing = self.engine.ls(directory).await?;
                 self.engine.listed(directory, &listing);
                 self.engine
                     .local()

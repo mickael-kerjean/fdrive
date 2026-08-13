@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -10,7 +9,7 @@ use tokio::sync::watch;
 use crate::model::Operation;
 use crate::path::RelPath;
 use crate::port::LocalStore;
-use crate::sdk::{Error as SdkError, Sdk};
+use crate::sdk::Sdk;
 
 use super::gates::Transfers;
 use super::state::{LedgerGuard, State, Step};
@@ -41,60 +40,8 @@ impl<T: LocalStore> Engine<T> {
         self.activity.clone()
     }
 
-    pub fn created(&self, path: &RelPath) {
-        self.record(Operation::Create(path.clone()));
-    }
-
-    pub fn modified(&self, path: &RelPath) {
-        self.record(Operation::Write(path.clone()));
-    }
-
-    pub async fn delete(&self, path: &RelPath, is_dir: bool) -> io::Result<()> {
-        if is_dir {
-            self.state().plan_delete_dir(path);
-            self.kick();
-            log::info!("journaled rmdir {path}/");
-            return Ok(());
-        }
-        self.record(Operation::Delete(path.clone()));
-        Ok(())
-    }
-
-    pub async fn rename(&self, from: &RelPath, to: &RelPath, is_dir: bool) -> io::Result<()> {
-        if is_dir {
-            self.flush(Duration::from_secs(60)).await;
-            let _frozen = self.freeze(&[from, to]);
-            self.wait_uploads(from, true).await;
-            self.wait_uploads(to, false).await;
-            match self.sdk.mv(&from.as_dir(), &to.as_dir()).await {
-                Ok(()) | Err(SdkError::NotFound) => {}
-                Err(err) => return Err(err.into()),
-            }
-            self.ledger().remap(from, to);
-            log::info!("renamed {from}/ -> {to}/");
-            return Ok(());
-        }
-        self.record(Operation::Rename(from.clone(), to.clone()));
-        Ok(())
-    }
-
     pub async fn flush(&self, timeout: Duration) {
         self.scheduler.flush(timeout).await;
-    }
-
-    pub fn released(&self, path: &RelPath) {
-        if self.ledger().dirty.contains(path) {
-            self.kick();
-        }
-    }
-
-    pub fn write_opened(&self, path: &RelPath) {
-        self.state().write_opened(path);
-    }
-
-    pub fn write_closed(&self, path: &RelPath) {
-        self.state().write_closed(path);
-        self.kick();
     }
 
     pub fn upload_status(&self) -> watch::Receiver<UploadStatus> {
@@ -150,11 +97,11 @@ impl<T: LocalStore> Engine<T> {
         self.state.lock().unwrap()
     }
 
-    fn kick(&self) {
+    pub(super) fn kick(&self) {
         self.scheduler.kick();
     }
 
-    fn freeze(&self, paths: &[&RelPath]) -> Frozen<'_> {
+    pub(super) fn freeze(&self, paths: &[&RelPath]) -> Frozen<'_> {
         let paths: Vec<RelPath> = paths.iter().map(|p| (*p).clone()).collect();
         let mut set = self.frozen.lock().unwrap();
         for path in &paths {
@@ -174,7 +121,7 @@ impl<T: LocalStore> Engine<T> {
             .any(|p| path == p || path.is_descendant_of(p))
     }
 
-    async fn wait_uploads(&self, path: &RelPath, subtree: bool) {
+    pub(super) async fn wait_uploads(&self, path: &RelPath, subtree: bool) {
         let gates: Vec<Arc<tokio::sync::Mutex<()>>> = self
             .transfers
             .uploading
@@ -187,10 +134,6 @@ impl<T: LocalStore> Engine<T> {
         for gate in gates {
             let _gate = gate.lock().await;
         }
-    }
-
-    pub fn sdk(&self) -> &Arc<Sdk> {
-        &self.sdk
     }
 
     pub fn block_on<F: std::future::Future>(&self, fut: F) -> F::Output {

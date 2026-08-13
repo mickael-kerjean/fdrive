@@ -19,7 +19,7 @@ impl Fs<'_> {
         let listing = match self
             .0
             .engine
-            .block_on(self.0.engine.sdk().ls(&dir.as_dir()))
+            .block_on(self.0.engine.ls(dir))
         {
             Ok(listing) => listing,
             Err(SdkError::NotFound) => return Ok(()),
@@ -65,7 +65,7 @@ impl Fs<'_> {
                 return;
             };
             if !state.placeholder {
-                match self.0.engine.sdk().mkdir(&path.as_dir()).await {
+                match self.0.engine.mkdir(path).await {
                     Ok(()) => log::info!("mkdir {path}"),
                     Err(err) => log::debug!("mkdir {path}: {err}"),
                 }
@@ -123,7 +123,7 @@ impl Fs<'_> {
             }
             refreshing.insert(dir.clone(), Instant::now());
         }
-        let result = match self.0.engine.sdk().ls(&dir.as_dir()).await {
+        let result = match self.0.engine.ls(dir).await {
             Ok(listing) => {
                 let this = self.0.clone();
                 let dir2 = dir.clone();
