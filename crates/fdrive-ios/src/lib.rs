@@ -1,8 +1,3 @@
-//! The iOS adapter: like android, an online-first gateway backed by the core
-//! engine. Document ids are server paths (directories end with '/'). The
-//! Files app talks to the FileProvider extension, which owns the one Adapter
-//! instance; the companion app only logs in and registers the domain.
-
 use std::io;
 
 use fdrive_core::sdk;

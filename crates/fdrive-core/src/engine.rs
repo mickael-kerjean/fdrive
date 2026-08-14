@@ -16,7 +16,6 @@ mod view;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 use self::{ledger::Ledger, play::Outcome};
-
 pub use self::{
     cache::Cache, download::Reader, fs::Fs, scheduler::UploadStatus, state::LedgerGuard,
     status::Status, system::System, view::View,
@@ -27,12 +26,9 @@ pub struct Engine<T: crate::port::LocalStore> {
     local: T,
     sdk: Arc<crate::sdk::Sdk>,
     ignore: crate::config::Ignore,
-
     state: Mutex<state::State>,
-
     transfers: gates::Transfers,
     frozen: Mutex<BTreeSet<crate::path::RelPath>>,
-
     scheduler: scheduler::Handle,
     rt: tokio::runtime::Handle,
     activity: Arc<crate::activity::Activity>,

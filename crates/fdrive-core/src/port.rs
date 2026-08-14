@@ -1,7 +1,3 @@
-//! The port: what the core asks of a platform. Owned by the core and
-//! grown by extraction — an operation lands here when a second adapter
-//! demonstrably duplicates the first, never on speculation.
-
 use std::io;
 use std::path::PathBuf;
 use std::time::SystemTime;

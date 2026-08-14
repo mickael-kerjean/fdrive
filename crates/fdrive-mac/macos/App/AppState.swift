@@ -53,6 +53,7 @@ final class AppState: ObservableObject {
             try await DomainManager.add()
             syncStatus = .upToDate
             try? SMAppService.mainApp.register()
+            try? await DomainManager.open()
         } catch {
             RuntimeSessionStore.clear()
             let error = error as NSError
