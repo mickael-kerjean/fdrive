@@ -11,25 +11,9 @@ use crate::port::LocalStore;
 use super::Engine;
 use crate::model::Observation;
 
+pub struct Cache<'a, T: LocalStore>(pub(super) &'a Engine<T>);
+
 impl<T: LocalStore> Engine<T> {
-    pub fn pin(&self, path: &RelPath) {
-        self.ledger().pin_set(path);
-        log::info!("pinned {path}");
-        self.pin_sweep();
-    }
-
-    pub fn unpin(&self, path: &RelPath) {
-        self.ledger().pin_clear(path);
-        log::info!("unpinned {path}");
-    }
-
-    pub fn pinned(&self, path: &RelPath) -> bool {
-        self.ledger()
-            .pins
-            .iter()
-            .any(|p| path == p || path.is_descendant_of(p))
-    }
-
     pub(super) fn pin_sweep(&self) {
         self.scheduler.sweep();
     }
@@ -47,7 +31,7 @@ impl<T: LocalStore> Engine<T> {
             let listing = match self.sdk.ls(&dir.as_dir()).await {
                 Ok(listing) => listing,
                 Err(_) if dir == *root => {
-                    if let Err(err) = self.hydrate(root, None).await {
+                    if let Err(err) = self.cache().hydrate(root, None).await {
                         log::debug!("pin {root}: {err}");
                     }
                     return;
@@ -57,7 +41,7 @@ impl<T: LocalStore> Engine<T> {
                     continue;
                 }
             };
-            self.listed(&dir, &listing);
+            self.view().note(&dir, &listing);
             for entry in listing {
                 let child = dir.join(&entry.name);
                 if child.parent_or_root() != dir {
@@ -67,10 +51,10 @@ impl<T: LocalStore> Engine<T> {
                     crate::sdk::FileType::Directory => dirs.push(child),
                     crate::sdk::FileType::File => {
                         let hint = Observation::of(&entry);
-                        if self.content_current(&child, hint) {
+                        if self.view().current(&child, hint) {
                             continue;
                         }
-                        if let Err(err) = self.hydrate(&child, Some(hint)).await {
+                        if let Err(err) = self.cache().hydrate(&child, Some(hint)).await {
                             log::debug!("pin {child}: {err}");
                         }
                     }
@@ -78,9 +62,30 @@ impl<T: LocalStore> Engine<T> {
             }
         }
     }
+}
 
-    pub fn prune(&self, cache_root: &Path) -> io::Result<()> {
-        if std::mem::take(&mut self.ledger().unreadable) {
+impl<'a, T: LocalStore> Cache<'a, T> {
+    pub fn pin(&self, path: &RelPath) {
+        self.0.ledger().pin_set(path);
+        log::info!("pinned {path}");
+        self.0.pin_sweep();
+    }
+
+    pub fn unpin(&self, path: &RelPath) {
+        self.0.ledger().pin_clear(path);
+        log::info!("unpinned {path}");
+    }
+
+    pub fn pinned(&self, path: &RelPath) -> bool {
+        self.0
+            .ledger()
+            .pins
+            .iter()
+            .any(|p| path == p || path.is_descendant_of(p))
+    }
+
+    pub fn evict(&self, cache_root: &Path) -> io::Result<()> {
+        if std::mem::take(&mut self.0.ledger().unreadable) {
             let stamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -97,15 +102,15 @@ impl<T: LocalStore> Engine<T> {
             fs::create_dir_all(cache_root)?;
             return Ok(());
         }
-        let owed: BTreeSet<RelPath> = self.state().owed();
-        let ledger = self.ledger();
+        let owed: BTreeSet<RelPath> = self.0.state().owed();
+        let ledger = self.0.ledger();
         let pins = ledger.pins.clone();
         let keep: Vec<PathBuf> = ledger
             .dirty
             .iter()
             .chain(owed.iter())
             .chain(pins.iter())
-            .map(|p| self.local.backing(p))
+            .map(|p| self.0.local.backing(p))
             .collect();
         drop(ledger);
         prune_dir(cache_root, &keep)?;

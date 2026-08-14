@@ -13,7 +13,7 @@ use crate::port::LocalStore;
 use crate::activity::{Direction, Mode};
 use crate::sdk::{CatDelta, Error as SdkError, FileInfo};
 
-use super::Engine;
+use super::{Cache, Engine};
 use crate::model::{Fate, Observation};
 
 fn part_file(abs: &Path) -> PathBuf {
@@ -31,13 +31,13 @@ pub(super) enum DownloadStatus {
     Failed,
 }
 
-pub struct Download {
+pub struct Reader {
     file: fs::File,
     state: watch::Receiver<(u64, DownloadStatus)>,
     abort: AtomicBool,
 }
 
-impl Download {
+impl Reader {
     pub async fn read(&self, offset: u64, size: u32) -> io::Result<Vec<u8>> {
         let end = offset + size as u64;
         let mut state = self.state.clone();
@@ -109,39 +109,41 @@ fn pwrite(file: &fs::File, mut buf: &[u8], mut offset: u64) -> io::Result<()> {
     Ok(())
 }
 
-impl<T: LocalStore> Engine<T> {
+impl<'a, T: LocalStore> Cache<'a, T> {
     pub async fn hydrate(&self, path: &RelPath, current: Option<Observation>) -> io::Result<()> {
-        self.hydrate_start(path, current).await?;
-        let download = self.transfers.downloads.lock().unwrap().get(path).cloned();
-        match download {
-            Some(download) => download.done().await,
+        self.prefetch(path, current).await?;
+        let reader = self.0.transfers.downloads.lock().unwrap().get(path).cloned();
+        match reader {
+            Some(reader) => reader.done().await,
             None => Ok(()),
         }
     }
 
-    pub async fn hydrate_start(
+    pub async fn prefetch(
         &self,
         path: &RelPath,
         current: Option<Observation>,
     ) -> io::Result<()> {
-        let gate = self.transfers.hydrate_gate(path);
+        let gate = self.0.transfers.hydrate_gate(path);
         let _gate = gate.lock().await;
-        self.fetch_start(path, current).await
+        self.0.fetch_start(path, current).await
     }
 
-    pub fn hydrate_cancel(&self, path: &RelPath) {
-        if let Some(download) = self.transfers.downloads.lock().unwrap().get(path) {
-            download.abort.store(true, Ordering::Relaxed);
+    pub fn cancel(&self, path: &RelPath) {
+        if let Some(reader) = self.0.transfers.downloads.lock().unwrap().get(path) {
+            reader.abort.store(true, Ordering::Relaxed);
         }
     }
 
-    pub fn download(&self, path: &RelPath) -> Option<Arc<Download>> {
-        if self.ledger().dirty.contains(path) {
+    pub fn reader(&self, path: &RelPath) -> Option<Arc<Reader>> {
+        if self.0.ledger().dirty.contains(path) {
             return None;
         }
-        self.transfers.downloads.lock().unwrap().get(path).cloned()
+        self.0.transfers.downloads.lock().unwrap().get(path).cloned()
     }
+}
 
+impl<T: LocalStore> Engine<T> {
     async fn fetch_start(&self, path: &RelPath, current: Option<Observation>) -> io::Result<()> {
         if self.transfers.downloads.lock().unwrap().contains_key(path) {
             return Ok(());
@@ -190,7 +192,7 @@ impl<T: LocalStore> Engine<T> {
             .downloads
             .lock()
             .unwrap()
-            .insert(path.clone(), Arc::new(Download { file, state, abort: AtomicBool::new(false) }));
+            .insert(path.clone(), Arc::new(Reader { file, state, abort: AtomicBool::new(false) }));
         self.scheduler.stream(path.clone(), tmp, tx, current);
         Ok(())
     }

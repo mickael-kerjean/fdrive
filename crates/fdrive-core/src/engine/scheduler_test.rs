@@ -17,8 +17,8 @@ async fn the_scheduler_replays_concurrently() {
     for name in ["a", "b", "c", "d"] {
         let path = RelPath::new(name);
         engine.local().write(name, b"x");
-        engine.created(&path);
-        engine.modified(&path);
+        engine.fs().created(&path);
+        engine.fs().modified(&path);
     }
     settle(&engine).await;
     save.assert_hits(4);

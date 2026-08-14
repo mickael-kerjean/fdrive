@@ -13,14 +13,12 @@ use crate::xattr::XattrDb;
 
 mod cache;
 mod fs;
-mod status;
 mod system;
 mod utils;
 mod xattr;
 
 pub use cache::Cache;
 pub use fs::Fs;
-pub use status::Status;
 pub use system::System;
 pub use xattr::Xattr;
 
@@ -98,7 +96,7 @@ impl Adapter {
             handles: Handles::default(),
         };
         adapter.prune()?;
-        adapter.engine.recover();
+        adapter.engine.system().recover();
         Ok(adapter)
     }
 
@@ -114,12 +112,12 @@ impl Adapter {
         System(self)
     }
 
-    pub fn status(&self) -> Status<'_> {
-        Status(self)
+    pub fn status(&self) -> fdrive_core::engine::Status<'_, CacheTree> {
+        self.engine.status()
     }
 
     fn prune(&self) -> io::Result<()> {
-        self.engine.prune(&self.engine.local().cache_dir)
+        self.engine.cache().evict(&self.engine.local().cache_dir)
     }
 
     fn entry(&self, path: &RelPath) -> io::Result<Option<FileInfo>> {

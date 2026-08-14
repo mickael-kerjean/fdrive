@@ -111,8 +111,8 @@ impl Adapter {
             meta: Mutex::new(HashMap::new()),
         };
         let engine = Engine::start(runtime.handle().clone(), Arc::new(sdk), tree);
-        engine.prune(&cache_dir)?;
-        engine.recover();
+        engine.cache().evict(&cache_dir)?;
+        engine.system().recover();
         Ok(Arc::new(Self { _runtime: runtime, engine }))
     }
 
@@ -123,7 +123,7 @@ impl Adapter {
 
     pub async fn stat(&self, path: String) -> Result<Entry, FsError> {
         let path = RelPath::new(&path);
-        if let Some(metadata) = self.engine.dirty_metadata(&path) {
+        if let Some(metadata) = self.engine.view().pending_metadata(&path) {
             return Ok(Entry::from(sdk::FileInfo {
                 name: path.name().to_string(),
                 kind: sdk::FileType::File,
@@ -146,23 +146,23 @@ impl Adapter {
         if let Ok(listing) = self.listing(&path.parent_or_root()).await {
             if let Some(entry) = listing.iter().find(|entry| entry.name == path.name()) {
                 let observation = Observation::of(entry);
-                if self.engine.content_current(&path, observation) {
+                if self.engine.view().current(&path, observation) {
                     return Ok(self.local_path(&path));
                 }
                 current = Some(observation);
             }
         }
-        self.engine.hydrate(&path, current).await?;
+        self.engine.cache().hydrate(&path, current).await?;
         Ok(self.local_path(&path))
     }
 
     pub fn cancel(&self, path: String) {
-        self.engine.hydrate_cancel(&RelPath::new(&path));
+        self.engine.cache().cancel(&RelPath::new(&path));
     }
 
     pub async fn thumbnail(&self, path: String) -> Result<Vec<u8>, FsError> {
         let path = RelPath::new(&path);
-        Ok(self.engine.thumbnail(&path).await?)
+        Ok(self.engine.fs().thumbnail(&path).await?)
     }
 
     pub fn create(&self, path: String) -> Result<String, FsError> {
@@ -172,24 +172,24 @@ impl Adapter {
             fs::create_dir_all(parent)?;
         }
         fs::File::create(&local)?;
-        self.engine.created(&path);
+        self.engine.fs().created(&path);
         self.engine.local().invalidate(&path.parent_or_root());
         Ok(self.local_path(&path))
     }
 
     pub fn saved(&self, path: String) {
         let path = RelPath::new(&path);
-        self.engine.modified(&path);
-        self.engine.released(&path);
+        self.engine.fs().modified(&path);
+        self.engine.fs().released(&path);
     }
 
     pub async fn flush(&self, timeout_ms: u64) {
-        self.engine.flush(Duration::from_millis(timeout_ms)).await;
+        self.engine.system().flush(Duration::from_millis(timeout_ms)).await;
     }
 
     pub async fn mkdir(&self, path: String) -> Result<(), FsError> {
         let path = RelPath::new(&path);
-        self.engine.mkdir(&path).await?;
+        self.engine.fs().mkdir(&path).await?;
         self.engine.local().invalidate(&path.parent_or_root());
         Ok(())
     }
@@ -197,7 +197,7 @@ impl Adapter {
     pub async fn delete(&self, path: String) -> Result<(), FsError> {
         let is_directory = path.ends_with('/');
         let path = RelPath::new(&path);
-        self.engine.delete(&path, is_directory).await?;
+        self.engine.fs().delete(&path, is_directory).await?;
         let local = self.engine.local().backing(&path);
         let _ = if is_directory {
             fs::remove_dir_all(local)
@@ -213,7 +213,7 @@ impl Adapter {
         let is_directory = from.ends_with('/');
         let from = RelPath::new(&from);
         let to = RelPath::new(&to);
-        self.engine.rename(&from, &to, is_directory).await?;
+        self.engine.fs().rename(&from, &to, is_directory).await?;
         let local = self.engine.local().backing(&from);
         if local.exists() {
             self.engine.local().relocate(&from, &to)?;
@@ -236,8 +236,8 @@ impl Adapter {
         let listing = match cached {
             Some(listing) => listing,
             None => {
-                let listing = self.engine.ls(directory).await?;
-                self.engine.listed(directory, &listing);
+                let listing = self.engine.fs().ls(directory).await?;
+                self.engine.view().note(directory, &listing);
                 self.engine
                     .local()
                     .meta
@@ -247,7 +247,7 @@ impl Adapter {
                 listing
             }
         };
-        Ok(self.engine.overlay(directory, listing))
+        Ok(self.engine.view().merge(directory, listing))
     }
 
     fn local_path(&self, path: &RelPath) -> String {

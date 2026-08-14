@@ -9,6 +9,8 @@ use crate::sdk::FileInfo;
 use super::Engine;
 use crate::model::{Fate, Observation};
 
+pub struct View<'a, T: LocalStore>(pub(super) &'a Engine<T>);
+
 impl<T: LocalStore> Engine<T> {
     pub(super) fn fates(&self) -> BTreeMap<RelPath, Fate> {
         self.state().view().fates
@@ -20,10 +22,12 @@ impl<T: LocalStore> Engine<T> {
             _ => None,
         }
     }
+}
 
-    pub fn listed(&self, dir: &RelPath, entries: &[FileInfo]) {
-        let fates = self.fates();
-        let mut ledger = self.ledger();
+impl<'a, T: LocalStore> View<'a, T> {
+    pub fn note(&self, dir: &RelPath, entries: &[FileInfo]) {
+        let fates = self.0.fates();
+        let mut ledger = self.0.ledger();
         for e in entries {
             if e.kind != crate::sdk::FileType::File {
                 continue;
@@ -36,7 +40,7 @@ impl<T: LocalStore> Engine<T> {
             if ledger.observations.get(&path) == Some(&obs) {
                 continue;
             }
-            let advance = match fs::metadata(self.local.backing(&path)) {
+            let advance = match fs::metadata(self.0.local.backing(&path)) {
                 Ok(md) => Observation::of_local(&md) == obs,
                 Err(_) => true,
             };
@@ -46,8 +50,8 @@ impl<T: LocalStore> Engine<T> {
         }
     }
 
-    pub fn overlay(&self, dir: &RelPath, mut listing: Vec<FileInfo>) -> Vec<FileInfo> {
-        let fates = self.fates();
+    pub fn merge(&self, dir: &RelPath, mut listing: Vec<FileInfo>) -> Vec<FileInfo> {
+        let fates = self.0.fates();
         listing.retain(|e| {
             let path = dir.join(&e.name);
             !matches!(fates.get(&path), Some(Fate::Gone))
@@ -63,7 +67,7 @@ impl<T: LocalStore> Engine<T> {
             if listing.iter().any(|e| e.name == name) {
                 continue;
             }
-            let (size, mtime) = match fs::metadata(self.local.backing(path)) {
+            let (size, mtime) = match fs::metadata(self.0.local.backing(path)) {
                 Ok(md) => (md.len(), md.modified().ok()),
                 Err(_) => (was.size, Some(UNIX_EPOCH + Duration::from_secs(was.time))),
             };
@@ -76,7 +80,7 @@ impl<T: LocalStore> Engine<T> {
             });
         }
         let extras: Vec<RelPath> = {
-            let ledger = self.ledger();
+            let ledger = self.0.ledger();
             ledger
                 .dirty
                 .iter()
@@ -87,7 +91,7 @@ impl<T: LocalStore> Engine<T> {
         for path in extras {
             let name = path.name();
             if !listing.iter().any(|e| e.name == name) {
-                if let Ok(md) = fs::metadata(self.local.backing(&path)) {
+                if let Ok(md) = fs::metadata(self.0.local.backing(&path)) {
                     listing.push(FileInfo {
                         name: name.to_string(),
                         kind: crate::sdk::FileType::File,
@@ -102,7 +106,7 @@ impl<T: LocalStore> Engine<T> {
     }
 
     pub fn remembered(&self, dir: &RelPath) -> Vec<FileInfo> {
-        let ledger = self.ledger();
+        let ledger = self.0.ledger();
         let mut listing = Vec::new();
         let mut dirs = std::collections::BTreeSet::new();
         for (path, obs) in &ledger.observations {
@@ -136,42 +140,42 @@ impl<T: LocalStore> Engine<T> {
         listing
     }
 
-    pub fn observed(&self, path: &RelPath) -> Option<Observation> {
-        self.ledger().observations.get(path).copied()
+    pub fn seen(&self, path: &RelPath) -> Option<Observation> {
+        self.0.ledger().observations.get(path).copied()
     }
 
-    pub fn is_dirty(&self, path: &RelPath) -> bool {
-        self.ledger().dirty.contains(path)
+    pub fn dirty(&self, path: &RelPath) -> bool {
+        self.0.ledger().dirty.contains(path)
     }
 
-    pub fn needs_baseline(&self, path: &RelPath) -> bool {
-        let ledger = self.ledger();
+    pub fn untracked(&self, path: &RelPath) -> bool {
+        let ledger = self.0.ledger();
         !ledger.observations.contains_key(path) && !ledger.dirty.contains(path)
     }
 
     pub async fn overwriting(&self, path: &RelPath) {
-        if self.needs_baseline(path) {
-            if let Ok(info) = self.sdk.stat(&path.as_file()).await {
-                self.ledger().observe(path, Observation::of(&info));
+        if self.untracked(path) {
+            if let Ok(info) = self.0.sdk.stat(&path.as_file()).await {
+                self.0.ledger().observe(path, Observation::of(&info));
             }
         }
     }
 
-    pub fn content_current(&self, path: &RelPath, current: Observation) -> bool {
+    pub fn current(&self, path: &RelPath, remote: Observation) -> bool {
         let (observed, dirty) = {
-            let ledger = self.ledger();
+            let ledger = self.0.ledger();
             (
                 ledger.observations.get(path).copied(),
                 ledger.dirty.contains(path),
             )
         };
-        dirty || (observed == Some(current) && self.local.backing(path).is_file())
+        dirty || (observed == Some(remote) && self.0.local.backing(path).is_file())
     }
 
-    pub fn dirty_metadata(&self, path: &RelPath) -> Option<fs::Metadata> {
-        if !self.ledger().dirty.contains(path) {
+    pub fn pending_metadata(&self, path: &RelPath) -> Option<fs::Metadata> {
+        if !self.0.ledger().dirty.contains(path) {
             return None;
         }
-        fs::metadata(self.local.backing(path)).ok()
+        fs::metadata(self.0.local.backing(path)).ok()
     }
 }

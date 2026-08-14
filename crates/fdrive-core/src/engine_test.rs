@@ -13,8 +13,8 @@ async fn modified_marks_the_debt_once() {
     let server = MockServer::start();
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.modified(&path);
-    engine.modified(&path);
+    engine.fs().modified(&path);
+    engine.fs().modified(&path);
     assert!(engine.ledger().dirty.contains(&path));
 }
 
@@ -27,7 +27,7 @@ async fn created_keeps_the_lease() {
         .ledger()
         .observations
         .insert(path.clone(), Observation::new(1, None));
-    engine.created(&path);
+    engine.fs().created(&path);
     let ledger = engine.ledger();
     assert!(ledger.dirty.contains(&path));
     assert!(
@@ -58,10 +58,10 @@ async fn the_vim_dance_is_one_save() {
     engine.ledger().observations.insert(a.clone(), observed(2));
     engine.local().write("a", b"v2");
 
-    engine.rename(&a, &backup, false).await.unwrap();
-    engine.created(&a);
-    engine.modified(&a);
-    engine.delete(&backup, false).await.unwrap();
+    engine.fs().rename(&a, &backup, false).await.unwrap();
+    engine.fs().created(&a);
+    engine.fs().modified(&a);
+    engine.fs().delete(&backup, false).await.unwrap();
     settle(&engine).await;
 
     save.assert_hits(1);
@@ -104,10 +104,10 @@ async fn the_backup_dance_moves_then_saves() {
     engine.ledger().observations.insert(x.clone(), observed(5));
     engine.local().write("x", b"newer");
 
-    engine.created(&tmp);
-    engine.modified(&tmp);
-    engine.rename(&x, &orig, false).await.unwrap();
-    engine.rename(&tmp, &x, false).await.unwrap();
+    engine.fs().created(&tmp);
+    engine.fs().modified(&tmp);
+    engine.fs().rename(&x, &orig, false).await.unwrap();
+    engine.fs().rename(&tmp, &x, false).await.unwrap();
     settle(&engine).await;
 
     stat.assert_hits(1);
@@ -133,10 +133,10 @@ async fn a_file_deleted_in_the_window_never_touches_the_server() {
     let engine = engine(&server);
     let path = RelPath::new("db-journal");
     engine.local().write("db-journal", b"tmp");
-    engine.created(&path);
-    engine.modified(&path);
-    engine.released(&path);
-    engine.delete(&path, false).await.unwrap();
+    engine.fs().created(&path);
+    engine.fs().modified(&path);
+    engine.fs().released(&path);
+    engine.fs().delete(&path, false).await.unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     save.assert_hits(0);
@@ -170,10 +170,10 @@ async fn dir_delete_never_ships_doomed_content() {
     let engine = engine(&server);
     let (dir, child) = (RelPath::new("d"), RelPath::new("d/f"));
     engine.local().write("d/f", b"x");
-    engine.created(&child);
-    engine.modified(&child);
+    engine.fs().created(&child);
+    engine.fs().modified(&child);
 
-    engine.delete(&dir, true).await.unwrap();
+    engine.fs().delete(&dir, true).await.unwrap();
     settle(&engine).await;
     save.assert_hits(0);
     rm_file.assert_hits(0);
@@ -203,7 +203,7 @@ async fn dir_delete_is_one_recursive_rm() {
     let (dir, child) = (RelPath::new("d"), RelPath::new("d/f"));
     engine.ledger().observations.insert(child, observed(1));
 
-    engine.delete(&dir, true).await.unwrap();
+    engine.fs().delete(&dir, true).await.unwrap();
     settle(&engine).await;
     rm_file.assert_hits(0);
     rm_dir.assert_hits(1);
@@ -241,9 +241,9 @@ async fn dir_delete_subsumes_the_wave_beneath_it() {
             .insert(child.clone(), observed(1));
     }
     for child in &children {
-        engine.delete(child, false).await.unwrap();
+        engine.fs().delete(child, false).await.unwrap();
     }
-    engine.delete(&dir, true).await.unwrap();
+    engine.fs().delete(&dir, true).await.unwrap();
     settle(&engine).await;
 
     rm_dir.assert_hits(1);
@@ -274,7 +274,7 @@ async fn a_mass_deletion_lands_unimpeded() {
             .insert(path.clone(), observed(1));
     }
     for path in &paths {
-        engine.delete(path, false).await.unwrap();
+        engine.fs().delete(path, false).await.unwrap();
     }
     settle(&engine).await;
 
@@ -300,10 +300,10 @@ async fn a_folder_delete_slower_than_the_window_cap_is_still_one_rm() {
             .insert(child.clone(), observed(1));
     }
     for child in &children {
-        engine.delete(child, false).await.unwrap();
+        engine.fs().delete(child, false).await.unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    engine.delete(&dir, true).await.unwrap();
+    engine.fs().delete(&dir, true).await.unwrap();
     settle(&engine).await;
 
     rm.assert_hits(1);
@@ -333,8 +333,8 @@ async fn nested_dir_deletes_collapse_into_the_root() {
         .observations
         .insert(RelPath::new("d/sub/f"), observed(1));
 
-    engine.delete(&RelPath::new("d/sub"), true).await.unwrap();
-    engine.delete(&RelPath::new("d"), true).await.unwrap();
+    engine.fs().delete(&RelPath::new("d/sub"), true).await.unwrap();
+    engine.fs().delete(&RelPath::new("d"), true).await.unwrap();
     settle(&engine).await;
 
     rm_root.assert_hits(1);
@@ -373,8 +373,8 @@ async fn a_move_out_of_a_dying_dir_saves_the_file() {
         .insert(from.clone(), observed(1));
     engine.local().write("e", b"survivor");
 
-    engine.rename(&from, &to, false).await.unwrap();
-    engine.delete(&RelPath::new("d"), true).await.unwrap();
+    engine.fs().rename(&from, &to, false).await.unwrap();
+    engine.fs().delete(&RelPath::new("d"), true).await.unwrap();
     settle(&engine).await;
 
     rm_dir.assert_hits(1);
@@ -410,8 +410,8 @@ async fn a_move_into_a_dying_dir_dooms_the_source() {
         .observations
         .insert(from.clone(), observed(1));
 
-    engine.rename(&from, &to, false).await.unwrap();
-    engine.delete(&RelPath::new("d"), true).await.unwrap();
+    engine.fs().rename(&from, &to, false).await.unwrap();
+    engine.fs().delete(&RelPath::new("d"), true).await.unwrap();
     settle(&engine).await;
 
     rm_dir.assert_hits(1);
@@ -433,7 +433,7 @@ async fn dir_delete_takes_unseen_files_with_it() {
     let engine = engine(&server);
     let dir = RelPath::new("d");
 
-    engine.delete(&dir, true).await.unwrap();
+    engine.fs().delete(&dir, true).await.unwrap();
     settle(&engine).await;
     rm.assert_hits(1);
 }
@@ -455,7 +455,7 @@ async fn dir_rename_propagates_and_remaps() {
         .observations
         .insert(RelPath::new("a/x"), Observation::new(1, None));
 
-    engine
+    engine.fs()
         .rename(&RelPath::new("a"), &RelPath::new("z"), true)
         .await
         .unwrap();
@@ -471,8 +471,8 @@ async fn rename_of_an_unuploaded_file_stays_local() {
     let engine = engine(&server);
     let (from, to) = (RelPath::new("f"), RelPath::new("g"));
     engine.local().write("f", b"bytes");
-    engine.modified(&from);
-    engine.rename(&from, &to, false).await.unwrap();
+    engine.fs().modified(&from);
+    engine.fs().rename(&from, &to, false).await.unwrap();
     assert!(engine.ledger().dirty.contains(&to));
     assert!(!engine.ledger().dirty.contains(&from));
 }
@@ -487,7 +487,7 @@ async fn an_offline_dir_rename_is_refused_before_touching_anything() {
         .observations
         .insert(RelPath::new("a/x"), Observation::new(1, None));
 
-    let refused = engine
+    let refused = engine.fs()
         .rename(&RelPath::new("a"), &RelPath::new("z"), true)
         .await;
     assert!(refused.is_err(), "the plane rename fails loudly");
@@ -515,9 +515,9 @@ async fn a_failed_save_lands_when_the_server_recovers() {
     let engine = engine(&server);
     let path = RelPath::new("f");
     engine.local().write("f", b"precious");
-    engine.created(&path);
-    engine.modified(&path);
-    engine.flush(Duration::from_millis(1200)).await;
+    engine.fs().created(&path);
+    engine.fs().modified(&path);
+    engine.system().flush(Duration::from_millis(1200)).await;
     assert!(
         engine.ledger().dirty.contains(&path),
         "the debt survives the outage"

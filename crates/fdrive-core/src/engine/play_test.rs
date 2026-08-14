@@ -20,7 +20,7 @@ async fn a_remove_deletes_the_server_copy() {
         .observations
         .insert(path.clone(), observed(5));
 
-    engine.delete(&path, false).await.unwrap();
+    engine.fs().delete(&path, false).await.unwrap();
     settle(&engine).await;
     rm.assert_hits(1);
     assert!(engine.ledger().observations.is_empty());
@@ -45,7 +45,7 @@ async fn a_remove_of_an_already_gone_file_retires() {
         .observations
         .insert(path.clone(), observed(5));
 
-    engine.delete(&path, false).await.unwrap();
+    engine.fs().delete(&path, false).await.unwrap();
     settle(&engine).await;
     rm.assert_hits(1);
     stat.assert_hits(1);
@@ -74,7 +74,7 @@ async fn a_move_follows_a_vanished_source_with_a_save() {
     engine.ledger().observations.insert(a.clone(), observed(5));
     engine.local().write("b", b"moved");
 
-    engine.rename(&a, &b, false).await.unwrap();
+    engine.fs().rename(&a, &b, false).await.unwrap();
     settle(&engine).await;
     save.assert_hits(1);
 }

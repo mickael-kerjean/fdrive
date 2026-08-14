@@ -4,12 +4,12 @@ use std::sync::{Arc, Mutex};
 use crate::path::RelPath;
 use crate::port::LocalStore;
 
-use super::{Download, Engine};
+use super::{Reader, Engine};
 
 #[derive(Default)]
 pub(super) struct Transfers {
     pub(super) hydrating: Mutex<HashMap<RelPath, Arc<tokio::sync::Mutex<()>>>>,
-    pub(super) downloads: Mutex<HashMap<RelPath, Arc<Download>>>,
+    pub(super) downloads: Mutex<HashMap<RelPath, Arc<Reader>>>,
     pub(super) uploading: Mutex<HashMap<RelPath, Arc<tokio::sync::Mutex<()>>>>,
 }
 

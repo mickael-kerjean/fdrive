@@ -14,13 +14,11 @@ use crate::wire;
 mod cache;
 mod fs;
 mod reconcile;
-mod status;
 mod system;
 mod utils;
 
 pub use cache::Cache;
 pub use fs::Fs;
-pub use status::Status;
 pub use system::System;
 use reconcile::Reconcile;
 
@@ -149,8 +147,8 @@ impl Adapter {
         System(self)
     }
 
-    pub fn status(self: &Arc<Self>) -> Status<'_> {
-        Status(self)
+    pub fn status(self: &Arc<Self>) -> fdrive_core::engine::Status<'_, PlaceholderTree> {
+        self.engine.status()
     }
 
     fn reconcile(self: &Arc<Self>) -> Reconcile<'_> {

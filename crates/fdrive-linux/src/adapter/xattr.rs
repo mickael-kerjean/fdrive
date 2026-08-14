@@ -10,7 +10,7 @@ pub struct Xattr<'a>(pub(super) &'a Adapter);
 impl Xattr<'_> {
     pub fn get(self, path: &RelPath, name: &str) -> Option<Vec<u8>> {
         if name == PIN_XATTR {
-            return self.0.engine.pinned(path).then(|| b"always".to_vec());
+            return self.0.engine.cache().pinned(path).then(|| b"always".to_vec());
         }
         self.0.xattrs.get(path, name)
     }
@@ -18,8 +18,8 @@ impl Xattr<'_> {
     pub fn set(self, path: &RelPath, name: &str, value: &[u8], flags: i32) -> Result<(), fuser::Errno> {
         if name == PIN_XATTR {
             match value {
-                b"always" => self.0.engine.pin(path),
-                b"auto" => self.0.engine.unpin(path),
+                b"always" => self.0.engine.cache().pin(path),
+                b"auto" => self.0.engine.cache().unpin(path),
                 _ => return Err(fuser::Errno::EINVAL),
             }
             return Ok(());
@@ -29,7 +29,7 @@ impl Xattr<'_> {
 
     pub fn remove(self, path: &RelPath, name: &str) -> Result<(), fuser::Errno> {
         if name == PIN_XATTR {
-            self.0.engine.unpin(path);
+            self.0.engine.cache().unpin(path);
             return Ok(());
         }
         self.0.xattrs.remove(path, name)

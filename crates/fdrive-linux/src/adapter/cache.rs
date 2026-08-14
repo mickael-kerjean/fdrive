@@ -11,18 +11,18 @@ pub struct Cache<'a>(pub(super) &'a Adapter);
 impl Cache<'_> {
     pub fn hydrate(self, path: &RelPath) -> io::Result<()> {
         let current = self.remote(path);
-        if current.is_some_and(|current| self.0.engine.content_current(path, current)) {
+        if current.is_some_and(|current| self.0.engine.view().current(path, current)) {
             return Ok(());
         }
-        self.0.engine.block_on(self.0.engine.hydrate(path, current))
+        self.0.engine.block_on(self.0.engine.cache().hydrate(path, current))
     }
 
     pub fn prefetch(self, path: &RelPath) -> io::Result<()> {
         let current = self.remote(path);
-        if current.is_some_and(|current| self.0.engine.content_current(path, current)) {
+        if current.is_some_and(|current| self.0.engine.view().current(path, current)) {
             return Ok(());
         }
-        self.0.engine.block_on(self.0.engine.hydrate_start(path, current))
+        self.0.engine.block_on(self.0.engine.cache().prefetch(path, current))
     }
 
     fn remote(self, path: &RelPath) -> Option<Observation> {

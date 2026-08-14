@@ -54,7 +54,7 @@ pub struct ActivitySnapshot {
 #[uniffi::export]
 impl Adapter {
     pub fn activity_json(&self) -> String {
-        let snapshot = ActivitySnapshot::from(self.engine.activity().snapshot());
+        let snapshot = ActivitySnapshot::from(self.engine.status().activity().snapshot());
         serde_json::to_string(&snapshot).unwrap_or_default()
     }
 }

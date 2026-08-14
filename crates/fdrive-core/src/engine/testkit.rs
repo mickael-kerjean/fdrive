@@ -97,7 +97,7 @@ pub(super) fn engine_with(server: &MockServer, tree: TempTree) -> Arc<Engine<Tem
 }
 
 pub(super) async fn settle(engine: &Engine<TempTree>) {
-    engine.flush(Duration::from_secs(10)).await;
+    engine.system().flush(Duration::from_secs(10)).await;
 }
 
 pub(super) fn backdate(path: &std::path::Path, to: SystemTime) {

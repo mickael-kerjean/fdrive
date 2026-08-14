@@ -14,7 +14,7 @@ pub struct System<'a>(pub(super) &'a Arc<Adapter>);
 
 impl System<'_> {
     pub async fn flush(self, timeout: Duration) {
-        self.0.engine.flush(timeout).await;
+        self.0.engine.system().flush(timeout).await;
     }
 
     pub fn connect(self, root: &Path) -> io::Result<wire::Connection> {
@@ -36,11 +36,11 @@ impl System<'_> {
     }
 
     pub async fn recover(self) -> io::Result<()> {
-        self.0.engine.recover();
+        self.0.engine.system().recover();
         let adapter = self.0.clone();
         for path in tokio::task::spawn_blocking(move || adapter.reconcile().sweep()).await? {
             log::info!("recovered pending upload: {path}");
-            self.0.engine.released(&path);
+            self.0.engine.fs().released(&path);
         }
         Ok(())
     }

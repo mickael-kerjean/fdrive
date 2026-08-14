@@ -15,10 +15,10 @@ async fn overlay_masks_the_pending_world() {
         .observations
         .insert(doomed.clone(), observed(3));
 
-    engine.rename(&a, &b, false).await.unwrap();
-    engine.delete(&doomed, false).await.unwrap();
+    engine.fs().rename(&a, &b, false).await.unwrap();
+    engine.fs().delete(&doomed, false).await.unwrap();
 
-    let listing = engine.overlay(
+    let listing = engine.view().merge(
         &RelPath::new(""),
         vec![
             crate::sdk::FileInfo {
@@ -48,14 +48,14 @@ async fn overlay_keeps_local_only_files_visible() {
     let engine = engine(&server);
     let path = RelPath::new("web/node_modules/left-pad/index.js");
     engine.local().write(path.as_str(), b"junk");
-    engine.modified(&path);
+    engine.fs().modified(&path);
 
     settle(&engine).await;
     assert!(
         engine.ledger().dirty.contains(&path),
         "ignored paths stay dirty so the overlay keeps showing them"
     );
-    let listing = engine.overlay(&RelPath::new("web/node_modules/left-pad"), vec![]);
+    let listing = engine.view().merge(&RelPath::new("web/node_modules/left-pad"), vec![]);
     assert_eq!(listing.len(), 1);
     assert_eq!(listing[0].name, "index.js");
 }
@@ -79,26 +79,26 @@ async fn listed_observes_only_what_the_replica_mirrors() {
     backdate(&engine.local().dir.join("mirrored"), mtime);
     let phantom = RelPath::new("phantom");
 
-    engine.listed(&dir, &[entry("mirrored", 5), entry("phantom", 9)]);
+    engine.view().note(&dir, &[entry("mirrored", 5), entry("phantom", 9)]);
     assert_eq!(
-        engine.observed(&mirrored),
+        engine.view().seen(&mirrored),
         Some(observed(5)),
         "local bytes match the listing, so they agreed"
     );
     assert_eq!(
-        engine.observed(&phantom),
+        engine.view().seen(&phantom),
         Some(Observation::new(9, Some(mtime))),
         "nothing local to protect, the listing is the baseline that arms a later delete"
     );
 
-    engine.listed(&dir, &[entry("mirrored", 23), entry("phantom", 11)]);
+    engine.view().note(&dir, &[entry("mirrored", 23), entry("phantom", 11)]);
     assert_eq!(
-        engine.observed(&phantom),
+        engine.view().seen(&phantom),
         Some(Observation::new(11, Some(mtime))),
         "still nothing local, the baseline follows the server"
     );
     assert_eq!(
-        engine.observed(&mirrored),
+        engine.view().seen(&mirrored),
         Some(observed(5)),
         "the server moved on; the baseline must keep the last agreement so freshen sees the drift"
     );
@@ -111,21 +111,21 @@ async fn content_current_is_the_freshness_rule() {
     let path = RelPath::new("f");
     let version = Observation::new(5, None);
 
-    assert!(!engine.content_current(&path, version), "nothing local yet");
+    assert!(!engine.view().current(&path, version), "nothing local yet");
     engine.ledger().observations.insert(path.clone(), version);
     assert!(
-        !engine.content_current(&path, version),
+        !engine.view().current(&path, version),
         "observed but no bytes"
     );
     engine.local().write("f", b"bytes");
-    assert!(engine.content_current(&path, version));
+    assert!(engine.view().current(&path, version));
     assert!(
-        !engine.content_current(&path, Observation::new(9, None)),
+        !engine.view().current(&path, Observation::new(9, None)),
         "server moved"
     );
     engine.ledger().dirty.insert(path.clone());
     assert!(
-        engine.content_current(&path, Observation::new(9, None)),
+        engine.view().current(&path, Observation::new(9, None)),
         "dirty always wins"
     );
 }
@@ -141,7 +141,7 @@ async fn overwriting_observes_the_replaced_version() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.overwriting(&path).await;
+    engine.view().overwriting(&path).await;
     assert_eq!(
         engine.ledger().observations.get(&path),
         Some(&Observation::new(7, None))
@@ -149,6 +149,6 @@ async fn overwriting_observes_the_replaced_version() {
 
     let dirty = RelPath::new("g");
     engine.ledger().dirty.insert(dirty.clone());
-    engine.overwriting(&dirty).await;
+    engine.view().overwriting(&dirty).await;
     assert!(!engine.ledger().observations.contains_key(&dirty));
 }

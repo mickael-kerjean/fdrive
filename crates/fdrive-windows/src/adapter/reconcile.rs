@@ -45,7 +45,7 @@ impl Reconcile<'_> {
         let md = fs::symlink_metadata(abs)?;
         let ps = wire::placeholder_state(abs)?;
         if !ps.placeholder {
-            return Ok(if self.0.engine.observed(path).is_some() {
+            return Ok(if self.0.engine.view().seen(path).is_some() {
                 FileState::Foreign
             } else {
                 FileState::New
@@ -70,8 +70,8 @@ impl Reconcile<'_> {
         dir_abs: &Path,
         listing: Vec<FileInfo>,
     ) -> io::Result<()> {
-        self.0.engine.listed(dir, &listing);
-        let listing = self.0.engine.overlay(dir, listing);
+        self.0.engine.view().note(dir, &listing);
+        let listing = self.0.engine.view().merge(dir, listing);
         let mut local: BTreeMap<String, fs::Metadata> = BTreeMap::new();
         for entry in fs::read_dir(dir_abs)? {
             let entry = entry?;
@@ -146,10 +146,10 @@ impl Reconcile<'_> {
     }
 
     fn adopt(self, path: &RelPath, abs: &Path, md: &fs::Metadata) {
-        if self.0.engine.is_dirty(path) {
+        if self.0.engine.view().dirty(path) {
             return;
         }
-        let observed = self.0.engine.observed(path);
+        let observed = self.0.engine.view().seen(path);
         match observed {
             Some(rec) if Observation::of_local(md) == rec => {
                 match wire::mark_in_sync_if_unmodified(abs, path, md.modified().ok()) {
@@ -165,18 +165,18 @@ impl Reconcile<'_> {
             }
             Some(_) => {
                 log::info!("adopting local edit {path}");
-                self.0.engine.modified(path);
+                self.0.engine.fs().modified(path);
             }
-            None => self.0.engine.modified(path),
+            None => self.0.engine.fs().modified(path),
         }
     }
 
     fn freshen(self, path: &RelPath, remote: &FileInfo, md: &fs::Metadata) {
-        if self.0.engine.is_dirty(path) {
+        if self.0.engine.view().dirty(path) {
             return;
         }
         let remote_rec = Observation::of(remote);
-        let unchanged = match self.0.engine.observed(path) {
+        let unchanged = match self.0.engine.view().seen(path) {
             Some(rec) => rec == remote_rec,
             None => Observation::of_local(md) == remote_rec,
         };
@@ -198,7 +198,7 @@ impl Reconcile<'_> {
                     .unwrap()
                     .entry(what.clone())
                     .or_insert(0) += 1;
-                let result = match engine.hydrate(&what, Some(remote_rec)).await {
+                let result = match engine.cache().hydrate(&what, Some(remote_rec)).await {
                     Ok(()) => {
                         let done = what.clone();
                         let done_abs = engine.local().backing(&done);
@@ -283,10 +283,10 @@ impl Reconcile<'_> {
             }
         } else if !self.clean(&abs, path) {
             if matches!(self.classify(&abs, path), Ok(FileState::New))
-                && !self.0.engine.is_dirty(path)
+                && !self.0.engine.view().dirty(path)
             {
                 log::info!("found new local file {path}");
-                self.0.engine.modified(path);
+                self.0.engine.fs().modified(path);
             }
             return;
         }
@@ -311,7 +311,7 @@ impl Reconcile<'_> {
     }
 
     fn clean(self, abs: &Path, path: &RelPath) -> bool {
-        !self.0.engine.is_dirty(path)
+        !self.0.engine.view().dirty(path)
             && matches!(
                 self.classify(abs, path),
                 Ok(FileState::Cached(_) | FileState::Dehydrated(_))
@@ -387,8 +387,8 @@ impl Reconcile<'_> {
                     continue;
                 }
                 match self.classify(&abs, &child) {
-                    Ok(FileState::Edited) if !self.0.engine.is_dirty(&child) => {
-                        self.0.engine.modified(&child);
+                    Ok(FileState::Edited) if !self.0.engine.view().dirty(&child) => {
+                        self.0.engine.fs().modified(&child);
                         armed.push(child);
                     }
                     Ok(FileState::Dehydrated(Pin::Pinned)) => match wire::set_hydration(&abs, true)

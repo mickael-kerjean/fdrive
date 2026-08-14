@@ -7,11 +7,11 @@ use crate::port::LocalStore;
 use crate::sdk::Sdk;
 
 use super::gates::Transfers;
-use super::state::{LedgerGuard, State};
+use super::state::State;
 use super::{scheduler, Engine};
 
 impl<T: LocalStore> Engine<T> {
-    pub fn start(rt: tokio::runtime::Handle, sdk: Arc<Sdk>, local: T) -> Arc<Self> {
+    pub(super) fn spin_up(rt: tokio::runtime::Handle, sdk: Arc<Sdk>, local: T) -> Arc<Self> {
         let ledger_file = local.ledger();
         let ignore = crate::config::ignore(ledger_file.parent().unwrap_or(Path::new("")));
         let state = State::open(&ledger_file);
@@ -29,15 +29,6 @@ impl<T: LocalStore> Engine<T> {
         });
         driver.spawn(&rt, Arc::downgrade(&engine));
         engine
-    }
-
-    pub fn activity(&self) -> Arc<crate::activity::Activity> {
-        self.activity.clone()
-    }
-
-    pub fn recover(&self) {
-        self.kick();
-        self.pin_sweep();
     }
 
     pub(super) fn record(&self, op: Operation) {
@@ -59,13 +50,5 @@ impl<T: LocalStore> Engine<T> {
         F::Output: Send + 'static,
     {
         self.rt.spawn(fut);
-    }
-
-    pub fn local(&self) -> &T {
-        &self.local
-    }
-
-    pub fn ledger(&self) -> LedgerGuard<'_> {
-        LedgerGuard(self.state())
     }
 }

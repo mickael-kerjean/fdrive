@@ -19,7 +19,7 @@ impl Fs<'_> {
         let listing = match self
             .0
             .engine
-            .block_on(self.0.engine.ls(dir))
+            .block_on(self.0.engine.fs().ls(dir))
         {
             Ok(listing) => listing,
             Err(SdkError::NotFound) => return Ok(()),
@@ -35,7 +35,7 @@ impl Fs<'_> {
         if self.0.engine.local().is_suppressed(path) {
             return Ok(());
         }
-        self.0.engine.block_on(self.0.engine.delete(path, is_dir))
+        self.0.engine.block_on(self.0.engine.fs().delete(path, is_dir))
     }
 
     pub fn on_rename(self, from: &RelPath, to: &RelPath, is_dir: bool) -> io::Result<()> {
@@ -44,7 +44,7 @@ impl Fs<'_> {
         }
         self.0
             .engine
-            .block_on(self.0.engine.rename(from, to, is_dir))
+            .block_on(self.0.engine.fs().rename(from, to, is_dir))
     }
 
     pub async fn on_change(self, path: &RelPath) {
@@ -65,7 +65,7 @@ impl Fs<'_> {
                 return;
             };
             if !state.placeholder {
-                match self.0.engine.mkdir(path).await {
+                match self.0.engine.fs().mkdir(path).await {
                     Ok(()) => log::info!("mkdir {path}"),
                     Err(err) => log::debug!("mkdir {path}: {err}"),
                 }
@@ -86,7 +86,7 @@ impl Fs<'_> {
             return;
         };
         match fstate {
-            FileState::Edited | FileState::New => self.0.engine.modified(path),
+            FileState::Edited | FileState::New => self.0.engine.fs().modified(path),
             FileState::Dehydrated(Pin::Pinned) => {
                 let what = path.clone();
                 tokio::task::spawn_blocking(move || match wire::set_hydration(&abs, true) {
@@ -123,7 +123,7 @@ impl Fs<'_> {
             }
             refreshing.insert(dir.clone(), Instant::now());
         }
-        let result = match self.0.engine.ls(dir).await {
+        let result = match self.0.engine.fs().ls(dir).await {
             Ok(listing) => {
                 let this = self.0.clone();
                 let dir2 = dir.clone();

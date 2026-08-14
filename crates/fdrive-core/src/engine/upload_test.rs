@@ -21,8 +21,8 @@ async fn a_new_file_saves_on_flush() {
     let engine = engine(&server);
     let path = RelPath::new("f");
     engine.local().write("f", b"hello");
-    engine.created(&path);
-    engine.modified(&path);
+    engine.fs().created(&path);
+    engine.fs().modified(&path);
 
     settle(&engine).await;
     save.assert_hits(1);
@@ -47,7 +47,7 @@ async fn a_save_carries_its_lease() {
         .ledger()
         .observations
         .insert(path.clone(), observed(5));
-    engine.modified(&path);
+    engine.fs().modified(&path);
 
     settle(&engine).await;
     save.assert_hits(1);
@@ -60,7 +60,7 @@ async fn a_vanished_file_settles_without_the_server() {
     let server = MockServer::start();
     let engine = engine(&server);
     let path = RelPath::new("gone");
-    engine.modified(&path);
+    engine.fs().modified(&path);
     settle(&engine).await;
     assert!(engine.ledger().dirty.is_empty());
 }
@@ -79,9 +79,9 @@ async fn a_failed_save_keeps_the_debt() {
     let engine = engine(&server);
     let path = RelPath::new("a/b/f");
     engine.local().write("a/b/f", b"deep");
-    engine.modified(&path);
+    engine.fs().modified(&path);
 
-    engine.flush(Duration::from_millis(1200)).await;
+    engine.system().flush(Duration::from_millis(1200)).await;
     mkdir.assert_hits(2);
     save.assert_hits(2);
     assert!(engine.ledger().dirty.contains(&path));
@@ -110,7 +110,7 @@ async fn a_save_conflict_keeps_both_versions() {
         .ledger()
         .observations
         .insert(path.clone(), Observation::new(1, None));
-    engine.modified(&path);
+    engine.fs().modified(&path);
 
     settle(&engine).await;
     save.assert_hits(1);
@@ -151,7 +151,7 @@ async fn conflicts_never_clobber_a_local_copy() {
         .ledger()
         .observations
         .insert(path.clone(), Observation::new(1, None));
-    engine.modified(&path);
+    engine.fs().modified(&path);
 
     settle(&engine).await;
     save.assert_hits(1);
@@ -177,8 +177,8 @@ async fn a_cache_deleted_under_pending_edits_mutates_nothing() {
     let (rm, mv, save) = tripwires(&server);
     let engine = engine(&server);
     let path = RelPath::new("doc.txt");
-    engine.created(&path);
-    engine.modified(&path);
+    engine.fs().created(&path);
+    engine.fs().modified(&path);
 
     settle(&engine).await;
 
@@ -199,10 +199,10 @@ async fn a_stale_save_landing_on_a_file_turned_directory_uploads_nothing() {
     let path = RelPath::new("doc.txt");
     {
         let crashed = engine_with(&server, TempTree::reopen(&owner));
-        crashed.created(&path);
-        crashed.modified(&path);
+        crashed.fs().created(&path);
+        crashed.fs().modified(&path);
         owner.write("doc.txt", b"unsent edit");
-        crashed.flush(Duration::from_secs(1)).await;
+        crashed.system().flush(Duration::from_secs(1)).await;
     }
     down.delete();
     fs::remove_file(owner.dir.join("doc.txt")).unwrap();
@@ -229,11 +229,11 @@ async fn a_dead_server_leaves_no_mark_anywhere() {
     let engine = Engine::start(rt, Arc::new(sdk), TempTree::new());
     let path = RelPath::new("doc.txt");
     engine.ledger().observe(&path, Observation::new(1, None));
-    engine.created(&path);
-    engine.modified(&path);
-    engine.delete(&path, false).await.unwrap();
+    engine.fs().created(&path);
+    engine.fs().modified(&path);
+    engine.fs().delete(&path, false).await.unwrap();
 
-    engine.flush(Duration::from_secs(1)).await;
+    engine.system().flush(Duration::from_secs(1)).await;
 
     assert!(
         !engine.state.lock().unwrap().idle(),

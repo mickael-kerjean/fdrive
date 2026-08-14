@@ -72,18 +72,18 @@ fn connect(server: &FakeServer, platform: Platform) -> Arc<Engine<Platform>> {
 fn create(engine: &Engine<Platform>, path: &str, bytes: &[u8]) -> RelPath {
     let path = RelPath::new(path);
     fs::write(engine.local().backing(&path), bytes).unwrap();
-    engine.created(&path);
-    engine.modified(&path);
+    engine.fs().created(&path);
+    engine.fs().modified(&path);
     path
 }
 
 fn edit(engine: &Engine<Platform>, path: &RelPath, bytes: &[u8]) {
     fs::write(engine.local().backing(path), bytes).unwrap();
-    engine.modified(path);
+    engine.fs().modified(path);
 }
 
 async fn settle(engine: &Engine<Platform>) {
-    engine.flush(Duration::from_secs(10)).await;
+    engine.system().flush(Duration::from_secs(10)).await;
 }
 
 fn bytes(len: usize) -> Vec<u8> {
@@ -105,7 +105,7 @@ async fn a_file_created_locally_reaches_the_server() {
     settle(&engine).await;
 
     assert_eq!(server.get("/hello.txt").unwrap(), b"hello world");
-    assert_eq!(*engine.upload_status().borrow(), UploadStatus::Idle);
+    assert_eq!(*engine.status().watch().borrow(), UploadStatus::Idle);
 }
 
 #[tokio::test]
@@ -139,7 +139,7 @@ async fn a_rename_travels_as_a_verb_not_as_bytes() {
 
     let to = RelPath::new("final.txt");
     engine.local().relocate(&from, &to).unwrap();
-    engine.rename(&from, &to, false).await.unwrap();
+    engine.fs().rename(&from, &to, false).await.unwrap();
     settle(&engine).await;
 
     assert_eq!(server.names("/"), ["final.txt"]);
@@ -162,7 +162,7 @@ async fn a_delete_reaches_the_server() {
     settle(&engine).await;
 
     fs::remove_file(engine.local().backing(&path)).unwrap();
-    engine.delete(&path, false).await.unwrap();
+    engine.fs().delete(&path, false).await.unwrap();
     settle(&engine).await;
 
     assert_eq!(server.get("/old.txt"), None);
@@ -177,7 +177,7 @@ async fn offline_edits_land_when_the_server_returns() {
 
     server.offline(true);
     edit(&engine, &path, b"v2");
-    engine.flush(Duration::from_secs(1)).await;
+    engine.system().flush(Duration::from_secs(1)).await;
     assert_eq!(
         server.get("/notes.txt").unwrap(),
         b"v1",
@@ -187,7 +187,7 @@ async fn offline_edits_land_when_the_server_returns() {
     server.offline(false);
     settle(&engine).await;
     assert_eq!(server.get("/notes.txt").unwrap(), b"v2");
-    assert_eq!(*engine.upload_status().borrow(), UploadStatus::Idle);
+    assert_eq!(*engine.status().watch().borrow(), UploadStatus::Idle);
 }
 
 #[tokio::test]
@@ -197,12 +197,12 @@ async fn a_restart_replays_what_was_never_acknowledged() {
     let platform = Platform::fresh();
     let engine = connect(&server, platform.reopen());
     create(&engine, "draft.txt", b"unsent");
-    engine.flush(Duration::from_secs(1)).await;
+    engine.system().flush(Duration::from_secs(1)).await;
     drop(engine);
 
     server.offline(false);
     let engine = connect(&server, platform.reopen());
-    engine.recover();
+    engine.system().recover();
     settle(&engine).await;
 
     assert_eq!(server.get("/draft.txt").unwrap(), b"unsent");
@@ -219,13 +219,13 @@ async fn a_restart_finishes_a_dir_delete() {
     assert!(server.get("/d/f").is_some());
 
     server.offline(true);
-    engine.delete(&RelPath::new("d"), true).await.unwrap();
-    engine.flush(Duration::from_secs(1)).await;
+    engine.fs().delete(&RelPath::new("d"), true).await.unwrap();
+    engine.system().flush(Duration::from_secs(1)).await;
     drop(engine);
 
     server.offline(false);
     let engine = connect(&server, platform.reopen());
-    engine.recover();
+    engine.system().recover();
     settle(&engine).await;
 
     assert_eq!(server.get("/d/f"), None);
@@ -261,7 +261,7 @@ async fn a_server_file_hydrates_locally_on_demand() {
     let engine = connect(&server, Platform::fresh());
 
     let path = RelPath::new("photo.jpg");
-    engine.hydrate(&path, None).await.unwrap();
+    engine.cache().hydrate(&path, None).await.unwrap();
 
     assert_eq!(
         fs::read(engine.local().backing(&path)).unwrap(),
@@ -383,7 +383,7 @@ async fn random_workloads_converge() {
                     }
                     2 if on_disk => {
                         fs::remove_file(engine.local().backing(&rel)).unwrap();
-                        engine.delete(&rel, false).await.unwrap();
+                        engine.fs().delete(&rel, false).await.unwrap();
                         trace.push(format!("rm {path}"));
                         expected.remove(path);
                     }
@@ -395,7 +395,7 @@ async fn random_workloads_converge() {
                             engine.local().backing(&to_rel),
                         )
                         .unwrap();
-                        engine.rename(&rel, &to_rel, false).await.unwrap();
+                        engine.fs().rename(&rel, &to_rel, false).await.unwrap();
                         trace.push(format!("mv {path} -> {to}"));
                         let content = expected.remove(path);
                         match content {
@@ -411,7 +411,7 @@ async fn random_workloads_converge() {
                         let dir = RelPath::new("d");
                         let _ = fs::remove_dir_all(engine.local().backing(&dir));
                         fs::create_dir_all(engine.local().backing(&dir)).unwrap();
-                        engine.delete(&dir, true).await.unwrap();
+                        engine.fs().delete(&dir, true).await.unwrap();
                         trace.push("rmdir d".to_string());
                         expected.retain(|k, _| !k.starts_with("d/"));
                     }
@@ -419,11 +419,11 @@ async fn random_workloads_converge() {
                 }
             }
             if offline {
-                engine.flush(Duration::from_millis(100)).await;
+                engine.system().flush(Duration::from_millis(100)).await;
                 drop(engine);
                 server.offline(false);
                 engine = connect(&server, platform.reopen());
-                engine.recover();
+                engine.system().recover();
             }
             settle(&engine).await;
         }

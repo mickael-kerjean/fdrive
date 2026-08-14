@@ -193,14 +193,6 @@ async fn run<T: LocalStore>(
 }
 
 impl<T: LocalStore> Engine<T> {
-    pub async fn flush(&self, timeout: Duration) {
-        self.scheduler.flush(timeout).await;
-    }
-
-    pub fn upload_status(&self) -> watch::Receiver<UploadStatus> {
-        self.scheduler.status()
-    }
-
     pub(super) fn kick(&self) {
         self.scheduler.kick();
     }

@@ -72,15 +72,15 @@ async fn a_file_open_for_writing_holds_its_save() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.write_opened(&path);
+    engine.fs().write_opened(&path);
     engine.local().write("f", b"half-written");
-    engine.created(&path);
-    engine.modified(&path);
+    engine.fs().created(&path);
+    engine.fs().modified(&path);
 
     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
     save.assert_hits(0);
 
-    engine.write_closed(&path);
+    engine.fs().write_closed(&path);
     settle(&engine).await;
     save.assert_hits(1);
 }
@@ -102,12 +102,12 @@ async fn an_emptied_file_waits_for_its_rewrite() {
         .insert(path.clone(), observed(5));
 
     engine.local().write("f", b"");
-    engine.modified(&path);
+    engine.fs().modified(&path);
     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
     save.assert_hits(0);
 
     engine.local().write("f", b"the real bytes");
-    engine.modified(&path);
+    engine.fs().modified(&path);
     settle(&engine).await;
     save.assert_hits(1);
 }
@@ -122,7 +122,7 @@ async fn a_local_only_delete_is_vacuous() {
     let engine = engine(&server);
     let path = RelPath::new("f");
     engine.ledger().dirty.insert(path.clone());
-    engine.delete(&path, false).await.unwrap();
+    engine.fs().delete(&path, false).await.unwrap();
     settle(&engine).await;
     rm.assert_hits(0);
     assert!(engine.ledger().dirty.is_empty());
@@ -147,8 +147,8 @@ async fn a_failed_remove_stays_owed() {
         .ledger()
         .observations
         .insert(path.clone(), observed(5));
-    engine.delete(&path, false).await.unwrap();
-    engine.flush(Duration::from_millis(1200)).await;
+    engine.fs().delete(&path, false).await.unwrap();
+    engine.system().flush(Duration::from_millis(1200)).await;
     assert!(engine.ledger().observations.contains_key(&path));
     assert_eq!(engine.state.lock().unwrap().pending(), 1);
 }
@@ -213,8 +213,8 @@ async fn a_crash_with_a_pending_remove_replays_it_exactly_once() {
     {
         let crashed = engine_with(&server, TempTree::reopen(&owner));
         crashed.ledger().observe(&path, observed(5));
-        crashed.delete(&path, false).await.unwrap();
-        crashed.flush(Duration::from_secs(1)).await;
+        crashed.fs().delete(&path, false).await.unwrap();
+        crashed.system().flush(Duration::from_secs(1)).await;
     }
     down.delete();
     alive.delete();

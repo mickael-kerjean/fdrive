@@ -8,7 +8,7 @@ pub struct System<'a>(pub(super) &'a Adapter);
 
 impl System<'_> {
     pub async fn flush(self, timeout: Duration) {
-        self.0.engine.flush(timeout).await;
+        self.0.engine.system().flush(timeout).await;
     }
 
     pub fn vacuum(self) -> io::Result<()> {
@@ -17,6 +17,6 @@ impl System<'_> {
     }
 
     pub async fn logout(self) {
-        let _ = self.0.engine.logout().await;
+        let _ = self.0.engine.system().logout().await;
     }
 }

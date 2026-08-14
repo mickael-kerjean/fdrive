@@ -15,7 +15,7 @@ async fn unreadable_ledger_quarantines_instead_of_pruning() {
 
     let engine = engine_with(&server, tree);
     let root = engine.local().dir.clone();
-    engine.prune(&root).unwrap();
+    engine.cache().evict(&root).unwrap();
 
     assert!(
         engine.local().read("only-copy.txt").is_none(),
@@ -34,7 +34,7 @@ async fn unreadable_ledger_quarantines_instead_of_pruning() {
     fs::remove_dir_all(aside.path()).unwrap();
 
     engine.local().write("fresh.txt", b"clean");
-    engine.prune(&root).unwrap();
+    engine.cache().evict(&root).unwrap();
     assert!(
         engine.local().read("fresh.txt").is_none(),
         "a second prune prunes normally instead of quarantining"
@@ -93,12 +93,12 @@ async fn prune_spares_pinned_content() {
     engine.ledger().observe(&path, Observation::new(5, None));
     engine.ledger().pin_set(&RelPath::new("d"));
 
-    engine.prune(&root).unwrap();
+    engine.cache().evict(&root).unwrap();
     assert_eq!(engine.local().read("d/f.txt").unwrap(), b"hello");
     assert!(engine.ledger().observations.contains_key(&path));
 
-    engine.unpin(&RelPath::new("d"));
-    engine.prune(&root).unwrap();
+    engine.cache().unpin(&RelPath::new("d"));
+    engine.cache().evict(&root).unwrap();
     assert!(engine.local().read("d/f.txt").is_none());
     assert!(
         engine.ledger().observations.contains_key(&path),
@@ -131,21 +131,21 @@ async fn prune_keeps_the_delta_base_across_restarts() {
     let sig = crate::engine::upload::signature(&synced);
     engine.ledger().sign_set(&path, &sig);
 
-    engine.prune(&root).unwrap();
+    engine.cache().evict(&root).unwrap();
     assert!(engine.local().read("big.txt").is_none());
     assert!(
         engine.ledger().sign_get(&path).is_some(),
         "the signature describes server content, it outlives the bytes"
     );
     assert!(
-        !engine.content_current(&path, observed(8192)),
+        !engine.view().current(&path, observed(8192)),
         "a kept observation cannot fake freshness"
     );
 
     let mut edited = synced.clone();
     edited[0] = b'b';
     engine.local().write("big.txt", &edited);
-    engine.modified(&path);
+    engine.fs().modified(&path);
     settle(&engine).await;
 
     delta.assert_hits(1);

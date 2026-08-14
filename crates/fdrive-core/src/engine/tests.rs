@@ -1,6 +1,6 @@
 #[path = "cache_test.rs"]
 mod cache_test;
-#[path = "internal/delta_test.rs"]
+#[path = "delta_test.rs"]
 mod delta_test;
 #[path = "download_test.rs"]
 mod download_test;
@@ -8,15 +8,15 @@ mod download_test;
 mod engine_test;
 #[path = "ledger_test.rs"]
 mod ledger_test;
-#[path = "internal/play_test.rs"]
+#[path = "play_test.rs"]
 mod play_test;
 #[path = "scheduler_test.rs"]
 mod scheduler_test;
-#[path = "internal/state_test.rs"]
+#[path = "state_test.rs"]
 mod state_test;
 #[path = "testkit.rs"]
 pub(super) mod testkit;
-#[path = "internal/upload_test.rs"]
+#[path = "upload_test.rs"]
 mod upload_test;
 #[path = "view_test.rs"]
 mod view_test;

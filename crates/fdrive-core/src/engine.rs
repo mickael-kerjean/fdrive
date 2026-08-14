@@ -1,49 +1,75 @@
 mod cache;
+mod delta;
 mod download;
 mod fs;
+mod gates;
 mod ledger;
 mod lifecycle;
-mod scheduler;
-mod view;
-
-#[path = "engine/internal/delta.rs"]
-mod delta;
-#[path = "engine/internal/gates.rs"]
-mod gates;
-#[path = "engine/internal/play.rs"]
 mod play;
-#[path = "engine/internal/state.rs"]
+mod scheduler;
 mod state;
-#[path = "engine/internal/upload.rs"]
+mod status;
+mod system;
 mod upload;
-
-pub use self::{download::Download, scheduler::UploadStatus, state::LedgerGuard};
-use self::{ledger::Ledger, play::Outcome};
-pub use crate::model::Observation;
+mod view;
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
+use self::{ledger::Ledger, play::Outcome};
 
-use crate::activity::Activity;
-use crate::path::RelPath;
-use crate::port::LocalStore;
-use crate::sdk::Sdk;
+pub use self::{
+    cache::Cache, download::Reader, fs::Fs, scheduler::UploadStatus, state::LedgerGuard,
+    status::Status, system::System, view::View,
+};
+pub use crate::model::Observation;
 
-use self::{gates::Transfers, state::State};
-
-pub struct Engine<T: LocalStore> {
+pub struct Engine<T: crate::port::LocalStore> {
     local: T,
-    sdk: Arc<Sdk>,
+    sdk: Arc<crate::sdk::Sdk>,
     ignore: crate::config::Ignore,
 
-    state: Mutex<State>,
+    state: Mutex<state::State>,
 
-    transfers: Transfers,
-    frozen: Mutex<BTreeSet<RelPath>>,
+    transfers: gates::Transfers,
+    frozen: Mutex<BTreeSet<crate::path::RelPath>>,
 
     scheduler: scheduler::Handle,
     rt: tokio::runtime::Handle,
-    activity: Arc<Activity>,
+    activity: Arc<crate::activity::Activity>,
+}
+
+impl<T: crate::port::LocalStore> Engine<T> {
+    pub fn start(rt: tokio::runtime::Handle, sdk: Arc<crate::sdk::Sdk>, local: T) -> Arc<Self> {
+        Self::spin_up(rt, sdk, local)
+    }
+
+    pub fn fs(&self) -> Fs<'_, T> {
+        Fs(self)
+    }
+
+    pub fn view(&self) -> View<'_, T> {
+        View(self)
+    }
+
+    pub fn cache(&self) -> Cache<'_, T> {
+        Cache(self)
+    }
+
+    pub fn system(&self) -> System<'_, T> {
+        System(self)
+    }
+
+    pub fn status(&self) -> Status<'_, T> {
+        Status(self)
+    }
+
+    pub fn ledger(&self) -> LedgerGuard<'_> {
+        LedgerGuard(self.state())
+    }
+
+    pub fn local(&self) -> &T {
+        &self.local
+    }
 }
 
 #[cfg(test)]

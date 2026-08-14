@@ -172,8 +172,8 @@ impl Adapter {
             meta: Mutex::new(HashMap::new()),
         };
         let engine = Engine::start(rt.handle().clone(), Arc::new(sdk), tree);
-        engine.prune(&cache_dir)?;
-        engine.recover();
+        engine.cache().evict(&cache_dir)?;
+        engine.system().recover();
         Ok(Arc::new(Self { rt, engine }))
     }
 
@@ -184,7 +184,7 @@ impl Adapter {
 
     pub fn stat(&self, path: String) -> Result<Entry, FsError> {
         let rel = rel(&path);
-        if let Some(md) = self.engine.dirty_metadata(&rel) {
+        if let Some(md) = self.engine.view().pending_metadata(&rel) {
             return Ok(Entry {
                 name: rel.name().to_string(),
                 kind: EntryKind::File,
@@ -209,13 +209,13 @@ impl Adapter {
         if let Ok(listing) = self.listing(&rel.parent_or_root()) {
             if let Some(entry) = listing.iter().find(|e| e.name == rel.name()) {
                 let observation = Observation::of(entry);
-                if self.engine.content_current(&rel, observation) {
+                if self.engine.view().current(&rel, observation) {
                     return Ok(self.local(&rel));
                 }
                 current = Some(observation);
             }
         }
-        self.rt.block_on(self.engine.hydrate(&rel, current))?;
+        self.rt.block_on(self.engine.cache().hydrate(&rel, current))?;
         Ok(self.local(&rel))
     }
 
@@ -226,20 +226,20 @@ impl Adapter {
             fs::create_dir_all(parent)?;
         }
         fs::File::create(&abs)?;
-        self.engine.created(&rel);
+        self.engine.fs().created(&rel);
         self.engine.local().invalidate(&rel.parent_or_root());
         Ok(self.local(&rel))
     }
 
     pub fn saved(&self, path: String) {
         let rel = rel(&path);
-        self.engine.modified(&rel);
-        self.engine.released(&rel);
+        self.engine.fs().modified(&rel);
+        self.engine.fs().released(&rel);
     }
 
     pub fn mkdir(&self, path: String) -> Result<(), FsError> {
         let rel = rel(&path);
-        self.rt.block_on(self.engine.mkdir(&rel))?;
+        self.rt.block_on(self.engine.fs().mkdir(&rel))?;
         self.engine.local().invalidate(&rel.parent_or_root());
         Ok(())
     }
@@ -247,7 +247,7 @@ impl Adapter {
     pub fn delete(&self, path: String) -> Result<(), FsError> {
         let is_dir = path.ends_with('/');
         let rel = rel(&path);
-        self.rt.block_on(self.engine.delete(&rel, is_dir))?;
+        self.rt.block_on(self.engine.fs().delete(&rel, is_dir))?;
         let abs = self.engine.local().backing(&rel);
         let _ = if is_dir {
             fs::remove_dir_all(&abs)
@@ -262,7 +262,7 @@ impl Adapter {
     pub fn rename(&self, from: String, to: String) -> Result<(), FsError> {
         let is_dir = from.ends_with('/');
         let (from, to) = (rel(&from), rel(&to));
-        self.rt.block_on(self.engine.rename(&from, &to, is_dir))?;
+        self.rt.block_on(self.engine.fs().rename(&from, &to, is_dir))?;
         let from_abs = self.engine.local().backing(&from);
         if from_abs.exists() {
             let _ = self.engine.local().relocate(&from, &to);
@@ -276,16 +276,16 @@ impl Adapter {
         let rel = rel(&path);
         Ok(self
             .rt
-            .block_on(self.engine.thumbnail(&rel))?)
+            .block_on(self.engine.fs().thumbnail(&rel))?)
     }
 
     pub fn logout(&self) {
-        let _ = self.rt.block_on(self.engine.logout());
+        let _ = self.rt.block_on(self.engine.system().logout());
     }
 
     pub fn flush(&self, timeout_ms: u64) {
         self.rt
-            .block_on(self.engine.flush(Duration::from_millis(timeout_ms)));
+            .block_on(self.engine.system().flush(Duration::from_millis(timeout_ms)));
     }
 }
 
@@ -300,8 +300,8 @@ impl Adapter {
         let listing = match cached {
             Some(listing) => listing,
             None => {
-                let fetched = self.rt.block_on(self.engine.ls(dir))?;
-                self.engine.listed(dir, &fetched);
+                let fetched = self.rt.block_on(self.engine.fs().ls(dir))?;
+                self.engine.view().note(dir, &fetched);
                 self.engine
                     .local()
                     .meta
@@ -311,7 +311,7 @@ impl Adapter {
                 fetched
             }
         };
-        Ok(self.engine.overlay(dir, listing))
+        Ok(self.engine.view().merge(dir, listing))
     }
 
     fn local(&self, path: &RelPath) -> String {
