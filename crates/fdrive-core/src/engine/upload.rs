@@ -8,7 +8,7 @@ use crate::port::LocalStore;
 use crate::sdk::Error as SdkError;
 
 use super::{Engine, Outcome};
-use crate::model::{Conflict, Observation, Operation};
+use crate::model::Observation;
 
 enum Saved {
     Done(Option<SystemTime>),
@@ -97,7 +97,7 @@ impl<T: LocalStore> Engine<T> {
             },
         };
         match attempt {
-            Saved::Conflict => self.divert(path, replaces, &abs, md.len(), act).await,
+            Saved::Conflict => self.divert(path, &abs, md.len(), act).await,
             Saved::Done(mtime) => {
                 self.activity.finish(act, Ok(()));
                 let obs = mtime.map(|m| Observation::new(md.len(), Some(m)));
@@ -132,14 +132,7 @@ impl<T: LocalStore> Engine<T> {
         self.upload_delta(path, abs, sig, reuses, since, act).await
     }
 
-    async fn divert(
-        &self,
-        path: &RelPath,
-        replaces: Option<Observation>,
-        abs: &Path,
-        len: u64,
-        act: u64,
-    ) -> Outcome {
+    async fn divert(&self, path: &RelPath, abs: &Path, len: u64, act: u64) -> Outcome {
         let theirs = match self.sdk.stat(&path.as_file()).await {
             Ok(info) => Some(Observation::of(&info)),
             Err(_) => None,
@@ -173,7 +166,6 @@ impl<T: LocalStore> Engine<T> {
             copy: copy.clone(),
             obs: mtime.map(|m| Observation::new(len, Some(m))),
             sig,
-            conflict: Conflict::new(Operation::Write(path.clone()), replaces, theirs, Some(copy)),
         }
     }
 

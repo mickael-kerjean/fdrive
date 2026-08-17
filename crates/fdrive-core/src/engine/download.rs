@@ -67,7 +67,7 @@ impl Reader {
         Ok(buf)
     }
 
-    pub async fn done(&self) -> io::Result<()> {
+    pub(super) async fn done(&self) -> io::Result<()> {
         let mut state = self.state.clone();
         loop {
             let status = state.borrow_and_update().1;

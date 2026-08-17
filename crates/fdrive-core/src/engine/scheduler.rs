@@ -204,11 +204,7 @@ impl<T: LocalStore> Engine<T> {
     }
 
     pub(super) fn settle(&self, seq: i64, outcome: Outcome) -> bool {
-        let (failing, conflict) = self.state().settle(seq, outcome);
-        if let Some(c) = conflict {
-            log::warn!("conflict on {}", c.op);
-        }
-        failing
+        self.state().settle(seq, outcome)
     }
 
     pub(super) fn rush(&self) {

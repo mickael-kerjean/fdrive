@@ -40,34 +40,6 @@ pub enum Fate {
     Arrived { from: RelPath, was: Observation },
 }
 
-#[derive(Debug, Clone)]
-pub struct Conflict {
-    pub seq: i64,
-    pub op: Operation,
-    pub expected: Option<Observation>,
-    pub found: Option<Observation>,
-    pub ours: Option<RelPath>,
-    pub at: SystemTime,
-}
-
-impl Conflict {
-    pub(crate) fn new(
-        op: Operation,
-        expected: Option<Observation>,
-        found: Option<Observation>,
-        ours: Option<RelPath>,
-    ) -> Self {
-        Self {
-            seq: 0,
-            op,
-            expected,
-            found,
-            ours,
-            at: SystemTime::now(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operation {
     Create(RelPath),

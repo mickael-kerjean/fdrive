@@ -9,7 +9,7 @@ use url::Url;
 use crate::ByteStream;
 
 const COOKIE_NAME_SESSION: &str = "auth";
-pub const DELTA_MEDIA_TYPE: &str = "application/vnd.filestash.delta.rdiff";
+pub(crate) const DELTA_MEDIA_TYPE: &str = "application/vnd.filestash.delta.rdiff";
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const METER_SECONDS: usize = 120;
+const METER_SECONDS: usize = 120;
 const MAX_RECORDS: usize = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -208,7 +208,7 @@ pub fn rate_line(snap: &Snapshot) -> String {
     format!("↓{}/s ↑{}/s", fmt_compact(down), fmt_compact(up))
 }
 
-pub fn fmt_bytes(n: u64) -> String {
+fn fmt_bytes(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut value = n as f64;
     let mut unit = 0;

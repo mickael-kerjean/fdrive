@@ -5,7 +5,7 @@ use crate::port::LocalStore;
 use crate::sdk::Error as SdkError;
 
 use super::Engine;
-use crate::model::{Conflict, Observation, Operation, Plan};
+use crate::model::{Observation, Plan};
 
 pub(super) enum Outcome {
     Saved {
@@ -18,13 +18,12 @@ pub(super) enum Outcome {
         copy: RelPath,
         obs: Option<Observation>,
         sig: Option<Vec<u8>>,
-        conflict: Conflict,
     },
     Moved,
     MoveLost {
         theirs: Option<Observation>,
         resurrect: Option<RelPath>,
-        conflict: Option<Conflict>,
+        conflict: bool,
     },
     Removed,
     Busy,
@@ -52,36 +51,23 @@ impl<T: LocalStore> Engine<T> {
             Ok(info) if Observation::of(&info) == moves => {
                 match self.sdk.mv(&from.as_file(), &to.as_file()).await {
                     Ok(()) => Outcome::Moved,
-                    Err(SdkError::NotFound) => self.move_lost(from, to, moves, None),
+                    Err(SdkError::NotFound) => self.move_lost(to, None),
                     Err(err) => Outcome::Failed(err.into()),
                 }
             }
-            Ok(info) => self.move_lost(from, to, moves, Some(Observation::of(&info))),
-            Err(SdkError::NotFound) => self.move_lost(from, to, moves, None),
+            Ok(info) => self.move_lost(to, Some(Observation::of(&info))),
+            Err(SdkError::NotFound) => self.move_lost(to, None),
             Err(err) => Outcome::Failed(err.into()),
         }
     }
 
-    fn move_lost(
-        &self,
-        from: &RelPath,
-        to: &RelPath,
-        moves: Observation,
-        theirs: Option<Observation>,
-    ) -> Outcome {
+    fn move_lost(&self, to: &RelPath, theirs: Option<Observation>) -> Outcome {
         let resurrect = self.local.backing(to).is_file().then(|| to.clone());
         let lost = theirs.is_some() || resurrect.is_none();
         Outcome::MoveLost {
             theirs,
             resurrect,
-            conflict: lost.then(|| {
-                Conflict::new(
-                    Operation::Rename(from.clone(), to.clone()),
-                    theirs.map(|_| moves),
-                    theirs,
-                    None,
-                )
-            }),
+            conflict: lost,
         }
     }
 

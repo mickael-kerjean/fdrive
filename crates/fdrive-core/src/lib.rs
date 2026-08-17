@@ -17,12 +17,6 @@ pub mod testkit;
 
 pub type ByteStream = Pin<Box<dyn Stream<Item = io::Result<Bytes>> + Send>>;
 
-pub fn byte_stream(data: impl Into<Bytes>) -> ByteStream {
-    Box::pin(futures_util::stream::once(std::future::ready(Ok(
-        data.into()
-    ))))
-}
-
 pub(crate) async fn file_stream(path: &std::path::Path) -> io::Result<ByteStream> {
     let file = tokio::fs::File::open(path).await?;
     Ok(Box::pin(tokio_util::io::ReaderStream::new(file)))

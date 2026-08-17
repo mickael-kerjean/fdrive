@@ -5,7 +5,7 @@ use crate::path::RelPath;
 
 use super::{Ledger, Outcome};
 use crate::model;
-use crate::model::{Conflict, Fate, Observation, Operation, Plan};
+use crate::model::{Fate, Observation, Operation, Plan};
 
 const WINDOW_QUIET: Duration = Duration::from_millis(250);
 const WINDOW_MAX: Duration = Duration::from_secs(2);
@@ -283,10 +283,10 @@ impl State {
         plans
     }
 
-    pub(super) fn settle(&mut self, seq: i64, outcome: Outcome) -> (bool, Option<Conflict>) {
+    pub(super) fn settle(&mut self, seq: i64, outcome: Outcome) -> bool {
         self.journal.inflight.remove(&seq);
         let Some(plan) = self.journal.pending.get(&seq).map(|e| e.plan.clone()) else {
-            return (false, None);
+            return false;
         };
         match outcome {
             Outcome::Saved { obs, sig, reedited } => {
@@ -302,14 +302,13 @@ impl State {
                     }
                 }
                 self.retire(seq);
-                (false, None)
+                false
             }
             Outcome::Diverted {
                 theirs,
                 copy,
                 obs,
                 sig,
-                conflict,
             } => {
                 if let Plan::Save { path, .. } = &plan {
                     if let Some(theirs) = theirs {
@@ -323,7 +322,7 @@ impl State {
                     self.ledger.sign_set(&copy, &sig);
                 }
                 self.retire(seq);
-                (false, Some(conflict))
+                false
             }
             Outcome::Moved => {
                 if let Plan::Move { from, to, .. } = &plan {
@@ -331,24 +330,27 @@ impl State {
                     log::info!("moved {from} -> {to}");
                 }
                 self.retire(seq);
-                (false, None)
+                false
             }
             Outcome::MoveLost {
                 theirs,
                 resurrect,
                 conflict,
             } => {
-                if let Plan::Move { from, .. } = &plan {
+                if let Plan::Move { from, to, .. } = &plan {
                     match theirs {
                         Some(theirs) => self.ledger.observe(from, theirs),
                         None => self.ledger.unobserve(from),
+                    }
+                    if conflict {
+                        log::warn!("conflict on {}", Operation::Rename(from.clone(), to.clone()));
                     }
                 }
                 if let Some(to) = resurrect {
                     self.record(Operation::Write(to));
                 }
                 self.retire(seq);
-                (false, conflict)
+                false
             }
             Outcome::Removed => {
                 if let Plan::Remove { path, dir } = &plan {
@@ -356,13 +358,13 @@ impl State {
                     log::info!("removed {path}{}", if *dir { "/" } else { "" });
                 }
                 self.retire(seq);
-                (false, None)
+                false
             }
             Outcome::Busy => {
                 if let Some(entry) = self.journal.pending.get_mut(&seq) {
                     entry.due = Instant::now() + Duration::from_secs(1);
                 }
-                (false, None)
+                false
             }
             Outcome::Failed(err) => {
                 if let Some(entry) = self.journal.pending.get_mut(&seq) {
@@ -376,7 +378,7 @@ impl State {
                     entry.due = Instant::now()
                         + RETRY.saturating_mul(1u32 << (n - 1).min(5)).min(RETRY_CAP);
                 }
-                (true, None)
+                true
             }
         }
     }
