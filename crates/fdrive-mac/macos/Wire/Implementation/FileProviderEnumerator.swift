@@ -7,20 +7,26 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     let container: NSFileProviderItemIdentifier
     private let signals: SignalService
     private let metadata: MetadataService
+    private let breaker: Breaker
+    private let viewerRequest: Bool
 
     init(
         adapter: Adapter,
         container: NSFileProviderItemIdentifier,
         signals: SignalService,
         metadata: MetadataService,
-        tracked: Bool
+        shouldWatch: Bool,
+        breaker: Breaker,
+        viewerRequest: Bool
     ) {
         self.adapter = adapter
         self.container = container
         self.signals = signals
         self.metadata = metadata
+        self.breaker = breaker
+        self.viewerRequest = viewerRequest
         super.init()
-        if tracked {
+        if shouldWatch {
             signals.add(container)
             Task { [weak self] in
                 while true {
@@ -49,6 +55,10 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             observer.finishEnumerating(upTo: nil)
             return
         }
+        if breaker.isTripped && !viewerRequest {
+            observer.finishEnumeratingWithError(CocoaError(.userCancelled))
+            return
+        }
         Task {
             do {
                 if container == .workingSet {
@@ -71,6 +81,10 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         from syncAnchor: NSFileProviderSyncAnchor
     ) {
         logger.debug("Changes \(self.container.rawValue, privacy: .public) from=\(String(data: syncAnchor.rawValue, encoding: .utf8) ?? "?", privacy: .public)")
+        if breaker.isTripped {
+            observer.finishEnumeratingChanges(upTo: metadata.version(), moreComing: false)
+            return
+        }
         guard container == .workingSet else {
             observer.finishEnumeratingChanges(upTo: metadata.version(), moreComing: false)
             return

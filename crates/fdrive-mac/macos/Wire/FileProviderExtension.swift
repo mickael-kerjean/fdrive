@@ -13,6 +13,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
     })
     private let metadata = MetadataService()
+    private let breaker: Breaker
     private let activityService: ActivityService?
 
     required init(domain: NSFileProviderDomain) {
@@ -28,6 +29,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         } else {
             adapter = nil
         }
+        breaker = Breaker()
         activityService = adapter.map(ActivityService.init(adapter:))
         super.init()
         logger.info("Started domain \(domain.identifier.rawValue, privacy: .public)")
@@ -47,6 +49,10 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
         if identifier == .rootContainer {
             completionHandler(FileProviderItem.root, nil)
+            return Progress()
+        }
+        if breaker.isTripped && request.isSystemRequest {
+            completionHandler(nil, CocoaError(.userCancelled))
             return Progress()
         }
         Task {
@@ -71,11 +77,20 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             completionHandler(nil, nil, NSFileProviderError(.notAuthenticated))
             return Progress()
         }
+        if breaker.isTripped && request.isSystemRequest {
+            completionHandler(nil, nil, CocoaError(.userCancelled))
+            return Progress()
+        }
 
         let progress = Progress(totalUnitCount: 1)
         let path = FileProviderPath.path(for: itemIdentifier)
-        progress.cancellationHandler = { adapter.cancel(path: path) }
+        progress.cancellationHandler = { [breaker] in
+            adapter.cancel(path: path)
+            breaker.trip()
+        }
+        breaker.track(progress)
         Task {
+            defer { breaker.untrack(progress) }
             do {
                 let localPath = try await adapter.open(path: path)
                 let item = FileProviderItem(path: path, entry: try await adapter.stat(path: path))
@@ -196,15 +211,17 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
     ) throws -> NSFileProviderEnumerator {
         logger.debug("Enumerate \(containerItemIdentifier.rawValue, privacy: .public) viewer=\(request.isFileViewerRequest) system=\(request.isSystemRequest)")
         guard let adapter else { throw NSFileProviderError(.notAuthenticated) }
-        let track = containerItemIdentifier != .workingSet
+        let shouldWatch = containerItemIdentifier != .workingSet
             && containerItemIdentifier != .trashContainer
-            && !request.isSystemRequest
+            && request.isFileViewerRequest
         return FileProviderEnumerator(
             adapter: adapter,
             container: containerItemIdentifier,
             signals: signals,
             metadata: metadata,
-            tracked: track
+            shouldWatch: shouldWatch,
+            breaker: breaker,
+            viewerRequest: request.isFileViewerRequest
         )
     }
 }
@@ -277,6 +294,11 @@ extension FileProviderExtension: NSFileProviderCustomAction {
         completionHandler: @escaping (Error?) -> Void
     ) -> Progress {
         logger.info("Action \(actionIdentifier.rawValue, privacy: .public) on \(itemIdentifiers.map(\.rawValue).joined(separator: ","), privacy: .public)")
+        if actionIdentifier.rawValue == "app.filestash.mac.cancelsync" {
+            breaker.trip()
+            completionHandler(nil)
+            return Progress()
+        }
         MaterializedItemsObserver.collect(from: manager.enumeratorForMaterializedItems()) { materialized in
             var targets = Set(itemIdentifiers)
             for candidate in materialized {

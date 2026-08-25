@@ -32,6 +32,14 @@
 				<key>NSExtensionFileProviderActionName</key>
 				<string>Resync</string>
 			</dict>
+			<dict>
+				<key>NSExtensionFileProviderActionActivationRule</key>
+				<string>TRUEPREDICATE</string>
+				<key>NSExtensionFileProviderActionIdentifier</key>
+				<string>app.filestash.mac.cancelsync</string>
+				<key>NSExtensionFileProviderActionName</key>
+				<string>Cancel Sync</string>
+			</dict>
 		</array>
 		<key>NSExtensionFileProviderDocumentGroup</key>
 		<string>3736F8X9F9.group.app.filestash.sync</string>

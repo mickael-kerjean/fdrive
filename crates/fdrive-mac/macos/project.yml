@@ -92,6 +92,9 @@ targets:
             - NSExtensionFileProviderActionIdentifier: app.filestash.mac.resync
               NSExtensionFileProviderActionName: Resync
               NSExtensionFileProviderActionActivationRule: SUBQUERY(fileproviderItems, $item, $item.contentType.identifier UTI-CONFORMS-TO "public.folder").@count == fileproviderItems.@count
+            - NSExtensionFileProviderActionIdentifier: app.filestash.mac.cancelsync
+              NSExtensionFileProviderActionName: Cancel Sync
+              NSExtensionFileProviderActionActivationRule: TRUEPREDICATE
     entitlements:
       path: Wire/FilestashFileProvider.entitlements
       properties:
