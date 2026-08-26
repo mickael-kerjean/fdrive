@@ -4,27 +4,27 @@ A cross platform drive client that does not try to own your storage, but rather 
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-windows.png" alt="windows screenshot" />
-    <em>Windows screenshot</em>
+    <em>Windows</em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-mac.png" alt="mac screenshot" />
-    <em>Mac screenshot</em>
+    <em>Mac - <a href="https://downloads.filestash.app/latest/Filestash.dmg">silicon</a></em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-iphone.png" alt="mac screenshot" />
-    <em>Iphone screenshot</em>
+    <em>Iphone</em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-android.png" alt="android screenshot" />
-    <em>Android screenshot</em>
+    <em>Android - <a href="https://downloads.filestash.app/latest/Filestash.apk">apk</a></em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-linux.png" alt="linux screenshot">
-    <em>Linux screenshot</em>
+    <em>Linux</em>
 </p>
 
 ## Architecture
