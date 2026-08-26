@@ -2,10 +2,20 @@ import SwiftUI
 
 struct RecentActivityView: View {
     let transfers: [Transfer]
+    let clear: () -> Void
     @State private var height = CGFloat.zero
 
     var body: some View {
-        Text("Activity").font(.headline)
+        HStack {
+            Text("Activity").font(.headline)
+            Spacer()
+            if !transfers.isEmpty {
+                Button("Clear", action: clear)
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
 
         if transfers.isEmpty {
             Text("Nothing transferred yet")

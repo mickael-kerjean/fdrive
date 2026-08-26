@@ -10,7 +10,7 @@ struct ConnectedView: View {
             VStack(alignment: .leading, spacing: 12) {
                 BandwidthView(meter: activity.meter, received: activity.received)
                 Divider()
-                RecentActivityView(transfers: activity.transfers)
+                RecentActivityView(transfers: activity.transfers, clear: activity.clear)
             }
             .padding()
             .frame(width: 340)

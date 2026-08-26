@@ -12,6 +12,12 @@ final class ActivityMonitor: ObservableObject {
 
     private var connection: NSXPCConnection?
     private var version: UInt64?
+    private var cleared: UInt64 = 0
+
+    func clear() {
+        cleared = transfers.first?.id ?? 0
+        transfers = []
+    }
 
     func run() async {
         defer { disconnect() }
@@ -27,7 +33,7 @@ final class ActivityMonitor: ObservableObject {
         received = Date()
         guard snapshot.version != version else { return }
         version = snapshot.version
-        transfers = snapshot.transfers
+        transfers = snapshot.transfers.filter { $0.id > cleared }
     }
 
     private func fetch() async -> ActivitySnapshot? {
