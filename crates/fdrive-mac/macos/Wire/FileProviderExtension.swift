@@ -31,6 +31,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
         breaker = Breaker()
         activityService = adapter.map(ActivityService.init(adapter:))
+        Beacon.reset()
         super.init()
         logger.info("Started domain \(domain.identifier.rawValue, privacy: .public)")
     }
@@ -122,7 +123,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             name: itemTemplate.filename,
             isDirectory: isDirectory
         )
+        let off = Beacon.on()
         Task {
+            defer { off() }
             do {
                 if isDirectory {
                     try await adapter.mkdir(path: path)
@@ -158,7 +161,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
         var path = FileProviderPath.path(for: item.itemIdentifier)
         let isDirectory = path.hasSuffix("/")
+        let off = Beacon.on()
         Task {
+            defer { off() }
             do {
                 if changedFields.contains(.filename) || changedFields.contains(.parentItemIdentifier) {
                     let destination = FileProviderPath.child(
@@ -196,7 +201,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return Progress()
         }
         let path = FileProviderPath.path(for: identifier)
+        let off = Beacon.on()
         Task {
+            defer { off() }
             do {
                 try await adapter.delete(path: path)
                 completionHandler(nil)

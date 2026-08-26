@@ -28,9 +28,9 @@
 				<key>NSExtensionFileProviderActionActivationRule</key>
 				<string>TRUEPREDICATE</string>
 				<key>NSExtensionFileProviderActionIdentifier</key>
-				<string>app.filestash.mac.refresh</string>
+				<string>app.filestash.mac.reconcile</string>
 				<key>NSExtensionFileProviderActionName</key>
-				<string>Refresh</string>
+				<string>Reconcile</string>
 			</dict>
 		</array>
 		<key>NSExtensionFileProviderDocumentGroup</key>

@@ -89,8 +89,8 @@ targets:
           NSExtensionFileProviderDocumentGroup: 3736F8X9F9.group.app.filestash.sync
           NSExtensionFileProviderSupportsEnumeration: true
           NSExtensionFileProviderActions:
-            - NSExtensionFileProviderActionIdentifier: app.filestash.mac.refresh
-              NSExtensionFileProviderActionName: Refresh
+            - NSExtensionFileProviderActionIdentifier: app.filestash.mac.reconcile
+              NSExtensionFileProviderActionName: Reconcile
               NSExtensionFileProviderActionActivationRule: TRUEPREDICATE
     entitlements:
       path: Wire/FilestashFileProvider.entitlements

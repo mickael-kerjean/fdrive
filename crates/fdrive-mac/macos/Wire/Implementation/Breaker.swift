@@ -28,11 +28,13 @@ final class Breaker {
         lastLoad = Date()
         active[key] = progress
         lock.unlock()
+        let off = Beacon.on()
         return {
             self.lock.lock()
             self.lastLoad = Date()
             self.active.removeValue(forKey: key)
             self.lock.unlock()
+            off()
         }
     }
 

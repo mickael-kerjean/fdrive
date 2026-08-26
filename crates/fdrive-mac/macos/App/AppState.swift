@@ -5,13 +5,6 @@ import SwiftUI
 enum SyncStatus {
     case upToDate
     case error
-
-    var systemImage: String {
-        switch self {
-        case .upToDate: "checkmark.icloud"
-        case .error: "xmark.icloud"
-        }
-    }
 }
 
 @MainActor
@@ -21,6 +14,9 @@ final class AppState: ObservableObject {
     @Published var syncStatus: SyncStatus?
     @Published var connectionError: String?
     @Published var server: String?
+
+    @Published private var syncing = false
+    private var beacon: NSKeyValueObservation?
 
     init() {
         let session = RuntimeSessionStore.load()
@@ -36,6 +32,12 @@ final class AppState: ObservableObject {
                 }
             }
         }
+        syncing = Beacon.active
+        beacon = Beacon.watch {
+            Task { @MainActor in
+                self.syncing = Beacon.active
+            }
+        }
     }
 
     var isConnected: Bool {
@@ -43,7 +45,11 @@ final class AppState: ObservableObject {
     }
 
     var systemImage: String {
-        syncStatus?.systemImage ?? "icloud.slash"
+        switch syncStatus {
+        case .upToDate: syncing ? "arrow.triangle.2.circlepath.icloud" : "checkmark.icloud"
+        case .error: "xmark.icloud"
+        case nil: "icloud.slash"
+        }
     }
 
     func connect(serverURL: String, token: String) async {
