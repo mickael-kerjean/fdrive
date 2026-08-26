@@ -117,8 +117,13 @@ impl Adapter {
     }
 
     pub async fn ls(&self, path: String) -> Result<Vec<Entry>, FsError> {
-        let path = RelPath::new(&path);
-        Ok(self.listing(&path).await?.into_iter().map(Entry::from).collect())
+        let dir = RelPath::new(&path);
+        Ok(self
+            .listing(&dir)
+            .await?
+            .into_iter()
+            .map(|info| self.entry(&dir.join(&info.name), info))
+            .collect())
     }
 
     pub async fn stat(&self, path: String) -> Result<Entry, FsError> {
@@ -136,7 +141,7 @@ impl Adapter {
             .await?
             .into_iter()
             .find(|entry| entry.name == path.name())
-            .map(Entry::from)
+            .map(|info| self.entry(&path, info))
             .ok_or(FsError::NotFound)
     }
 
@@ -225,6 +230,25 @@ impl Adapter {
 }
 
 impl Adapter {
+    fn entry(&self, path: &RelPath, info: sdk::FileInfo) -> Entry {
+        if info.kind != sdk::FileType::File {
+            return Entry::from(info);
+        }
+        if !self.engine.view().current(path, Observation::of(&info)) {
+            return Entry::from(info);
+        }
+        let mut entry = Entry::from(info);
+        if let Ok(modified) = fs::metadata(self.engine.local().backing(path))
+            .and_then(|metadata| metadata.modified())
+        {
+            entry.mtime_ms = modified
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .map(|duration| duration.as_millis() as i64);
+        }
+        entry
+    }
+
     async fn listing(&self, directory: &RelPath) -> Result<Vec<sdk::FileInfo>, FsError> {
         let cached = {
             let metadata = self.engine.local().meta.lock().unwrap();
