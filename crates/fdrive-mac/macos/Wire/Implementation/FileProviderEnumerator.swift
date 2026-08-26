@@ -59,7 +59,9 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             observer.finishEnumeratingWithError(CocoaError(.userCancelled))
             return
         }
+        let forget: () -> Void = viewerRequest ? {} : breaker.load(Progress())
         Task {
+            defer { forget() }
             do {
                 if container == .workingSet {
                     let items = try await list("/")

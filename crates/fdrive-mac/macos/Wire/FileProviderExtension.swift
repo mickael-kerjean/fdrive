@@ -55,7 +55,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             completionHandler(nil, CocoaError(.userCancelled))
             return Progress()
         }
+        let forget: () -> Void = request.isSystemRequest ? breaker.load(Progress()) : {}
         Task {
+            defer { forget() }
             do {
                 let path = FileProviderPath.path(for: identifier)
                 completionHandler(FileProviderItem(path: path, entry: try await adapter.stat(path: path)), nil)
@@ -88,9 +90,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             adapter.cancel(path: path)
             breaker.trip()
         }
-        breaker.track(progress)
+        let forget = breaker.load(progress)
         Task {
-            defer { breaker.untrack(progress) }
+            defer { forget() }
             do {
                 let localPath = try await adapter.open(path: path)
                 let item = FileProviderItem(path: path, entry: try await adapter.stat(path: path))
@@ -294,13 +296,17 @@ extension FileProviderExtension: NSFileProviderCustomAction {
         completionHandler: @escaping (Error?) -> Void
     ) -> Progress {
         logger.info("Action \(actionIdentifier.rawValue, privacy: .public) on \(itemIdentifiers.map(\.rawValue).joined(separator: ","), privacy: .public)")
-        if actionIdentifier.rawValue == "app.filestash.mac.cancelsync" {
+        if breaker.underLoad {
             breaker.trip()
             completionHandler(nil)
             return Progress()
         }
         MaterializedItemsObserver.collect(from: manager.enumeratorForMaterializedItems()) { materialized in
-            var targets = Set(itemIdentifiers)
+            var targets = Set(itemIdentifiers.map { identifier in
+                identifier == .rootContainer || identifier.rawValue.hasSuffix("/")
+                    ? identifier
+                    : FileProviderPath.parent(of: identifier.rawValue)
+            })
             for candidate in materialized {
                 let isFolder = candidate.rawValue.hasSuffix("/")
                 let isUnderSelection = itemIdentifiers.contains { selected in

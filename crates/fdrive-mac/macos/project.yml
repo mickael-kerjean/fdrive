@@ -89,11 +89,8 @@ targets:
           NSExtensionFileProviderDocumentGroup: 3736F8X9F9.group.app.filestash.sync
           NSExtensionFileProviderSupportsEnumeration: true
           NSExtensionFileProviderActions:
-            - NSExtensionFileProviderActionIdentifier: app.filestash.mac.resync
-              NSExtensionFileProviderActionName: Resync
-              NSExtensionFileProviderActionActivationRule: SUBQUERY(fileproviderItems, $item, $item.contentType.identifier UTI-CONFORMS-TO "public.folder").@count == fileproviderItems.@count
-            - NSExtensionFileProviderActionIdentifier: app.filestash.mac.cancelsync
-              NSExtensionFileProviderActionName: Cancel Sync
+            - NSExtensionFileProviderActionIdentifier: app.filestash.mac.refresh
+              NSExtensionFileProviderActionName: Refresh
               NSExtensionFileProviderActionActivationRule: TRUEPREDICATE
     entitlements:
       path: Wire/FilestashFileProvider.entitlements
