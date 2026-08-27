@@ -8,14 +8,19 @@ struct DisconnectView: View {
     @State private var probing = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            TextField("Server", text: $serverURL)
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("Server", text: $serverURL)
 
-            if let error = state.connectionError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let error = state.connectionError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+            .frame(width: 340)
 
             Divider()
 
@@ -32,9 +37,9 @@ struct DisconnectView: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(serverURL.isEmpty || probing)
             }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
         }
-        .padding()
-        .frame(width: 300)
     }
 
     private func login() {

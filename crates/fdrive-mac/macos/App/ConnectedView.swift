@@ -7,12 +7,11 @@ struct ConnectedView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                BandwidthView(meter: activity.meter)
+            VStack(alignment: .leading, spacing: 0) {
+                BandwidthView(meter: activity.meter).padding()
                 Divider()
                 RecentActivityView(transfers: activity.transfers, clear: activity.clear)
             }
-            .padding()
             .frame(width: 340)
             .task { await activity.run() }
 
@@ -35,8 +34,10 @@ struct ConnectedView: View {
                 Button("Explore") {
                     Task { await state.explore() }
                 }
+                .keyboardShortcut(.defaultAction)
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.vertical, 8)
         }
     }
 }

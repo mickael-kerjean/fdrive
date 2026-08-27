@@ -23,7 +23,7 @@ struct BandwidthView: View {
             .frame(height: 44)
             .accessibilityHidden(true)
 
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .leading, spacing: 4) {
                 Label(rate(\.down), systemImage: "arrow.down")
                 Label(rate(\.up), systemImage: "arrow.up")
             }
