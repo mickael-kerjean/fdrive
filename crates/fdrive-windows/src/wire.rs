@@ -1,3 +1,4 @@
+pub mod pin;
 pub mod shell;
 pub mod viewer;
 pub mod watcher;
@@ -17,16 +18,16 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Storage::CloudFilters::{
     CfCloseHandle, CfConnectSyncRoot, CfConvertToPlaceholder, CfCreatePlaceholders,
-    CfDehydratePlaceholder, CfDisconnectSyncRoot, CfExecute, CfGetPlaceholderStateFromAttributeTag,
-    CfHydratePlaceholder, CfOpenFileWithOplock, CfSetInSyncState, CfSetPinState,
-    CfUnregisterSyncRoot, CF_CALLBACK_DELETE_FLAG_IS_DIRECTORY, CF_CALLBACK_DELETE_FLAG_NONE,
+    CfDisconnectSyncRoot, CfExecute, CfGetPlaceholderStateFromAttributeTag, CfOpenFileWithOplock,
+    CfSetInSyncState, CfUnregisterSyncRoot, CfUpdatePlaceholder, CF_CALLBACK_DELETE_FLAG_IS_DIRECTORY,
+    CF_CALLBACK_DELETE_FLAG_NONE,
     CF_CALLBACK_INFO, CF_CALLBACK_PARAMETERS, CF_CALLBACK_REGISTRATION,
     CF_CALLBACK_RENAME_FLAG_IS_DIRECTORY, CF_CALLBACK_RENAME_FLAG_NONE,
     CF_CALLBACK_RENAME_FLAG_TARGET_IN_SCOPE, CF_CALLBACK_TYPE_FETCH_DATA,
     CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS, CF_CALLBACK_TYPE_NONE, CF_CALLBACK_TYPE_NOTIFY_DELETE,
     CF_CALLBACK_TYPE_NOTIFY_RENAME, CF_CONNECTION_KEY, CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH,
-    CF_CONVERT_FLAG_MARK_IN_SYNC, CF_CREATE_FLAG_NONE, CF_DEHYDRATE_FLAG_NONE, CF_FS_METADATA,
-    CF_HYDRATE_FLAG_NONE, CF_IN_SYNC_STATE_IN_SYNC, CF_OPEN_FILE_FLAG_EXCLUSIVE,
+    CF_CONVERT_FLAG_MARK_IN_SYNC, CF_CREATE_FLAG_NONE, CF_FS_METADATA,
+    CF_IN_SYNC_STATE_IN_SYNC, CF_OPEN_FILE_FLAG_EXCLUSIVE,
     CF_OPEN_FILE_FLAG_WRITE_ACCESS, CF_OPEN_FILE_FLAGS, CF_OPERATION_ACK_DELETE_FLAG_NONE,
     CF_OPERATION_INFO,
     CF_OPERATION_PARAMETERS, CF_OPERATION_PARAMETERS_0, CF_OPERATION_PARAMETERS_0_0,
@@ -37,7 +38,7 @@ use windows::Win32::Storage::CloudFilters::{
     CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS, CF_PLACEHOLDER_CREATE_FLAG_MARK_IN_SYNC,
     CF_PLACEHOLDER_CREATE_INFO, CF_PLACEHOLDER_STATE, CF_PLACEHOLDER_STATE_IN_SYNC,
     CF_PLACEHOLDER_STATE_PARTIAL, CF_PLACEHOLDER_STATE_PARTIALLY_ON_DISK,
-    CF_PLACEHOLDER_STATE_PLACEHOLDER, CF_SET_IN_SYNC_FLAG_NONE, CF_SET_PIN_FLAG_NONE,
+    CF_PLACEHOLDER_STATE_PLACEHOLDER, CF_SET_IN_SYNC_FLAG_NONE, CF_UPDATE_FLAG_DISABLE_ON_DEMAND_POPULATION,
 };
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FileAttributeTagInfo, GetFileInformationByHandleEx, FILE_ATTRIBUTE_DIRECTORY,
@@ -119,8 +120,8 @@ pub fn connect(root: &Path, callbacks: Callbacks) -> io::Result<Connection> {
     Ok(Connection { key, _ctx: ctx })
 }
 
-impl Connection {
-    pub fn disconnect(self) {
+impl Drop for Connection {
+    fn drop(&mut self) {
         if let Err(err) = unsafe { CfDisconnectSyncRoot(self.key) } {
             log::error!("CfDisconnectSyncRoot: {err}");
         }
@@ -174,6 +175,24 @@ fn place(root: &Path, path: &RelPath, attrs: u32, size: u64, mtime: SystemTime) 
         )
     }
     .map_err(|err| io::Error::other(format!("CfCreatePlaceholders {path}: {err}")))
+}
+
+pub fn mark_populated(abs: &Path) -> io::Result<()> {
+    with_oplock(abs, CF_OPEN_FILE_FLAG_WRITE_ACCESS, |handle| {
+        unsafe {
+            CfUpdatePlaceholder(
+                handle,
+                None,
+                None,
+                0,
+                None,
+                CF_UPDATE_FLAG_DISABLE_ON_DEMAND_POPULATION,
+                None,
+                None,
+            )
+        }
+        .map_err(|err| io::Error::other(format!("CfUpdatePlaceholder: {err}")))
+    })
 }
 
 pub fn mark_in_sync_if_unmodified(
@@ -336,26 +355,6 @@ pub fn delete_if_clean(abs: &Path) -> io::Result<()> {
     result
 }
 
-pub fn set_pinned(abs: &Path) -> io::Result<()> {
-    use windows::Win32::Storage::CloudFilters::CF_PIN_STATE_PINNED;
-    with_oplock(abs, CF_OPEN_FILE_FLAG_WRITE_ACCESS, |handle| {
-        unsafe { CfSetPinState(handle, CF_PIN_STATE_PINNED, CF_SET_PIN_FLAG_NONE, None) }
-            .map_err(|err| io::Error::other(format!("CfSetPinState: {err}")))
-    })
-}
-
-pub fn set_hydration(abs: &Path, wanted: bool) -> io::Result<()> {
-    with_oplock(abs, CF_OPEN_FILE_FLAG_WRITE_ACCESS, |handle| {
-        if wanted {
-            unsafe { CfHydratePlaceholder(handle, 0, -1, CF_HYDRATE_FLAG_NONE, None) }
-                .map_err(|err| io::Error::other(format!("CfHydratePlaceholder: {err}")))
-        } else {
-            unsafe { CfDehydratePlaceholder(handle, 0, -1, CF_DEHYDRATE_FLAG_NONE, None) }
-                .map_err(|err| io::Error::other(format!("CfDehydratePlaceholder: {err}")))
-        }
-    })
-}
-
 unsafe extern "system" fn on_fetch_data(
     info: *const CF_CALLBACK_INFO,
     params: *const CF_CALLBACK_PARAMETERS,
@@ -459,15 +458,27 @@ unsafe fn execute(op: &CF_OPERATION_INFO, anon: CF_OPERATION_PARAMETERS_0) -> wi
     CfExecute(op, &mut params)
 }
 
+unsafe fn ack(
+    what: &str,
+    info: &CF_CALLBACK_INFO,
+    kind: CF_OPERATION_TYPE,
+    anon: CF_OPERATION_PARAMETERS_0,
+) {
+    if let Err(err) = execute(&op_info(info, kind), anon) {
+        log::error!("CfExecute({what}): {err}");
+    }
+}
+
 unsafe fn ack_placeholders(info: &CF_CALLBACK_INFO, status: NTSTATUS, complete: bool) {
-    let op = op_info(info, CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS);
     let flags = if complete {
         CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_DISABLE_ON_DEMAND_POPULATION
     } else {
         CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAG_NONE
     };
-    let result = execute(
-        &op,
+    ack(
+        "TRANSFER_PLACEHOLDERS",
+        info,
+        CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS,
         CF_OPERATION_PARAMETERS_0 {
             TransferPlaceholders: CF_OPERATION_PARAMETERS_0_4 {
                 Flags: flags,
@@ -479,9 +490,6 @@ unsafe fn ack_placeholders(info: &CF_CALLBACK_INFO, status: NTSTATUS, complete: 
             },
         },
     );
-    if let Err(err) = result {
-        log::error!("CfExecute(TRANSFER_PLACEHOLDERS): {err}");
-    }
 }
 
 unsafe extern "system" fn on_notify_delete(
@@ -503,9 +511,10 @@ unsafe extern "system" fn on_notify_delete(
 }
 
 unsafe fn ack_delete(info: &CF_CALLBACK_INFO, status: NTSTATUS) {
-    let op = op_info(info, CF_OPERATION_TYPE_ACK_DELETE);
-    let result = execute(
-        &op,
+    ack(
+        "ACK_DELETE",
+        info,
+        CF_OPERATION_TYPE_ACK_DELETE,
         CF_OPERATION_PARAMETERS_0 {
             AckDelete: CF_OPERATION_PARAMETERS_0_7 {
                 Flags: CF_OPERATION_ACK_DELETE_FLAG_NONE,
@@ -513,9 +522,20 @@ unsafe fn ack_delete(info: &CF_CALLBACK_INFO, status: NTSTATUS) {
             },
         },
     );
-    if let Err(err) = result {
-        log::error!("CfExecute(ACK_DELETE): {err}");
-    }
+}
+
+unsafe fn ack_rename(info: &CF_CALLBACK_INFO, status: NTSTATUS) {
+    ack(
+        "ACK_RENAME",
+        info,
+        CF_OPERATION_TYPE_ACK_RENAME,
+        CF_OPERATION_PARAMETERS_0 {
+            AckRename: CF_OPERATION_PARAMETERS_0_6 {
+                Flags: Default::default(),
+                CompletionStatus: status,
+            },
+        },
+    );
 }
 
 unsafe extern "system" fn on_notify_rename(
@@ -548,19 +568,7 @@ unsafe extern "system" fn on_notify_rename(
         }
         (None, _) => STATUS_SUCCESS,
     };
-    let op = op_info(info, CF_OPERATION_TYPE_ACK_RENAME);
-    let result = execute(
-        &op,
-        CF_OPERATION_PARAMETERS_0 {
-            AckRename: CF_OPERATION_PARAMETERS_0_6 {
-                Flags: Default::default(),
-                CompletionStatus: status,
-            },
-        },
-    );
-    if let Err(err) = result {
-        log::error!("CfExecute(ACK_RENAME): {err}");
-    }
+    ack_rename(info, status);
 }
 
 fn transfer_chunk(info: &CF_CALLBACK_INFO, offset: u64, bytes: &[u8]) -> io::Result<()> {

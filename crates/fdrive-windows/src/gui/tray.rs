@@ -7,23 +7,19 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Shell::{
-    ShellExecuteW, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
+    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE,
     NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
     DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, PostQuitMessage,
     PostThreadMessageW, RegisterClassW, SetForegroundWindow, TrackPopupMenu, TranslateMessage,
-    HICON, IDI_APPLICATION, IMAGE_FLAGS, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, SW_SHOWNORMAL,
-    TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_LBUTTONUP,
+    HICON, IDI_APPLICATION, IMAGE_FLAGS, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_LBUTTONUP,
     WM_RBUTTONUP, WNDCLASSW,
 };
 
-use super::dashboard::show_stats;
 use super::login::prompt_login;
-use super::{Credentials, Ctx, Status, TrayEvent, TrayState, CTX};
-
-use crate::utils::wstr;
+use super::{send, state, Credentials, Ctx, Status, TrayEvent, TrayState, CTX};
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_TRAY_REFRESH: u32 = WM_APP + 2;
@@ -31,11 +27,8 @@ const WM_TRAY_LOGIN: u32 = WM_APP + 3;
 const CMD_BROWSE: usize = 1;
 const CMD_LOGIN: usize = 2;
 const CMD_LOGOUT: usize = 3;
-const CMD_RESTART: usize = 4;
-const CMD_QUIT: usize = 5;
-const CMD_LOGS: usize = 6;
-const CMD_AUTOSTART: usize = 7;
-const CMD_REFRESH: usize = 8;
+const CMD_QUIT: usize = 4;
+const CMD_AUTOSTART: usize = 5;
 
 #[derive(Clone)]
 pub struct Tray {
@@ -44,10 +37,6 @@ pub struct Tray {
 }
 
 impl Tray {
-    pub fn state(&self) -> &Arc<Mutex<TrayState>> {
-        &self.state
-    }
-
     pub fn set_status(&self, status: Status) {
         {
             let mut state = self.state.lock().unwrap();
@@ -68,8 +57,16 @@ impl Tray {
         state.storage = creds.storage.clone();
     }
 
-    pub fn attach(&self, activity: Arc<fdrive_core::activity::Activity>) {
-        self.state.lock().unwrap().activity = Some(activity);
+    pub fn on_click(&self, handler: impl Fn() + Send + Sync + 'static) {
+        self.state.lock().unwrap().on_click = Some(Arc::new(handler));
+    }
+
+    pub fn set_autostart(&self, enabled: bool) {
+        self.state.lock().unwrap().autostart = enabled;
+    }
+
+    pub fn clear_click(&self) {
+        self.state.lock().unwrap().on_click = None;
     }
 
     pub fn prompt_login(&self) {
@@ -82,8 +79,7 @@ impl Tray {
 pub fn spawn(
     state: Arc<Mutex<TrayState>>,
     events: tokio::sync::mpsc::UnboundedSender<TrayEvent>,
-    log_path: PathBuf,
-    autostart_opt_out: PathBuf,
+    data: PathBuf,
 ) -> std::io::Result<Tray> {
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
     let thread_state = state.clone();
@@ -91,7 +87,7 @@ pub fn spawn(
         .name("fdrive-tray".into())
         .spawn(move || {
             let _ = ready_tx.send(unsafe { GetCurrentThreadId() });
-            if let Err(err) = tray_thread(thread_state, events, log_path, autostart_opt_out) {
+            if let Err(err) = tray_thread(thread_state, events, data) {
                 log::error!("tray: {err}");
             }
         })?;
@@ -104,15 +100,13 @@ pub fn spawn(
 fn tray_thread(
     state: Arc<Mutex<TrayState>>,
     events: tokio::sync::mpsc::UnboundedSender<TrayEvent>,
-    log_path: PathBuf,
-    autostart_opt_out: PathBuf,
+    data: PathBuf,
 ) -> windows::core::Result<()> {
     CTX.with_borrow_mut(|ctx| {
         *ctx = Some(Ctx {
             state,
             events,
-            log_path,
-            autostart_opt_out,
+            data,
         })
     });
     unsafe {
@@ -166,7 +160,7 @@ fn tray_thread(
 
 fn icon_data(hwnd: HWND) -> NOTIFYICONDATAW {
     let status =
-        CTX.with_borrow(|ctx| ctx.as_ref().expect("tray ctx").state.lock().unwrap().status);
+        state(|state| state.status);
     let mut data = NOTIFYICONDATAW {
         cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
@@ -226,8 +220,10 @@ unsafe extern "system" fn tray_wndproc(
         WM_TRAY => {
             let mouse = lparam.0 as u32;
             if mouse == WM_LBUTTONUP {
-                if !show_stats() {
-                    show_menu(hwnd);
+                let on_click = state(|state| state.on_click.clone());
+                match on_click {
+                    Some(on_click) => on_click(),
+                    None => show_menu(hwnd),
                 }
             } else if mouse == WM_RBUTTONUP {
                 show_menu(hwnd);
@@ -243,25 +239,19 @@ unsafe extern "system" fn tray_wndproc(
 }
 
 unsafe fn show_menu(hwnd: HWND) {
-    let logged_in = CTX.with_borrow(|ctx| {
-        let ctx = ctx.as_ref().expect("tray ctx");
-        let state = ctx.state.lock().unwrap();
-        state.status != Status::LoggedOut
-    });
+    let (logged_in, autostart_on) =
+        state(|state| (state.status != Status::LoggedOut, state.autostart));
     let Ok(menu) = CreatePopupMenu() else { return };
-    let autostart = if crate::wire::shell::autostart_enabled() {
+    let autostart = if autostart_on {
         MF_STRING | MF_CHECKED
     } else {
         MF_STRING
     };
     if logged_in {
         let _ = AppendMenuW(menu, MF_STRING, CMD_BROWSE, w!("Browse"));
-        let _ = AppendMenuW(menu, MF_STRING, CMD_REFRESH, w!("Refresh"));
-        let _ = AppendMenuW(menu, MF_STRING, CMD_LOGS, w!("Logs"));
         let _ = AppendMenuW(menu, autostart, CMD_AUTOSTART, w!("Autostart"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, CMD_LOGOUT, w!("Logout"));
-        let _ = AppendMenuW(menu, MF_STRING, CMD_RESTART, w!("Restart"));
     } else {
         let _ = AppendMenuW(menu, MF_STRING, CMD_LOGIN, w!("Login"));
         let _ = AppendMenuW(menu, autostart, CMD_AUTOSTART, w!("Autostart"));
@@ -282,42 +272,11 @@ unsafe fn show_menu(hwnd: HWND) {
     );
     let _ = DestroyMenu(menu);
 
-    let send = |event: TrayEvent| {
-        CTX.with_borrow(|ctx| {
-            let _ = ctx.as_ref().expect("tray ctx").events.send(event);
-        })
-    };
     match picked.0 as usize {
         CMD_BROWSE => send(TrayEvent::Browse),
-        CMD_REFRESH => send(TrayEvent::Refresh),
         CMD_LOGIN => prompt_login(),
         CMD_LOGOUT => send(TrayEvent::Logout),
-        CMD_LOGS => CTX.with_borrow(|ctx| {
-            let wide = wstr(&ctx.as_ref().expect("tray ctx").log_path);
-            unsafe {
-                ShellExecuteW(
-                    None,
-                    w!("open"),
-                    w!("notepad.exe"),
-                    PCWSTR(wide.as_ptr()),
-                    None,
-                    SW_SHOWNORMAL,
-                );
-            }
-        }),
-        CMD_AUTOSTART => CTX.with_borrow(|ctx| {
-            let opt_out = &ctx.as_ref().expect("tray ctx").autostart_opt_out;
-            let result = if crate::wire::shell::autostart_enabled() {
-                std::fs::write(opt_out, []).and_then(|()| crate::wire::shell::set_autostart(false))
-            } else {
-                let _ = std::fs::remove_file(opt_out);
-                crate::wire::shell::set_autostart(true)
-            };
-            if let Err(err) = result {
-                log::error!("autostart: {err}");
-            }
-        }),
-        CMD_RESTART => send(TrayEvent::Restart),
+        CMD_AUTOSTART => send(TrayEvent::Autostart),
         CMD_QUIT => send(TrayEvent::Quit),
         _ => {}
     }

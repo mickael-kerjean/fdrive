@@ -45,28 +45,16 @@ impl System<'_> {
         Ok(())
     }
 
-    pub async fn resync(self) -> io::Result<()> {
-        log::info!("manual refresh: re-listing populated tree");
-        let mut pending = vec![RelPath::root()];
-        while let Some(dir) = pending.pop() {
-            self.0.fs().refresh(&dir).await?;
-            let this = self.0.clone();
-            let at = dir.clone();
-            let mut children =
-                tokio::task::spawn_blocking(move || this.reconcile().subdirs(&at)).await?;
-            pending.append(&mut children);
-        }
-        log::info!("manual refresh: done");
-        Ok(())
-    }
-
     pub fn vacuum(self) -> io::Result<()> {
         let root = RelPath::root();
-        let result = self
+        let emptied = self
             .0
             .engine
             .local()
-            .suppress(&root, || self.0.reconcile().vacuum(&root));
-        result.map(|_| ())
+            .suppress(&root, || self.0.reconcile().vacuum(&root))?;
+        if !emptied {
+            log::warn!("vacuum: {} not emptied", self.0.root.display());
+        }
+        Ok(())
     }
 }

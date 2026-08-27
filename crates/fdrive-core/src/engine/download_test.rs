@@ -30,7 +30,7 @@ async fn concurrent_hydrates_download_once() {
     let path = RelPath::new("f");
 
     let cache = engine.cache();
-    let (a, b) = tokio::join!(cache.hydrate(&path, None), cache.hydrate(&path, None));
+    let (a, b) = tokio::join!(cache.hydrate(&path, None, None), cache.hydrate(&path, None, None));
     a.unwrap();
     b.unwrap();
     cat.assert_hits(1);
@@ -59,7 +59,7 @@ async fn reads_are_served_while_the_download_is_in_flight() {
     let engine = engine(&server);
     let path = RelPath::new("f");
 
-    engine.cache().prefetch(&path, None).await.unwrap();
+    engine.cache().prefetch(&path, None, None).await.unwrap();
     assert!(
         engine.local().read("f").is_none(),
         "hydrate_start returned before the file was cached"
@@ -86,7 +86,7 @@ async fn a_renamed_file_hydrates_from_its_old_name() {
     engine.ledger().observations.insert(a.clone(), observed(5));
 
     engine.fs().rename(&a, &b, false).await.unwrap();
-    engine.cache().hydrate(&b, Some(observed(5))).await.unwrap();
+    engine.cache().hydrate(&b, Some(observed(5)), None).await.unwrap();
     cat.assert_hits(1);
     assert_eq!(engine.local().read("b").unwrap(), b"hello");
 }
@@ -101,7 +101,7 @@ async fn a_deleted_file_stops_hydrating() {
         .observations
         .insert(path.clone(), observed(5));
     engine.fs().delete(&path, false).await.unwrap();
-    assert!(engine.cache().hydrate(&path, None).await.is_err());
+    assert!(engine.cache().hydrate(&path, None, None).await.is_err());
 }
 
 #[tokio::test]
@@ -113,10 +113,10 @@ async fn a_cached_file_opens_when_the_server_is_unreachable() {
     engine.local().write("f", b"cached");
     engine.ledger().observe(&path, Observation::new(6, None));
 
-    engine.cache().hydrate(&path, None).await.unwrap();
+    engine.cache().hydrate(&path, None, None).await.unwrap();
     assert_eq!(engine.local().read("f").unwrap(), b"cached");
     assert!(
-        engine.cache().hydrate(&RelPath::new("never-cached"), None)
+        engine.cache().hydrate(&RelPath::new("never-cached"), None, None)
             .await
             .is_err(),
         "a file we never saw still fails honestly"
@@ -138,7 +138,7 @@ async fn a_fresh_listing_hint_makes_a_cold_open_one_request() {
     let path = RelPath::new("f");
     let hint = observed(5);
 
-    engine.cache().hydrate(&path, Some(hint)).await.unwrap();
+    engine.cache().hydrate(&path, Some(hint), None).await.unwrap();
     cat.assert_hits(1);
     assert_eq!(engine.local().read("f").unwrap(), b"hello");
     assert_eq!(
@@ -195,7 +195,7 @@ async fn a_second_hydrate_travels_as_ranges() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.cache().hydrate(&path, Some(at(MTIME, v1.len())))
+    engine.cache().hydrate(&path, Some(at(MTIME, v1.len())), None)
         .await
         .unwrap();
     assert_eq!(engine.local().read("f").unwrap(), v1);
@@ -218,7 +218,7 @@ async fn a_second_hydrate_travels_as_ranges() {
             .header("range", "bytes=1048576-1052671");
         then.status(206).body(v2[1048576..1052672].to_vec());
     });
-    engine.cache().hydrate(&path, Some(at(MTIME2, v2.len())))
+    engine.cache().hydrate(&path, Some(at(MTIME2, v2.len())), None)
         .await
         .unwrap();
     sig.assert_hits(1);
@@ -242,7 +242,7 @@ async fn a_rewritten_file_falls_back_to_the_full_download() {
     });
     let engine = engine(&server);
     let path = RelPath::new("f");
-    engine.cache().hydrate(&path, Some(at(MTIME, v1.len())))
+    engine.cache().hydrate(&path, Some(at(MTIME, v1.len())), None)
         .await
         .unwrap();
     full.delete();
@@ -265,7 +265,7 @@ async fn a_rewritten_file_falls_back_to_the_full_download() {
             .body(v2.clone())
             .header("last-modified", MTIME2);
     });
-    engine.cache().hydrate(&path, Some(at(MTIME2, v2.len())))
+    engine.cache().hydrate(&path, Some(at(MTIME2, v2.len())), None)
         .await
         .unwrap();
     full2.assert_hits(1);

@@ -22,7 +22,7 @@ pub struct Registration {
     pub provider_id: GUID,
 }
 
-pub fn path_tag(root: &Path) -> io::Result<String> {
+fn path_tag(root: &Path) -> io::Result<String> {
     let abs = std::path::absolute(root)?;
     let mut tag: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in abs.to_string_lossy().to_lowercase().as_bytes() {

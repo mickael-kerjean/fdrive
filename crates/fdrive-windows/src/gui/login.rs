@@ -13,7 +13,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 
-use super::{alert, get_text, set_text, Credentials, CTX};
+use super::{alert, ctx, get_text, send, set_text, state, Credentials};
 
 const ID_SERVER: i32 = 101;
 const ID_OK: i32 = 1;
@@ -24,172 +24,161 @@ thread_local! {
 }
 
 pub(super) fn prompt_login() {
-    let prefill = CTX.with_borrow(|ctx| {
-        let ctx = ctx.as_ref().expect("tray ctx");
-        let state = ctx.state.lock().unwrap();
-        Credentials {
-            url: state.url.clone().unwrap_or_default(),
-            ..Default::default()
-        }
-    });
-    if let Some(credentials) = login_dialog(prefill) {
-        CTX.with_borrow(|ctx| {
-            let _ = ctx
-                .as_ref()
-                .expect("tray ctx")
-                .events
-                .send(super::TrayEvent::Login(credentials));
-        });
+    let prefill = state(|state| state.url.clone().unwrap_or_default());
+    let Some(raw) = server_dialog(&prefill) else {
+        return;
+    };
+    let url = fdrive_core::sdk::normalize_server(&raw);
+    if let Err(err) = fdrive_core::sdk::Sdk::builder(&url)
+        .insecure(false)
+        .probe_blocking()
+    {
+        alert(&format!(
+            "{url} does not look like a Filestash server.\n\n{err}"
+        ));
+        return;
     }
+    let data = ctx(|ctx| ctx.data.clone());
+    let token = match super::webview::login(&url, false, &data) {
+        Ok(Some(token)) => token,
+        Ok(None) => return,
+        Err(err) => {
+            alert(&format!(
+                "{err}\n\nInstall the WebView2 runtime, or use --token / --user from the command line."
+            ));
+            return;
+        }
+    };
+    send(super::TrayEvent::Login(Credentials {
+        url,
+        token,
+        ..Default::default()
+    }));
 }
 
-fn login_dialog(prefill: Credentials) -> Option<Credentials> {
+fn server_dialog(prefill: &str) -> Option<String> {
     unsafe {
-        let instance = GetModuleHandleW(None).ok()?;
-        let class = WNDCLASSW {
-            lpfnWndProc: Some(login_wndproc),
-            hInstance: instance.into(),
-            lpszClassName: w!("fdrive_login"),
-            hIcon: LoadIconW(Some(instance.into()), PCWSTR(1 as _)).unwrap_or_default(),
-            hbrBackground: HBRUSH((COLOR_3DFACE.0 + 1) as _),
-            ..Default::default()
-        };
-        RegisterClassW(&class);
-
-        let hwnd = CreateWindowExW(
-            Default::default(),
-            w!("fdrive_login"),
-            w!("Filestash — Login"),
-            WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            360,
-            135,
-            None,
-            None,
-            Some(instance.into()),
-            None,
-        )
-        .ok()?;
-
-        let font = GetStockObject(DEFAULT_GUI_FONT);
-        let child =
-            |class: PCWSTR, text: PCWSTR, style: u32, x: i32, y: i32, w: i32, h: i32, id: i32| {
-                if let Ok(ctl) = CreateWindowExW(
-                    Default::default(),
-                    class,
-                    text,
-                    WS_CHILD | WS_VISIBLE | WINDOW_STYLE(style),
-                    x,
-                    y,
-                    w,
-                    h,
-                    Some(hwnd),
-                    Some(HMENU(id as _)),
-                    Some(instance.into()),
-                    None,
-                ) {
-                    SendMessageW(
-                        ctl,
-                        WM_SETFONT,
-                        Some(WPARAM(font.0 as usize)),
-                        Some(LPARAM(1)),
-                    );
-                }
-            };
-        child(w!("STATIC"), w!("Server"), 0, 12, 18, 80, 20, 0);
-        child(
-            w!("EDIT"),
-            PCWSTR::null(),
-            WS_BORDER.0 | WS_TABSTOP.0 | ES_AUTOHSCROLL as u32,
-            100,
-            15,
-            230,
-            22,
-            ID_SERVER,
-        );
-        child(
-            w!("BUTTON"),
-            w!("Login"),
-            WS_TABSTOP.0 | BS_DEFPUSHBUTTON as u32,
-            150,
-            55,
-            85,
-            26,
-            ID_OK,
-        );
-        child(
-            w!("BUTTON"),
-            w!("Cancel"),
-            WS_TABSTOP.0,
-            245,
-            55,
-            85,
-            26,
-            ID_CANCEL,
-        );
-        set_text(hwnd, ID_SERVER, &prefill.url);
+        let hwnd = frame()?;
+        controls(hwnd);
+        set_text(hwnd, ID_SERVER, prefill);
         let _ = SetForegroundWindow(hwnd);
         if let Ok(first) = GetDlgItem(Some(hwnd), ID_SERVER) {
             let _ = SetFocus(Some(first));
         }
+        pump(hwnd)
+    }
+}
 
-        DIALOG.with_borrow_mut(|d| *d = None);
-        let mut msg = MSG::default();
-        loop {
-            let submitted = DIALOG.with_borrow(|d| *d);
-            if let Some(submitted) = submitted {
-                let raw = get_text(hwnd, ID_SERVER);
-                DIALOG.with_borrow_mut(|d| *d = Some(false));
-                let _ = DestroyWindow(hwnd);
-                while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                    let _ = TranslateMessage(&msg);
-                    DispatchMessageW(&msg);
-                }
-                if !submitted || raw.trim().is_empty() {
-                    return None;
-                }
-                let url = fdrive_core::sdk::normalize_server(&raw);
-                if let Err(err) = fdrive_core::sdk::Sdk::builder(&url)
-                    .insecure(prefill.insecure)
-                    .probe_blocking()
-                {
-                    alert(&format!(
-                        "{url} does not look like a Filestash server.\n\n{err}"
-                    ));
-                    return None;
-                }
-                let data = CTX.with_borrow(|ctx| {
-                    ctx.as_ref()
-                        .expect("tray ctx")
-                        .log_path
-                        .parent()
-                        .expect("data dir")
-                        .to_path_buf()
-                });
-                return match super::webview::login(&url, prefill.insecure, &data) {
-                    Ok(Some(token)) => Some(Credentials {
-                        url,
-                        token,
-                        insecure: prefill.insecure,
-                        ..Default::default()
-                    }),
-                    Ok(None) => None,
-                    Err(err) => {
-                        alert(&format!(
-                            "{err}\n\nInstall the WebView2 runtime, or use --token / --user from the command line."
-                        ));
-                        None
-                    }
-                };
+unsafe fn frame() -> Option<HWND> {
+    let instance = GetModuleHandleW(None).ok()?;
+    let class = WNDCLASSW {
+        lpfnWndProc: Some(login_wndproc),
+        hInstance: instance.into(),
+        lpszClassName: w!("fdrive_login"),
+        hIcon: LoadIconW(Some(instance.into()), PCWSTR(1 as _)).unwrap_or_default(),
+        hbrBackground: HBRUSH((COLOR_3DFACE.0 + 1) as _),
+        ..Default::default()
+    };
+    RegisterClassW(&class);
+    CreateWindowExW(
+        Default::default(),
+        w!("fdrive_login"),
+        w!("Filestash — Login"),
+        WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        360,
+        135,
+        None,
+        None,
+        Some(instance.into()),
+        None,
+    )
+    .ok()
+}
+
+unsafe fn controls(hwnd: HWND) {
+    let Ok(instance) = GetModuleHandleW(None) else {
+        return;
+    };
+    let font = GetStockObject(DEFAULT_GUI_FONT);
+    let child =
+        |class: PCWSTR, text: PCWSTR, style: u32, x: i32, y: i32, w: i32, h: i32, id: i32| {
+            if let Ok(ctl) = CreateWindowExW(
+                Default::default(),
+                class,
+                text,
+                WS_CHILD | WS_VISIBLE | WINDOW_STYLE(style),
+                x,
+                y,
+                w,
+                h,
+                Some(hwnd),
+                Some(HMENU(id as _)),
+                Some(instance.into()),
+                None,
+            ) {
+                SendMessageW(
+                    ctl,
+                    WM_SETFONT,
+                    Some(WPARAM(font.0 as usize)),
+                    Some(LPARAM(1)),
+                );
             }
-            if !GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                return None;
-            }
-            if !IsDialogMessageW(hwnd, &msg).as_bool() {
+        };
+    child(w!("STATIC"), w!("Server"), 0, 12, 18, 80, 20, 0);
+    child(
+        w!("EDIT"),
+        PCWSTR::null(),
+        WS_BORDER.0 | WS_TABSTOP.0 | ES_AUTOHSCROLL as u32,
+        100,
+        15,
+        230,
+        22,
+        ID_SERVER,
+    );
+    child(
+        w!("BUTTON"),
+        w!("Login"),
+        WS_TABSTOP.0 | BS_DEFPUSHBUTTON as u32,
+        150,
+        55,
+        85,
+        26,
+        ID_OK,
+    );
+    child(
+        w!("BUTTON"),
+        w!("Cancel"),
+        WS_TABSTOP.0,
+        245,
+        55,
+        85,
+        26,
+        ID_CANCEL,
+    );
+}
+
+unsafe fn pump(hwnd: HWND) -> Option<String> {
+    DIALOG.with_borrow_mut(|d| *d = None);
+    let mut msg = MSG::default();
+    loop {
+        if let Some(submitted) = DIALOG.with_borrow(|d| *d) {
+            let raw = get_text(hwnd, ID_SERVER);
+            DIALOG.with_borrow_mut(|d| *d = Some(false));
+            let _ = DestroyWindow(hwnd);
+            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
                 let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
+            return (submitted && !raw.trim().is_empty()).then_some(raw);
+        }
+        if !GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            return None;
+        }
+        if !IsDialogMessageW(hwnd, &msg).as_bool() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
         }
     }
 }

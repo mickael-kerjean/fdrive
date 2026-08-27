@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use fdrive_core::config as session;
+use fdrive_core::config as session_store;
 use fdrive_core::engine::UploadStatus;
 use fdrive_core::path::RelPath;
 use fdrive_core::sdk::Sdk;
@@ -20,21 +20,6 @@ use fdrive_windows::config::AppConfig;
 use fdrive_windows::gui::{self, Credentials, Status, Tray, TrayEvent};
 use fdrive_windows::wire::{self, shell, viewer, watcher};
 
-#[derive(Debug, Clone, Copy)]
-enum SessionEnd {
-    Logout,
-    Restart,
-    Quit,
-}
-
-fn tray_status(upload: UploadStatus) -> Status {
-    match upload {
-        UploadStatus::Idle => Status::Ok,
-        UploadStatus::Busy => Status::Syncing,
-        UploadStatus::Error => Status::Error,
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args::Setup {
@@ -43,9 +28,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config,
         unregister,
         prefill_url,
-        mut credentials,
+        credentials,
         prompt_login,
-        mut fresh_credentials,
+        fresh_credentials,
     } = args::init();
     log::init(&data)?;
     std::panic::set_hook(Box::new(|info| {
@@ -56,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if unregister {
         shell::vacuum(&config.windows.provider_name, "");
         let _ = wire::unregister(&root);
-        session::forget(&data);
+        session_store::forget(&data);
         log::info!("unregistered {}", root.display());
         gui::info(&format!("Unregistered {}", root.display()));
         return Ok(());
@@ -64,59 +49,98 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     shell::ensure_autostart(&data.join("autostart.off"));
     let (tray, mut events) = gui::init(&data, prefill_url, prompt_login)?;
+    tray.set_autostart(shell::autostart_enabled());
 
-    'app: loop {
-        if let Some(creds) = credentials.as_ref() {
-            tray.account(creds);
-            tray.set_status(Status::Syncing);
-            match run(
-                creds,
-                &config,
-                &root,
-                &data,
-                &mut events,
-                &tray,
-                fresh_credentials,
-            )
-            .await
-            {
-                Ok(SessionEnd::Quit) => break 'app,
-                Ok(SessionEnd::Logout) => {
-                    credentials = None;
-                    tray.set_status(Status::LoggedOut);
-                }
-                Ok(SessionEnd::Restart) => {}
-                Err(err) => {
-                    log::error!("session: {err}");
-                    credentials = None;
-                    tray.set_status(Status::Error);
-                }
+    let mut pending = match credentials {
+        Some(creds) => Some((creds, fresh_credentials)),
+        None => wait_for_login(&mut events, &tray, &root, &data).await,
+    };
+    while let Some((creds, reveal)) = pending {
+        pending = match session(&creds, &config, &root, &data, &mut events, &tray, reveal).await {
+            Ok(SessionEnd::Quit) => None,
+            Ok(SessionEnd::Logout) => {
+                tray.set_status(Status::LoggedOut);
+                wait_for_login(&mut events, &tray, &root, &data).await
             }
-            fresh_credentials = false;
-            continue;
-        }
-        match events.recv().await {
-            None | Some(TrayEvent::Quit) => break 'app,
-            Some(TrayEvent::Login(creds)) => {
-                credentials = Some(creds);
-                fresh_credentials = true;
+            Err(err) => {
+                log::error!("session: {err}");
+                tray.set_status(Status::Error);
+                wait_for_login(&mut events, &tray, &root, &data).await
             }
-            Some(TrayEvent::Browse) => gui::open_folder(&root),
-            Some(TrayEvent::Restart | TrayEvent::Logout | TrayEvent::Refresh) => {}
-        }
+        };
     }
     Ok(())
 }
 
-async fn run(
+async fn wait_for_login(
+    events: &mut UnboundedReceiver<TrayEvent>,
+    tray: &Tray,
+    root: &Path,
+    data: &Path,
+) -> Option<(Credentials, bool)> {
+    loop {
+        match events.recv().await? {
+            TrayEvent::Quit => return None,
+            TrayEvent::Login(creds) => return Some((creds, true)),
+            TrayEvent::Browse => gui::open_folder(root),
+            TrayEvent::Autostart => toggle_autostart(data, tray),
+            TrayEvent::Logout => {}
+        }
+    }
+}
+
+async fn session(
     creds: &Credentials,
     config: &AppConfig,
     root: &Path,
     data: &Path,
     events: &mut UnboundedReceiver<TrayEvent>,
     tray: &Tray,
-    browse: bool,
+    reveal: bool,
 ) -> Result<SessionEnd, Box<dyn std::error::Error>> {
+    let mut drive = connect(creds, config, root, data, tray, reveal).await?;
+    let end = serve(&mut drive, events, tray, root, data, config).await;
+
+    log::info!("disconnecting");
+    tray.clear_click();
+    drive.adapter.system().flush(Duration::from_secs(30)).await;
+    let logout = matches!(end, SessionEnd::Logout);
+    if logout {
+        if let Err(err) = drive.adapter.system().vacuum() {
+            log::warn!("vacuum on logout: {err}");
+        }
+    }
+    drop(drive.connection);
+    if logout {
+        match shell::unregister(&drive.sync_root_id) {
+            Ok(()) => log::info!("sync root unregistered"),
+            Err(err) => log::warn!("unregister on logout: {err}"),
+        }
+        session_store::forget(data);
+        let _ = drive.sdk.logout().await;
+    }
+    Ok(end)
+}
+
+struct Drive {
+    sdk: Arc<Sdk>,
+    adapter: Arc<Adapter>,
+    connection: wire::Connection,
+    sync_root_id: String,
+    changes: UnboundedReceiver<RelPath>,
+    views: UnboundedReceiver<(RelPath, bool)>,
+}
+
+async fn connect(
+    creds: &Credentials,
+    config: &AppConfig,
+    root: &Path,
+    data: &Path,
+    tray: &Tray,
+    reveal: bool,
+) -> Result<Drive, Box<dyn std::error::Error>> {
+    tray.account(creds);
+    tray.set_status(Status::Syncing);
     let builder = Sdk::builder(&creds.url).insecure(creds.insecure);
     let sdk = if creds.token.is_empty() {
         builder
@@ -125,7 +149,7 @@ async fn run(
     } else {
         builder.token(creds.token.clone())?
     };
-    session::remember(
+    session_store::remember(
         data,
         &creds.url,
         sdk.token().unwrap_or_default(),
@@ -138,7 +162,6 @@ async fn run(
         root.to_path_buf(),
         data,
     )?;
-    let mut upload_status = adapter.status().watch();
 
     let rest = creds
         .url
@@ -167,52 +190,62 @@ async fn run(
     )?;
     let connection = adapter.system().connect(root)?;
     log::info!("sync root {} connected", root.display());
-    if browse {
+    if reveal {
         gui::open_folder(root);
     }
 
-    let (changes_tx, mut changes) = tokio::sync::mpsc::unbounded_channel();
+    let (changes_tx, changes) = tokio::sync::mpsc::unbounded_channel();
     watcher::spawn(root, changes_tx)?;
-    let (views_tx, mut views) = tokio::sync::mpsc::unbounded_channel();
+    let (views_tx, views) = tokio::sync::mpsc::unbounded_channel();
     viewer::spawn(root, views_tx)?;
     adapter.system().recover().await?;
 
-    tray.attach(adapter.status().activity());
+    let activity = adapter.status().activity();
+    tray.on_click(move || gui::dashboard(activity.clone()));
     tray.set_status(Status::Ok);
+
+    Ok(Drive {
+        sdk,
+        adapter,
+        connection,
+        sync_root_id,
+        changes,
+        views,
+    })
+}
+
+async fn serve(
+    drive: &mut Drive,
+    events: &mut UnboundedReceiver<TrayEvent>,
+    tray: &Tray,
+    root: &Path,
+    data: &Path,
+    config: &AppConfig,
+) -> SessionEnd {
+    let adapter = &drive.adapter;
+    let mut upload_status = adapter.status().watch();
     let refresh_every = Duration::from_secs(config.windows.refresh_secs.max(2));
     let mut refreshed: HashMap<RelPath, Instant> = HashMap::new();
     let mut sweep_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut sweep = tokio::time::interval(Duration::from_secs(30));
     sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-    let end = loop {
+    loop {
         tokio::select! {
             event = events.recv() => {
                 log::info!("session event: {event:?}");
                 match event {
                     None | Some(TrayEvent::Quit) => break SessionEnd::Quit,
                     Some(TrayEvent::Logout) => break SessionEnd::Logout,
-                    Some(TrayEvent::Restart) => break SessionEnd::Restart,
                     Some(TrayEvent::Browse) => gui::open_folder(root),
-                    Some(TrayEvent::Refresh) => {
-                        let adapter = adapter.clone();
-                        let tray = tray.clone();
-                        let status = adapter.status().watch();
-                        tokio::spawn(async move {
-                            tray.set_status(Status::Syncing);
-                            if let Err(err) = adapter.system().resync().await {
-                                log::warn!("refresh: {err}");
-                            }
-                            tray.set_status(tray_status(*status.borrow()));
-                        });
-                    }
+                    Some(TrayEvent::Autostart) => toggle_autostart(data, tray),
                     Some(TrayEvent::Login(_)) => {}
                 }
             },
-            Some(path) = changes.recv() => {
+            Some(path) = drive.changes.recv() => {
                 adapter.fs().on_change(&path).await;
             }
-            Some((dir, newly)) = views.recv() => {
+            Some((dir, newly)) = drive.views.recv() => {
                 let due = newly
                     || refreshed
                         .get(&dir)
@@ -241,23 +274,33 @@ async fn run(
                 }
             }
         }
-    };
-
-    log::info!("disconnecting");
-    adapter.system().flush(Duration::from_secs(30)).await;
-    if matches!(end, SessionEnd::Logout) {
-        connection.disconnect();
-        if let Err(err) = adapter.system().vacuum() {
-            log::warn!("vacuum on logout: {err}");
-        }
-        match shell::unregister(&sync_root_id) {
-            Ok(()) => log::info!("sync root unregistered"),
-            Err(err) => log::warn!("unregister on logout: {err}"),
-        }
-        session::forget(data);
-        let _ = sdk.logout().await;
-    } else {
-        connection.disconnect();
     }
-    Ok(end)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SessionEnd {
+    Logout,
+    Quit,
+}
+
+fn toggle_autostart(data: &Path, tray: &Tray) {
+    let opt_out = data.join("autostart.off");
+    let result = if shell::autostart_enabled() {
+        std::fs::write(&opt_out, []).and_then(|()| shell::set_autostart(false))
+    } else {
+        let _ = std::fs::remove_file(&opt_out);
+        shell::set_autostart(true)
+    };
+    if let Err(err) = result {
+        log::error!("autostart: {err}");
+    }
+    tray.set_autostart(shell::autostart_enabled());
+}
+
+fn tray_status(upload: UploadStatus) -> Status {
+    match upload {
+        UploadStatus::Idle => Status::Ok,
+        UploadStatus::Busy => Status::Syncing,
+        UploadStatus::Error => Status::Error,
+    }
 }

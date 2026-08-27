@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use fdrive_core::engine::Observation;
 use fdrive_core::path::RelPath;
@@ -12,34 +12,13 @@ use fdrive_core::sdk::{FileInfo, FileType};
 
 use crate::wire;
 
-use super::utils::pin_of;
+use super::pin;
 use super::{Adapter, FileState, Pin};
 
 #[derive(Clone, Copy)]
 pub(super) struct Reconcile<'a>(pub(super) &'a Arc<Adapter>);
 
 impl Reconcile<'_> {
-    pub(super) fn subdirs(self, dir: &RelPath) -> Vec<RelPath> {
-        let mut dirs = Vec::new();
-        let Ok(read) = fs::read_dir(self.0.abs(dir)) else {
-            return dirs;
-        };
-        for entry in read.flatten() {
-            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-                continue;
-            };
-            let Ok(md) = entry.metadata() else { continue };
-            if !md.is_dir() {
-                continue;
-            }
-            match wire::placeholder_state(&entry.path()) {
-                Ok(st) if st.placeholder && st.partial => continue,
-                _ => dirs.push(dir.join(&name)),
-            }
-        }
-        dirs
-    }
-
     pub(super) fn classify(self, abs: &Path, path: &RelPath) -> io::Result<FileState> {
         use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS;
         let md = fs::symlink_metadata(abs)?;
@@ -57,9 +36,9 @@ impl Reconcile<'_> {
         let attrs = std::os::windows::fs::MetadataExt::file_attributes(&md);
         Ok(
             if attrs & FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS.0 != 0 || ps.partial {
-                FileState::Dehydrated(pin_of(&md))
+                FileState::Dehydrated(wire::pin::of(&md))
             } else {
-                FileState::Cached(pin_of(&md))
+                FileState::Cached(wire::pin::of(&md))
             },
         )
     }
@@ -71,6 +50,7 @@ impl Reconcile<'_> {
         listing: Vec<FileInfo>,
     ) -> io::Result<()> {
         self.0.engine.view().note(dir, &listing);
+        let remote: BTreeSet<String> = listing.iter().map(|e| e.name.clone()).collect();
         let listing = self.0.engine.view().merge(dir, listing);
         let mut local: BTreeMap<String, fs::Metadata> = BTreeMap::new();
         for entry in fs::read_dir(dir_abs)? {
@@ -87,7 +67,8 @@ impl Reconcile<'_> {
                 continue;
             }
             match local.remove(&entry.name) {
-                None => self.place(dir, entry),
+                None if remote.contains(&entry.name) => self.place(dir, entry),
+                None => {}
                 Some(md) => self.entry(&child, entry, &md),
             }
         }
@@ -191,44 +172,12 @@ impl Reconcile<'_> {
             let engine = self.0.engine.clone();
             let what = path.clone();
             self.0.engine.spawn(async move {
-                *engine
-                    .local()
-                    .suppressed
-                    .lock()
-                    .unwrap()
-                    .entry(what.clone())
-                    .or_insert(0) += 1;
+                let _hold = engine.local().hold(&what);
+                let abs = engine.local().backing(&what);
                 let result = match engine.cache().hydrate(&what, Some(remote_rec), None).await {
-                    Ok(()) => {
-                        let done = what.clone();
-                        let done_abs = engine.local().backing(&done);
-                        tokio::task::spawn_blocking(move || {
-                            let mut result = Err(io::Error::other("pinned refresh incomplete"));
-                            for _ in 0..20 {
-                                result = wire::mark_in_sync(&done_abs, &done)
-                                    .and_then(|()| wire::set_pinned(&done_abs));
-                                if result.is_ok() {
-                                    break;
-                                }
-                                std::thread::sleep(Duration::from_millis(100));
-                            }
-                            result
-                        })
-                        .await
-                        .map_err(io::Error::other)
-                        .and_then(|result| result)
-                    }
+                    Ok(()) => pin::repin(abs, what.clone()).await,
                     Err(err) => Err(err),
                 };
-                {
-                    let mut suppressed = engine.local().suppressed.lock().unwrap();
-                    if let Some(n) = suppressed.get_mut(&what) {
-                        *n -= 1;
-                        if *n == 0 {
-                            suppressed.remove(&what);
-                        }
-                    }
-                }
                 match result {
                     Ok(()) => log::info!("refreshed pinned {what}"),
                     Err(err) => log::warn!("refresh pinned {what}: {err}"),
@@ -264,7 +213,7 @@ impl Reconcile<'_> {
             self.0.engine.ledger().unobserve(path);
             log::info!("rebuilt placeholder {path} ({size} bytes)");
             if pinned {
-                if let Err(err) = wire::set_pinned(&abs) {
+                if let Err(err) = wire::pin::set_pinned(&abs) {
                     log::warn!("re-pin {path}: {err}");
                 }
             }
@@ -351,8 +300,6 @@ impl Reconcile<'_> {
 
     pub(super) fn sweep(self) -> Vec<RelPath> {
         let mut armed = Vec::new();
-        let mut dehydrated = 0u32;
-        let mut hydrated = 0u32;
         let mut pending = vec![(RelPath::root(), false)];
         while let Some((dir, inherited)) = pending.pop() {
             let Ok(read) = fs::read_dir(self.0.abs(&dir)) else {
@@ -365,8 +312,8 @@ impl Reconcile<'_> {
                 let child = dir.join(&name);
                 let abs = entry.path();
                 let Ok(md) = entry.metadata() else { continue };
-                let pin = match pin_of(&md) {
-                    Pin::Unspecified if inherited => match wire::set_pinned(&abs) {
+                let pin = match wire::pin::of(&md) {
+                    Pin::Unspecified if inherited => match wire::pin::set_pinned(&abs) {
                         Ok(()) => Pin::Pinned,
                         Err(err) => {
                             log::debug!("pin {child}: {err}");
@@ -391,70 +338,13 @@ impl Reconcile<'_> {
                         self.0.engine.fs().modified(&child);
                         armed.push(child);
                     }
-                    Ok(FileState::Dehydrated(Pin::Pinned)) => match wire::set_hydration(&abs, true)
-                    {
-                        Ok(()) => hydrated += 1,
-                        Err(err) => log::debug!("hydrate {child}: {err}"),
-                    },
-                    Ok(FileState::Cached(Pin::Unpinned)) => {
-                        match wire::set_hydration(&abs, false) {
-                            Ok(()) => dehydrated += 1,
-                            Err(err) => log::debug!("dehydrate {child}: {err}"),
-                        }
-                    }
                     Ok(FileState::Foreign) => self.adopt(&child, &abs, &md),
-                    _ => {}
+                    Ok(state) => pin::enforce(&abs, &child, state),
+                    Err(_) => {}
                 }
             }
-        }
-        if dehydrated > 0 || hydrated > 0 {
-            log::info!("pin sweep: {hydrated} hydrated, {dehydrated} dehydrated");
         }
         armed
-    }
-
-    pub(super) fn pin(self, dir: &RelPath) {
-        {
-            let mut pinning = self.0.pinning.lock().unwrap();
-            if pinning.iter().any(|p| p == dir || dir.is_descendant_of(p)) {
-                return;
-            }
-            pinning.insert(dir.clone());
-        }
-        self.pin_walk(dir);
-        self.0.pinning.lock().unwrap().remove(dir);
-    }
-
-    fn pin_walk(self, dir: &RelPath) {
-        let Ok(read) = fs::read_dir(self.0.abs(dir)) else {
-            return;
-        };
-        for entry in read.flatten() {
-            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-                continue;
-            };
-            let child = dir.join(&name);
-            let abs = entry.path();
-            let Ok(md) = entry.metadata() else { continue };
-            match pin_of(&md) {
-                Pin::Unpinned => continue,
-                Pin::Pinned => {}
-                Pin::Unspecified => {
-                    if let Err(err) = wire::set_pinned(&abs) {
-                        log::debug!("pin {child}: {err}");
-                        continue;
-                    }
-                }
-            }
-            if md.is_dir() {
-                self.pin_walk(&child);
-            } else if matches!(self.classify(&abs, &child), Ok(FileState::Dehydrated(_))) {
-                match wire::set_hydration(&abs, true) {
-                    Ok(()) => log::info!("hydrated {child} (pinned)"),
-                    Err(err) => log::warn!("hydrate {child}: {err}"),
-                }
-            }
-        }
     }
 
     pub(super) fn vacuum(self, dir: &RelPath) -> io::Result<bool> {
@@ -475,22 +365,29 @@ impl Reconcile<'_> {
                 let state = wire::placeholder_state(&abs).ok();
                 let placeholder = state.is_some_and(|s| s.placeholder);
                 if placeholder && state.is_some_and(|s| s.partial) {
-                    if fs::remove_dir_all(&abs).is_err() {
+                    if let Err(err) = fs::remove_dir_all(&abs) {
+                        log::warn!("vacuum {child}: {err}");
                         emptied = false;
                     }
-                } else if placeholder && self.vacuum(&child).unwrap_or(false) {
-                    if fs::remove_dir(&abs).is_err() {
+                } else if !placeholder {
+                    let _ = self.vacuum(&child);
+                    log::warn!("vacuum {child}: not a placeholder; keeping");
+                    emptied = false;
+                } else if self.vacuum(&child).unwrap_or(false) {
+                    if let Err(err) = fs::remove_dir(&abs) {
+                        log::warn!("vacuum {child}: {err}");
                         emptied = false;
                     }
                 } else {
-                    let _ = self.vacuum(&child);
                     emptied = false;
                 }
             } else if self.clean(&abs, &child) {
-                if wire::delete_if_clean(&abs).is_err() {
+                if let Err(err) = wire::delete_if_clean(&abs) {
+                    log::warn!("vacuum {child}: {err}");
                     emptied = false;
                 }
             } else {
+                log::info!("vacuum {child}: local edits; keeping");
                 emptied = false;
             }
         }

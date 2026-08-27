@@ -13,21 +13,15 @@ use crate::wire;
 
 mod cache;
 mod fs;
+mod pin;
 mod reconcile;
 mod system;
-mod utils;
 
 pub use cache::Cache;
 pub use fs::Fs;
 pub use system::System;
 use reconcile::Reconcile;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Pin {
-    Pinned,
-    Unpinned,
-    Unspecified,
-}
+pub use wire::pin::Pin;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileState {
@@ -58,22 +52,39 @@ impl PlaceholderTree {
             .any(|p| p == path || path.is_descendant_of(p))
     }
 
-    fn suppress<T>(&self, path: &RelPath, op: impl FnOnce() -> T) -> T {
+    fn hold(&self, path: &RelPath) -> Hold<'_> {
         *self
             .suppressed
             .lock()
             .unwrap()
             .entry(path.clone())
             .or_insert(0) += 1;
-        let result = op();
-        let mut suppressed = self.suppressed.lock().unwrap();
-        if let Some(n) = suppressed.get_mut(path) {
+        Hold {
+            tree: self,
+            path: path.clone(),
+        }
+    }
+
+    fn suppress<T>(&self, path: &RelPath, op: impl FnOnce() -> T) -> T {
+        let _hold = self.hold(path);
+        op()
+    }
+}
+
+struct Hold<'a> {
+    tree: &'a PlaceholderTree,
+    path: RelPath,
+}
+
+impl Drop for Hold<'_> {
+    fn drop(&mut self) {
+        let mut suppressed = self.tree.suppressed.lock().unwrap();
+        if let Some(n) = suppressed.get_mut(&self.path) {
             *n -= 1;
             if *n == 0 {
-                suppressed.remove(path);
+                suppressed.remove(&self.path);
             }
         }
-        result
     }
 }
 

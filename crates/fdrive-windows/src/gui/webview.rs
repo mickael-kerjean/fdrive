@@ -195,7 +195,7 @@ unsafe fn on_controller(state: &Rc<State>, hr: HRESULT, controller: *mut c_void)
     let webview_vt = vt::<WebViewVtbl>(webview);
     let _ = (webview_vt.add_source_changed)(webview, on_source, &mut token);
     com_release(on_source);
-    let url = wstr(&format!("{}/login", state.base));
+    let url = wstr(format!("{}/login", state.base));
     let _ = (webview_vt.navigate)(webview, PCWSTR(url.as_ptr()));
 }
 
@@ -231,7 +231,7 @@ unsafe fn on_source_changed(state: &Rc<State>) {
             on_cookies(&state, hr, list)
         })
     };
-    let uri = wstr(&format!("{}/api/", state.base));
+    let uri = wstr(format!("{}/api/", state.base));
     let _ =
         (vt::<CookieManagerVtbl>(manager).get_cookies)(manager, PCWSTR(uri.as_ptr()), on_cookies);
     com_release(on_cookies);

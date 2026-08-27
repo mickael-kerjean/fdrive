@@ -18,6 +18,7 @@ mod tray;
 mod webview;
 
 pub use alert::{alert, info};
+pub use dashboard::toggle as dashboard;
 pub use tray::Tray;
 
 pub fn init(
@@ -32,8 +33,7 @@ pub fn init(
             ..Default::default()
         })),
         tx,
-        data.join("fdrive.log"),
-        data.join("autostart.off"),
+        data.to_path_buf(),
     )?;
     if prompt_login {
         tray.prompt_login();
@@ -65,10 +65,9 @@ impl From<fdrive_core::config::Session> for Credentials {
 #[derive(Debug)]
 pub enum TrayEvent {
     Browse,
-    Refresh,
+    Autostart,
     Login(Credentials),
     Logout,
-    Restart,
     Quit,
 }
 
@@ -107,18 +106,32 @@ pub struct TrayState {
     pub url: Option<String>,
     pub user: String,
     pub storage: String,
-    pub activity: Option<Arc<fdrive_core::activity::Activity>>,
+    pub autostart: bool,
+    pub on_click: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 struct Ctx {
     state: Arc<Mutex<TrayState>>,
     events: tokio::sync::mpsc::UnboundedSender<TrayEvent>,
-    log_path: PathBuf,
-    autostart_opt_out: PathBuf,
+    data: PathBuf,
 }
 
 thread_local! {
     static CTX: RefCell<Option<Ctx>> = const { RefCell::new(None) };
+}
+
+fn ctx<T>(f: impl FnOnce(&Ctx) -> T) -> T {
+    CTX.with_borrow(|ctx| f(ctx.as_ref().expect("tray ctx")))
+}
+
+fn state<T>(f: impl FnOnce(&mut TrayState) -> T) -> T {
+    ctx(|ctx| f(&mut ctx.state.lock().unwrap()))
+}
+
+fn send(event: TrayEvent) {
+    ctx(|ctx| {
+        let _ = ctx.events.send(event);
+    });
 }
 
 pub fn open_folder(path: &std::path::Path) {

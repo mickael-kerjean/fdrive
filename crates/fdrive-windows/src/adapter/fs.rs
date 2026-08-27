@@ -8,7 +8,7 @@ use fdrive_core::sdk::Error as SdkError;
 
 use crate::wire;
 
-use super::utils::pin_of;
+use super::pin;
 use super::{Adapter, FileState, Pin};
 
 #[derive(Clone, Copy)]
@@ -75,10 +75,10 @@ impl Fs<'_> {
                         log::debug!("convert dir {what}: {err}");
                     }
                 });
-            } else if pin_of(&md) == Pin::Pinned {
+            } else if wire::pin::of(&md) == Pin::Pinned {
                 let this = self.0.clone();
                 let what = path.clone();
-                tokio::task::spawn_blocking(move || this.reconcile().pin(&what));
+                tokio::task::spawn_blocking(move || pin::walk(&this, &what));
             }
             return;
         }
@@ -87,19 +87,9 @@ impl Fs<'_> {
         };
         match fstate {
             FileState::Edited | FileState::New => self.0.engine.fs().modified(path),
-            FileState::Dehydrated(Pin::Pinned) => {
+            FileState::Dehydrated(Pin::Pinned) | FileState::Cached(Pin::Unpinned) => {
                 let what = path.clone();
-                tokio::task::spawn_blocking(move || match wire::set_hydration(&abs, true) {
-                    Ok(()) => log::info!("hydrated {what} (pinned)"),
-                    Err(err) => log::warn!("hydrate {what}: {err}"),
-                });
-            }
-            FileState::Cached(Pin::Unpinned) => {
-                let what = path.clone();
-                tokio::task::spawn_blocking(move || match wire::set_hydration(&abs, false) {
-                    Ok(()) => log::info!("dehydrated {what}"),
-                    Err(err) => log::warn!("dehydrate {what}: {err}"),
-                });
+                tokio::task::spawn_blocking(move || pin::enforce(&abs, &what, fstate));
             }
             _ => {}
         }
