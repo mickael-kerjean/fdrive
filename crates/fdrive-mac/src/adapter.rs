@@ -26,7 +26,8 @@ pub struct Entry {
     pub name: String,
     pub kind: EntryKind,
     pub size: Option<u64>,
-    pub mtime_ms: Option<i64>,
+    pub time_local: Option<i64>,
+    pub time_remote: Option<i64>,
     pub can_read: bool,
     pub can_write: bool,
     pub can_rename: bool,
@@ -43,7 +44,8 @@ impl From<sdk::FileInfo> for Entry {
                 sdk::FileType::Directory => EntryKind::Directory,
             },
             size: info.size,
-            mtime_ms: info
+            time_local: None,
+            time_remote: info
                 .mtime
                 .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
                 .map(|duration| duration.as_millis() as i64),
@@ -130,13 +132,15 @@ impl Adapter {
     pub async fn stat(&self, path: String) -> Result<Entry, FsError> {
         let path = RelPath::new(&path);
         if let Some(metadata) = self.engine.view().pending_metadata(&path) {
-            return Ok(Entry::from(sdk::FileInfo {
+            let mut entry = Entry::from(sdk::FileInfo {
                 name: path.name().to_string(),
                 kind: sdk::FileType::File,
                 size: Some(metadata.len()),
                 mtime: metadata.modified().ok(),
                 perms: sdk::Permissions::default(),
-            }));
+            });
+            entry.time_local = entry.time_remote.take();
+            return Ok(entry);
         }
         self.listing(&path.parent_or_root())
             .await?
@@ -159,6 +163,13 @@ impl Adapter {
             }
         }
         self.engine.cache().hydrate(&path, current).await?;
+        if let Some(observation) = current {
+            let time = UNIX_EPOCH + Duration::from_secs(observation.time);
+            if let Ok(file) = fs::File::options().write(true).open(self.engine.local().backing(&path)) {
+                let _ = file.set_modified(time);
+            }
+        }
+        self.engine.local().invalidate(&path.parent_or_root());
         Ok(self.local_path(&path))
     }
 
@@ -242,7 +253,7 @@ impl Adapter {
         if let Ok(modified) = fs::metadata(self.engine.local().backing(path))
             .and_then(|metadata| metadata.modified())
         {
-            entry.mtime_ms = modified
+            entry.time_local = modified
                 .duration_since(UNIX_EPOCH)
                 .ok()
                 .map(|duration| duration.as_millis() as i64);

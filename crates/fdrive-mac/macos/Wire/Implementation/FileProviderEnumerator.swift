@@ -99,9 +99,11 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
                     let items = try await list(FileProviderPath.path(for: target))
                     let delta = metadata.delta(items, in: target)
                     if !delta.updated.isEmpty {
+                        logger.info("Delta \(target.rawValue, privacy: .public): updated \(delta.updated.map(\.filename).joined(separator: ","), privacy: .public)")
                         observer.didUpdate(delta.updated)
                     }
                     if !delta.deleted.isEmpty {
+                        logger.info("Delta \(target.rawValue, privacy: .public): deleted \(delta.deleted.count)")
                         observer.didDeleteItems(withIdentifiers: delta.deleted)
                     }
                 }

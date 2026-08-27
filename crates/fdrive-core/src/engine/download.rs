@@ -275,12 +275,15 @@ impl<T: LocalStore> Engine<T> {
         act: u64,
     ) -> io::Result<Option<(u64, FileInfo)>> {
         if expected.size < 1 << 20 {
+            log::debug!("delta {path}: {} bytes is below the threshold", expected.size);
             return Ok(None);
         }
         let Ok(base) = fs::read(self.local.backing(path)) else {
+            log::debug!("delta {path}: no local base");
             return Ok(None);
         };
         if base.is_empty() {
+            log::debug!("delta {path}: empty local base");
             return Ok(None);
         }
         match self.sdk.cat_delta(&upstream.as_file()).await {

@@ -11,6 +11,7 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
     let documentSize: NSNumber?
     let contentModificationDate: Date?
     let capabilities: NSFileProviderItemCapabilities
+    private let timeRemote: Int64?
 
     private override init() {
         itemIdentifier = .rootContainer
@@ -20,6 +21,7 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
         documentSize = nil
         contentModificationDate = nil
         capabilities = [.allowsReading, .allowsWriting]
+        timeRemote = nil
     }
 
     init(path: String, parent: NSFileProviderItemIdentifier, entry: Entry) {
@@ -33,7 +35,8 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
             ? .folder
             : UTType(filenameExtension: (entry.name as NSString).pathExtension) ?? .data
         documentSize = entry.size.map(NSNumber.init(value:))
-        contentModificationDate = entry.mtimeMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        contentModificationDate = (entry.timeLocal ?? entry.timeRemote).map { Date(timeIntervalSince1970: Double($0) / 1000) }
+        timeRemote = entry.timeRemote
         var granted: NSFileProviderItemCapabilities = [.allowsEvicting]
         if entry.canRead { granted.insert(.allowsReading) }
         if entry.canWrite { granted.insert(.allowsWriting) }
@@ -48,7 +51,7 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
     }
 
     var itemVersion: NSFileProviderItemVersion {
-        let value = "\(documentSize?.uint64Value ?? 0):\(contentModificationDate?.timeIntervalSince1970 ?? 0)"
+        let value = "\(documentSize?.uint64Value ?? 0):\(timeRemote ?? 0)"
         let version = Data(value.utf8)
         return .init(contentVersion: version, metadataVersion: version)
     }
