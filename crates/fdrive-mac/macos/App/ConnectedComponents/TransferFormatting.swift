@@ -20,25 +20,24 @@ extension Transfer {
         if state == .failed {
             return "Failed · \(error ?? "unknown error")"
         }
-        return "\(verb) · \(volume)"
-    }
-
-    private var verb: String {
-        let verb = switch (state, direction) {
-        case (.running, .down): "Downloading"
-        case (.running, .up): "Uploading"
-        case (_, .down): "Downloaded"
-        case (_, .up): "Uploaded"
+        let status = switch (state, direction) {
+        case (.running, .down):
+            "Downloading"
+        case (.running, .up):
+            "Uploading"
+        case (_, .down):
+            "Downloaded"
+        case (_, .up):
+            "Uploaded"
         }
-        return mode == .delta ? "\(verb) (Δ\(formatBytes(wire)))" : verb
-    }
-
-    private var volume: String {
-        switch (mode, state) {
+        let bytes = switch (mode, state) {
+        case (.delta, _):
+            "Δ\(formatBytes(wire)) of \(formatBytes(size))"
         case (.full, .running) where progress > 0:
             "\(formatBytes(progress)) / \(formatBytes(size))"
         default:
             formatBytes(size)
         }
+        return "\(status) · \(bytes)"
     }
 }

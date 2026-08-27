@@ -303,6 +303,7 @@ impl<T: LocalStore> Engine<T> {
             log::debug!("delta {path}: empty local base");
             return Ok(None);
         }
+        self.activity.mode(act, Mode::Delta);
         match self.sdk.cat_delta(&upstream.as_file()).await {
             Ok(CatDelta::Signature {
                 info,
@@ -324,7 +325,6 @@ impl<T: LocalStore> Engine<T> {
                     .await;
                 match assembled {
                     Ok(size) => {
-                        self.activity.mode(act, Mode::Delta);
                         tx.send_modify(|s| s.0 = size);
                         Ok(Some((size, info)))
                     }

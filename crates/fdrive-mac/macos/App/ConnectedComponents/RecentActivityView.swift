@@ -18,9 +18,15 @@ struct RecentActivityView: View {
         }
 
         if transfers.isEmpty {
-            Text("Nothing transferred yet")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(spacing: 4) {
+                Image(systemName: "tray")
+                    .font(.title3)
+                Text("Nothing transferred yet")
+                    .font(.caption)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         }
 
         ScrollView {
