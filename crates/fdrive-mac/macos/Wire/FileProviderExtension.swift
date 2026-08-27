@@ -38,35 +38,24 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
 
     func invalidate() {}
 
-    func item(
-        for identifier: NSFileProviderItemIdentifier,
-        request: NSFileProviderRequest,
-        completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void
-    ) -> Progress {
-        logger.debug("Item \(identifier.rawValue, privacy: .public)")
-        guard let adapter else {
-            completionHandler(nil, NSFileProviderError(.notAuthenticated))
-            return Progress()
-        }
-        if identifier == .rootContainer {
-            completionHandler(FileProviderItem.root, nil)
-            return Progress()
-        }
-        if breaker.isTripped && request.isSystemRequest {
-            completionHandler(nil, CocoaError(.userCancelled))
-            return Progress()
-        }
-        let forget: () -> Void = request.isSystemRequest ? breaker.load(Progress()) : {}
-        Task {
-            defer { forget() }
-            do {
-                let path = FileProviderPath.path(for: identifier)
-                completionHandler(FileProviderItem(path: path, entry: try await adapter.stat(path: path)), nil)
-            } catch {
-                completionHandler(nil, mapToProviderError(error))
-            }
-        }
-        return Progress()
+    func enumerator(
+        for containerItemIdentifier: NSFileProviderItemIdentifier,
+        request: NSFileProviderRequest
+    ) throws -> NSFileProviderEnumerator {
+        logger.debug("Enumerate \(containerItemIdentifier.rawValue, privacy: .public) viewer=\(request.isFileViewerRequest) system=\(request.isSystemRequest)")
+        guard let adapter else { throw NSFileProviderError(.notAuthenticated) }
+        let shouldWatch = containerItemIdentifier != .workingSet
+            && containerItemIdentifier != .trashContainer
+            && request.isFileViewerRequest
+        return FileProviderEnumerator(
+            adapter: adapter,
+            container: containerItemIdentifier,
+            signals: signals,
+            metadata: metadata,
+            shouldWatch: shouldWatch,
+            breaker: breaker,
+            viewerRequest: request.isFileViewerRequest
+        )
     }
 
     func fetchContents(
@@ -91,9 +80,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             adapter.cancel(path: path)
             breaker.trip()
         }
-        let forget = breaker.load(progress)
+        let unload = breaker.load(progress)
         Task {
-            defer { forget() }
+            defer { unload() }
             do {
                 let localPath = try await adapter.open(path: path)
                 let item = FileProviderItem(path: path, entry: try await adapter.stat(path: path))
@@ -103,6 +92,37 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             }
         }
         return progress
+    }
+
+    func item(
+        for identifier: NSFileProviderItemIdentifier,
+        request: NSFileProviderRequest,
+        completionHandler: @escaping (NSFileProviderItem?, Error?) -> Void
+    ) -> Progress {
+        logger.debug("Item \(identifier.rawValue, privacy: .public)")
+        guard let adapter else {
+            completionHandler(nil, NSFileProviderError(.notAuthenticated))
+            return Progress()
+        }
+        if identifier == .rootContainer {
+            completionHandler(FileProviderItem.root, nil)
+            return Progress()
+        }
+        if breaker.isTripped && request.isSystemRequest {
+            completionHandler(nil, CocoaError(.userCancelled))
+            return Progress()
+        }
+        let unload: () -> Void = request.isSystemRequest ? breaker.load(Progress()) : {}
+        Task {
+            defer { unload() }
+            do {
+                let path = FileProviderPath.path(for: identifier)
+                completionHandler(FileProviderItem(path: path, entry: try await adapter.stat(path: path)), nil)
+            } catch {
+                completionHandler(nil, mapToProviderError(error))
+            }
+        }
+        return Progress()
     }
 
     func createItem(
@@ -123,6 +143,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             name: itemTemplate.filename,
             isDirectory: isDirectory
         )
+        logger.debug("Create \(path, privacy: .public)")
         let off = Beacon.on()
         Task {
             defer { off() }
@@ -161,6 +182,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         }
         var path = FileProviderPath.path(for: item.itemIdentifier)
         let isDirectory = path.hasSuffix("/")
+        logger.debug("Modify \(path, privacy: .public) fields=\(changedFields.rawValue)")
         let off = Beacon.on()
         Task {
             defer { off() }
@@ -183,6 +205,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let entry = try await adapter.stat(path: path)
                 completionHandler(FileProviderItem(path: path, entry: entry), [], false, nil)
             } catch {
+                logger.error("Modify \(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 completionHandler(nil, [], false, mapToProviderError(error))
             }
         }
@@ -201,6 +224,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             return Progress()
         }
         let path = FileProviderPath.path(for: identifier)
+        logger.debug("Delete \(path, privacy: .public)")
         let off = Beacon.on()
         Task {
             defer { off() }
@@ -208,30 +232,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 try await adapter.delete(path: path)
                 completionHandler(nil)
             } catch {
+                logger.error("Delete \(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 completionHandler(mapToProviderError(error))
             }
         }
         return Progress()
-    }
-
-    func enumerator(
-        for containerItemIdentifier: NSFileProviderItemIdentifier,
-        request: NSFileProviderRequest
-    ) throws -> NSFileProviderEnumerator {
-        logger.debug("Enumerate \(containerItemIdentifier.rawValue, privacy: .public) viewer=\(request.isFileViewerRequest) system=\(request.isSystemRequest)")
-        guard let adapter else { throw NSFileProviderError(.notAuthenticated) }
-        let shouldWatch = containerItemIdentifier != .workingSet
-            && containerItemIdentifier != .trashContainer
-            && request.isFileViewerRequest
-        return FileProviderEnumerator(
-            adapter: adapter,
-            container: containerItemIdentifier,
-            signals: signals,
-            metadata: metadata,
-            shouldWatch: shouldWatch,
-            breaker: breaker,
-            viewerRequest: request.isFileViewerRequest
-        )
     }
 }
 

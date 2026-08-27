@@ -105,6 +105,7 @@ impl Adapter {
         let data_dir = PathBuf::from(data_dir);
         let cache_dir = data_dir.join("cache");
         fs::create_dir_all(&cache_dir)?;
+        crate::log::init();
         let tree = CacheTree {
             cache_dir: cache_dir.clone(),
             ledger: data_dir.join("fdrive.db"),

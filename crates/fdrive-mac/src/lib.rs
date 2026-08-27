@@ -5,6 +5,7 @@ use tokio::runtime::Runtime;
 
 pub mod activity;
 pub mod adapter;
+pub mod log;
 pub mod session;
 
 uniffi::setup_scaffolding!();

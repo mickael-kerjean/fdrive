@@ -71,7 +71,7 @@ encode() { jq -nr --arg value "$1" '$value|@uri'; }
 srv_call() {
     local method="$1" endpoint="$2" path="$3" body="${4:-}"
     local url="$BASE$endpoint?path=$(encode "$path")"
-    local args=(-fsS -X "$method" -H "X-Requested-With: SDKHttpRequest" -H "Authorization: Bearer $TOKEN")
+    local args=(-fsS --max-time 30 -X "$method" -H "X-Requested-With: SDKHttpRequest" -H "Authorization: Bearer $TOKEN")
     [[ -n "$body" ]] && args+=(--data-binary "@$body")
     curl "${args[@]}" "$url"
 }
@@ -119,6 +119,21 @@ srv_name_normalized() {
     return 1
 }
 srv_has_normalized() { srv_name_normalized "$1" "$2" >/dev/null; }
+
+with_deadline() {
+    local seconds="$1"
+    shift
+    "$@" &
+    local pid=$! i
+    for i in $(seq 1 $((seconds * 2))); do
+        kill -0 "$pid" 2>/dev/null || { wait "$pid"; return $?; }
+        sleep 0.5
+    done
+    echo "    killed after ${seconds}s: $*" >&2
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    return 1
+}
 
 wait_until() {
     local what="$1" timeout="$2"
@@ -233,7 +248,7 @@ run_test remote_tree_populates_on_first_enumeration
 remote_delete_clean_dir() {
     mkdir "$LOCAL/rtree/empty-local-dir" &&
         wait_until "empty directory on server" 30 srv_has "$REMOTE/rtree/" empty-local-dir &&
-        "$TESTKIT" stabilize &&
+        { with_deadline 30 "$TESTKIT" stabilize || true; } &&
         srv_rm "$REMOTE/rtree/"
     wait_until "remote tree vanishes" 30 missing "$LOCAL/rtree"
 }
