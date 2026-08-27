@@ -152,7 +152,7 @@ impl Adapter {
                 current = Some(observation);
             }
         }
-        self.engine.cache().hydrate(&path, current).await?;
+        self.engine.cache().hydrate(&path, current, None).await?;
         Ok(self.local_path(&path))
     }
 

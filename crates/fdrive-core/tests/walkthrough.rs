@@ -261,7 +261,7 @@ async fn a_server_file_hydrates_locally_on_demand() {
     let engine = connect(&server, Platform::fresh());
 
     let path = RelPath::new("photo.jpg");
-    engine.cache().hydrate(&path, None).await.unwrap();
+    engine.cache().hydrate(&path, None, None).await.unwrap();
 
     assert_eq!(
         fs::read(engine.local().backing(&path)).unwrap(),

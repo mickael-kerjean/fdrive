@@ -150,7 +150,7 @@ impl Adapter {
             .ok_or(FsError::NotFound)
     }
 
-    pub async fn open(&self, path: String) -> Result<String, FsError> {
+    pub async fn open(&self, path: String, base: Option<String>) -> Result<String, FsError> {
         let path = RelPath::new(&path);
         let mut current = None;
         if let Ok(listing) = self.listing(&path.parent_or_root()).await {
@@ -162,7 +162,10 @@ impl Adapter {
                 current = Some(observation);
             }
         }
-        self.engine.cache().hydrate(&path, current).await?;
+        self.engine
+            .cache()
+            .hydrate(&path, current, base.map(PathBuf::from))
+            .await?;
         if let Some(observation) = current {
             let time = UNIX_EPOCH + Duration::from_secs(observation.time);
             if let Ok(file) = fs::File::options().write(true).open(self.engine.local().backing(&path)) {

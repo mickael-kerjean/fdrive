@@ -198,7 +198,7 @@ impl Reconcile<'_> {
                     .unwrap()
                     .entry(what.clone())
                     .or_insert(0) += 1;
-                let result = match engine.cache().hydrate(&what, Some(remote_rec)).await {
+                let result = match engine.cache().hydrate(&what, Some(remote_rec), None).await {
                     Ok(()) => {
                         let done = what.clone();
                         let done_abs = engine.local().backing(&done);

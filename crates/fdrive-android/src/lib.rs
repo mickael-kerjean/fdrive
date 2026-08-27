@@ -215,7 +215,7 @@ impl Adapter {
                 current = Some(observation);
             }
         }
-        self.rt.block_on(self.engine.cache().hydrate(&rel, current))?;
+        self.rt.block_on(self.engine.cache().hydrate(&rel, current, None))?;
         Ok(self.local(&rel))
     }
 

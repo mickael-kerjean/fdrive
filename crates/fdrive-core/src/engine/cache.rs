@@ -31,7 +31,7 @@ impl<T: LocalStore> Engine<T> {
             let listing = match self.sdk.ls(&dir.as_dir()).await {
                 Ok(listing) => listing,
                 Err(_) if dir == *root => {
-                    if let Err(err) = self.cache().hydrate(root, None).await {
+                    if let Err(err) = self.cache().hydrate(root, None, None).await {
                         log::debug!("pin {root}: {err}");
                     }
                     return;
@@ -54,7 +54,7 @@ impl<T: LocalStore> Engine<T> {
                         if self.view().current(&child, hint) {
                             continue;
                         }
-                        if let Err(err) = self.cache().hydrate(&child, Some(hint)).await {
+                        if let Err(err) = self.cache().hydrate(&child, Some(hint), None).await {
                             log::debug!("pin {child}: {err}");
                         }
                     }

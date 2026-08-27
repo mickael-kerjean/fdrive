@@ -64,7 +64,16 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         request: NSFileProviderRequest,
         completionHandler: @escaping (URL?, NSFileProviderItem?, Error?) -> Void
     ) -> Progress {
-        logger.debug("Fetch \(itemIdentifier.rawValue, privacy: .public)")
+        fetch(itemIdentifier, base: nil, request: request, completionHandler: completionHandler)
+    }
+
+    private func fetch(
+        _ itemIdentifier: NSFileProviderItemIdentifier,
+        base: String?,
+        request: NSFileProviderRequest,
+        completionHandler: @escaping (URL?, NSFileProviderItem?, Error?) -> Void
+    ) -> Progress {
+        logger.debug("\(base == nil ? "Fetch" : "Update", privacy: .public) \(itemIdentifier.rawValue, privacy: .public)")
         guard let adapter else {
             completionHandler(nil, nil, NSFileProviderError(.notAuthenticated))
             return Progress()
@@ -84,7 +93,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         Task {
             defer { unload() }
             do {
-                let localPath = try await adapter.open(path: path)
+                let localPath = try await adapter.open(path: path, base: base)
                 let item = FileProviderItem(path: path, entry: try await adapter.stat(path: path))
                 completionHandler(URL(fileURLWithPath: localPath), item, nil)
             } catch {
@@ -197,7 +206,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     path = destination
                 }
                 if changedFields.contains(.contents), let newContents {
-                    let localPath = try await adapter.open(path: path)
+                    let localPath = try await adapter.open(path: path, base: nil)
                     try await replace(at: localPath, with: newContents)
                     adapter.saved(path: path)
                     await adapter.flush(timeoutMs: 30_000)
@@ -259,6 +268,19 @@ private func replace(at localPath: String, with contents: URL) async throws {
                 continuation.resume(throwing: error)
             }
         }
+    }
+}
+
+extension FileProviderExtension: NSFileProviderIncrementalContentFetching {
+    func fetchContents(
+        for itemIdentifier: NSFileProviderItemIdentifier,
+        version requestedVersion: NSFileProviderItemVersion?,
+        usingExistingContentsAt existingContents: URL,
+        existingVersion: NSFileProviderItemVersion,
+        request: NSFileProviderRequest,
+        completionHandler: @escaping (URL?, NSFileProviderItem?, Error?) -> Void
+    ) -> Progress {
+        fetch(itemIdentifier, base: existingContents.path, request: request, completionHandler: completionHandler)
     }
 }
 

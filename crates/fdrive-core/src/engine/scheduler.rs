@@ -35,6 +35,7 @@ enum Msg {
         PathBuf,
         watch::Sender<(u64, DownloadStatus)>,
         Observation,
+        Option<PathBuf>,
     ),
 }
 
@@ -69,8 +70,9 @@ impl Handle {
         tmp: PathBuf,
         tx: watch::Sender<(u64, DownloadStatus)>,
         current: Observation,
+        base: Option<PathBuf>,
     ) {
-        let _ = self.queue.send(Msg::Stream(path, tmp, tx, current));
+        let _ = self.queue.send(Msg::Stream(path, tmp, tx, current, base));
     }
 }
 
@@ -161,9 +163,9 @@ async fn run<T: LocalStore>(
                         tokio::spawn(engine.sweep_pins());
                     }
                 }
-                Some(Msg::Stream(path, tmp, tx, current)) => {
+                Some(Msg::Stream(path, tmp, tx, current, base)) => {
                     if let Some(engine) = engine.upgrade() {
-                        tokio::spawn(engine.stream(path, tmp, tx, current));
+                        tokio::spawn(engine.stream(path, tmp, tx, current, base));
                     }
                 }
             },

@@ -110,8 +110,13 @@ fn pwrite(file: &fs::File, mut buf: &[u8], mut offset: u64) -> io::Result<()> {
 }
 
 impl<'a, T: LocalStore> Cache<'a, T> {
-    pub async fn hydrate(&self, path: &RelPath, current: Option<Observation>) -> io::Result<()> {
-        self.prefetch(path, current).await?;
+    pub async fn hydrate(
+        &self,
+        path: &RelPath,
+        current: Option<Observation>,
+        base: Option<PathBuf>,
+    ) -> io::Result<()> {
+        self.prefetch(path, current, base).await?;
         let reader = self.0.transfers.downloads.lock().unwrap().get(path).cloned();
         match reader {
             Some(reader) => reader.done().await,
@@ -123,10 +128,11 @@ impl<'a, T: LocalStore> Cache<'a, T> {
         &self,
         path: &RelPath,
         current: Option<Observation>,
+        base: Option<PathBuf>,
     ) -> io::Result<()> {
         let gate = self.0.transfers.hydrate_gate(path);
         let _gate = gate.lock().await;
-        self.0.fetch_start(path, current).await
+        self.0.fetch_start(path, current, base).await
     }
 
     pub fn cancel(&self, path: &RelPath) {
@@ -144,7 +150,12 @@ impl<'a, T: LocalStore> Cache<'a, T> {
 }
 
 impl<T: LocalStore> Engine<T> {
-    async fn fetch_start(&self, path: &RelPath, current: Option<Observation>) -> io::Result<()> {
+    async fn fetch_start(
+        &self,
+        path: &RelPath,
+        current: Option<Observation>,
+        base: Option<PathBuf>,
+    ) -> io::Result<()> {
         if self.transfers.downloads.lock().unwrap().contains_key(path) {
             return Ok(());
         }
@@ -193,7 +204,7 @@ impl<T: LocalStore> Engine<T> {
             .lock()
             .unwrap()
             .insert(path.clone(), Arc::new(Reader { file, state, abort: AtomicBool::new(false) }));
-        self.scheduler.stream(path.clone(), tmp, tx, current);
+        self.scheduler.stream(path.clone(), tmp, tx, current, base);
         Ok(())
     }
 
@@ -203,6 +214,7 @@ impl<T: LocalStore> Engine<T> {
         tmp: PathBuf,
         tx: watch::Sender<(u64, DownloadStatus)>,
         expected: Observation,
+        base: Option<PathBuf>,
     ) {
         let act = self
             .activity
@@ -222,7 +234,7 @@ impl<T: LocalStore> Engine<T> {
             }
             let upstream = self.upstream_of(&path).unwrap_or_else(|| path.clone());
             if let Some(done) = self
-                .fetch_delta(&path, &upstream, &tmp, &tx, expected, act)
+                .fetch_delta(&path, &upstream, &tmp, &tx, expected, base.as_deref(), act)
                 .await?
             {
                 return Ok(done);
@@ -272,13 +284,18 @@ impl<T: LocalStore> Engine<T> {
         tmp: &Path,
         tx: &watch::Sender<(u64, DownloadStatus)>,
         expected: Observation,
+        base: Option<&Path>,
         act: u64,
     ) -> io::Result<Option<(u64, FileInfo)>> {
         if expected.size < 1 << 20 {
             log::debug!("delta {path}: {} bytes is below the threshold", expected.size);
             return Ok(None);
         }
-        let Ok(base) = fs::read(self.local.backing(path)) else {
+        let source = match base {
+            Some(provided) => provided.to_path_buf(),
+            None => self.local.backing(path),
+        };
+        let Ok(base) = fs::read(&source) else {
             log::debug!("delta {path}: no local base");
             return Ok(None);
         };

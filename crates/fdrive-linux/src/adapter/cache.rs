@@ -14,7 +14,7 @@ impl Cache<'_> {
         if current.is_some_and(|current| self.0.engine.view().current(path, current)) {
             return Ok(());
         }
-        self.0.engine.block_on(self.0.engine.cache().hydrate(path, current))
+        self.0.engine.block_on(self.0.engine.cache().hydrate(path, current, None))
     }
 
     pub fn prefetch(self, path: &RelPath) -> io::Result<()> {
@@ -22,7 +22,7 @@ impl Cache<'_> {
         if current.is_some_and(|current| self.0.engine.view().current(path, current)) {
             return Ok(());
         }
-        self.0.engine.block_on(self.0.engine.cache().prefetch(path, current))
+        self.0.engine.block_on(self.0.engine.cache().prefetch(path, current, None))
     }
 
     fn remote(self, path: &RelPath) -> Option<Observation> {
