@@ -97,6 +97,7 @@ impl Fs<'_> {
 
     pub async fn refresh(self, dir: &RelPath) -> io::Result<()> {
         const STUCK: std::time::Duration = std::time::Duration::from_secs(120);
+        let _busy = self.0.working();
         let dir_abs = self.0.abs(dir);
         if !dir.is_root() {
             match wire::placeholder_state(&dir_abs) {

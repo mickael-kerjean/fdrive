@@ -26,9 +26,13 @@ impl System<'_> {
             root,
             wire::Callbacks {
                 fetch: Box::new(move |path, expected, sink| {
+                    let _busy = fetch.working();
                     fetch.cache().fetch(path, expected, sink)
                 }),
-                populate: Box::new(move |dir| populate.fs().populate(dir)),
+                populate: Box::new(move |dir| {
+                    let _busy = populate.working();
+                    populate.fs().populate(dir)
+                }),
                 delete: Box::new(move |path, is_dir| delete.fs().on_delete(path, is_dir)),
                 rename: Box::new(move |from, to, is_dir| rename.fs().on_rename(from, to, is_dir)),
             },

@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime};
 
@@ -118,6 +119,7 @@ pub struct Adapter {
     refreshing: Mutex<BTreeMap<RelPath, Instant>>,
     kept: Mutex<BTreeSet<RelPath>>,
     pinning: Mutex<BTreeSet<RelPath>>,
+    busy: AtomicUsize,
 }
 
 impl Adapter {
@@ -143,6 +145,7 @@ impl Adapter {
             refreshing: Mutex::new(BTreeMap::new()),
             kept: Mutex::new(BTreeSet::new()),
             pinning: Mutex::new(BTreeSet::new()),
+            busy: AtomicUsize::new(0),
         }))
     }
 
@@ -162,11 +165,28 @@ impl Adapter {
         self.engine.status()
     }
 
+    pub fn busy(&self) -> bool {
+        self.busy.load(Ordering::Relaxed) > 0
+    }
+
+    fn working(&self) -> Busy<'_> {
+        self.busy.fetch_add(1, Ordering::Relaxed);
+        Busy(self)
+    }
+
     fn reconcile(self: &Arc<Self>) -> Reconcile<'_> {
         Reconcile(self)
     }
 
     fn abs(&self, path: &RelPath) -> PathBuf {
         wire::abs_of(&self.root, path)
+    }
+}
+
+struct Busy<'a>(&'a Adapter);
+
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        self.0.busy.fetch_sub(1, Ordering::Relaxed);
     }
 }

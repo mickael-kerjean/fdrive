@@ -223,7 +223,8 @@ async fn serve(
     config: &AppConfig,
 ) -> SessionEnd {
     let adapter = &drive.adapter;
-    let mut upload_status = adapter.status().watch();
+    let upload_status = adapter.status().watch();
+    let mut beat = tokio::time::interval(Duration::from_secs(1));
     let refresh_every = Duration::from_secs(config.windows.refresh_secs.max(2));
     let mut refreshed: HashMap<RelPath, Instant> = HashMap::new();
     let mut sweep_task: Option<tokio::task::JoinHandle<()>> = None;
@@ -260,8 +261,8 @@ async fn serve(
                     });
                 }
             }
-            _ = upload_status.changed() => {
-                tray.set_status(tray_status(*upload_status.borrow()));
+            _ = beat.tick() => {
+                tray.set_status(tray_status(*upload_status.borrow(), adapter.busy()));
             }
             _ = sweep.tick() => {
                 if sweep_task.as_ref().is_none_or(|task| task.is_finished()) {
@@ -297,10 +298,10 @@ fn toggle_autostart(data: &Path, tray: &Tray) {
     tray.set_autostart(shell::autostart_enabled());
 }
 
-fn tray_status(upload: UploadStatus) -> Status {
-    match upload {
-        UploadStatus::Idle => Status::Ok,
-        UploadStatus::Busy => Status::Syncing,
-        UploadStatus::Error => Status::Error,
+fn tray_status(upload: UploadStatus, busy: bool) -> Status {
+    match (upload, busy) {
+        (UploadStatus::Error, _) => Status::Error,
+        (UploadStatus::Busy, _) | (_, true) => Status::Syncing,
+        _ => Status::Ok,
     }
 }
