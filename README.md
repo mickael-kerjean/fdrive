@@ -4,7 +4,7 @@ A cross platform drive client that does not try to own your storage, but rather 
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-windows.png" alt="windows screenshot" />
-    <em>Windows</em>
+    <em>Windows - <a href="https://downloads.filestash.app/latest/Filestash.exe">exe</a></em>
 </p>
 
 <p align="center">
