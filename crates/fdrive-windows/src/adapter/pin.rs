@@ -19,7 +19,7 @@ pub(super) fn walk(adapter: &Arc<Adapter>, dir: &RelPath) {
         }
         pinning.insert(dir.clone());
     }
-    descend(adapter, dir);
+    descend(adapter, dir, &adapter.abs(dir));
     adapter.pinning.lock().unwrap().remove(dir);
 }
 
@@ -54,8 +54,12 @@ pub(super) async fn repin(abs: PathBuf, path: RelPath) -> io::Result<()> {
     .and_then(|result| result)
 }
 
-fn descend(adapter: &Arc<Adapter>, dir: &RelPath) {
+fn descend(adapter: &Arc<Adapter>, dir: &RelPath, root: &Path) {
     let abs = adapter.abs(dir);
+    if !pinned(root) {
+        log::info!("pin walk {dir}: no longer pinned, stopping");
+        return;
+    }
     relist(adapter, dir, &abs);
     let Ok(read) = fs::read_dir(&abs) else {
         return;
@@ -79,11 +83,17 @@ fn descend(adapter: &Arc<Adapter>, dir: &RelPath) {
             }
         }
         if md.is_dir() {
-            descend(adapter, &child);
-        } else if let Ok(state) = adapter.reconcile().classify(&abs, &child) {
-            enforce(&abs, &child, state);
+            descend(adapter, &child, root);
+        } else if pinned(root) && pinned(&abs) {
+            if let Ok(state) = adapter.reconcile().classify(&abs, &child) {
+                enforce(&abs, &child, state);
+            }
         }
     }
+}
+
+fn pinned(abs: &Path) -> bool {
+    fs::symlink_metadata(abs).is_ok_and(|md| wire::pin::of(&md) == Pin::Pinned)
 }
 
 fn relist(adapter: &Arc<Adapter>, dir: &RelPath, abs: &Path) {

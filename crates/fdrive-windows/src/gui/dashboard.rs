@@ -241,10 +241,12 @@ unsafe fn fit_columns(list: HWND) {
     if GetClientRect(list, &mut client).is_err() {
         return;
     }
+    let width = client.right - client.left;
     set_column_width(list, 1, LVSCW_AUTOSIZE_USEHEADER);
-    let status_width = SendMessageW(list, LVM_GETCOLUMNWIDTH, Some(WPARAM(1)), None).0 as i32;
-    let name_width = (client.right - client.left - status_width).max(80);
-    set_column_width(list, 0, name_width);
+    let status_width = (SendMessageW(list, LVM_GETCOLUMNWIDTH, Some(WPARAM(1)), None).0 as i32)
+        .min((width / 3).max(1));
+    set_column_width(list, 1, status_width);
+    set_column_width(list, 0, (width - status_width).max(80));
 }
 
 unsafe fn set_column_width(list: HWND, column: usize, width: i32) {
@@ -370,13 +372,11 @@ unsafe fn set_row(list: HWND, index: usize, columns: [&str; 2]) {
 fn transfer_detail(transfer: &fdrive_core::activity::Transfer) -> String {
     use fdrive_core::activity::{fmt_compact, Direction, Mode, Outcome};
     if let Outcome::Failed(err) = &transfer.outcome {
-        return format!("Failed · {err}");
+        return format!("✗ {err}");
     }
-    let status = match (&transfer.outcome, transfer.direction) {
-        (Outcome::Running, Direction::Down) => "Downloading",
-        (Outcome::Running, Direction::Up) => "Uploading",
-        (_, Direction::Down) => "Downloaded",
-        (_, Direction::Up) => "Uploaded",
+    let status = match transfer.direction {
+        Direction::Down => "↓",
+        Direction::Up => "↑",
     };
     let bytes = match (transfer.mode, &transfer.outcome) {
         (Mode::Delta, _) => format!(
@@ -391,7 +391,7 @@ fn transfer_detail(transfer: &fdrive_core::activity::Transfer) -> String {
         ),
         _ => fmt_compact(transfer.size),
     };
-    format!("{status} · {bytes}")
+    format!("{status} {bytes}")
 }
 
 fn flyout_position(w: i32, h: i32) -> (i32, i32) {

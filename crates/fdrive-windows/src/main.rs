@@ -102,6 +102,7 @@ async fn session(
     let end = serve(&mut drive, events, tray, root, data, config).await;
 
     log::info!("disconnecting");
+    tray.set_status(Status::Syncing);
     tray.clear_click();
     drive.adapter.system().flush(Duration::from_secs(30)).await;
     let logout = matches!(end, SessionEnd::Logout);
