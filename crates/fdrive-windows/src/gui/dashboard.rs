@@ -3,28 +3,35 @@ use std::sync::Arc;
 
 use fdrive_core::activity::Activity;
 use windows::core::{w, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontIndirectW, DeleteObject, GetStockObject, GetSysColor, GetSysColorBrush, SetBkColor,
-    SetTextColor, COLOR_GRAYTEXT, COLOR_WINDOW, DEFAULT_GUI_FONT, HBRUSH, HDC, HGDIOBJ, LOGFONTW,
+    CreateFontIndirectW, DeleteObject, GetStockObject, GetSysColor, GetSysColorBrush,
+    ScreenToClient, SetBkColor, SetTextColor, COLOR_GRAYTEXT, COLOR_WINDOW, DEFAULT_GUI_FONT,
+    HBRUSH, HDC, HGDIOBJ, LOGFONTW,
 };
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+};
+use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+use windows::Win32::System::Ole::CF_UNICODETEXT;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     InitCommonControlsEx, CCS_BOTTOM, CCS_NOPARENTALIGN, CCS_NORESIZE, ICC_BAR_CLASSES,
     ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, LVCFMT_LEFT, LVCF_FMT, LVCF_TEXT, LVCF_WIDTH,
-    LVCOLUMNW, LVIF_TEXT, LVITEMW, LVM_DELETEITEM, LVM_GETITEMCOUNT,
-    LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE,
-    LVM_SETITEMTEXTW, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT,
+    LVCOLUMNW, LVHITTESTINFO, LVIF_TEXT, LVITEMW, LVM_DELETEITEM, LVM_GETITEMCOUNT,
+    LVM_HITTEST, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH,
+    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT,
     LVS_EX_LABELTIP, LVS_NOCOLUMNHEADER, LVS_REPORT, LVS_SHOWSELALWAYS,
     LVS_SINGLESEL, SB_SETPARTS, SB_SETTEXTW, STATUSCLASSNAMEW, WC_LISTVIEWW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetDlgItem,
-    GetWindowRect, KillTimer, LoadIconW, MoveWindow, RegisterClassW, SendMessageW,
-    SetForegroundWindow, SetTimer, ShowWindow, SystemParametersInfoW, HMENU, SPI_GETWORKAREA,
-    SW_HIDE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_STYLE, WM_CLOSE,
-    WM_CTLCOLORSTATIC, WM_DESTROY, WM_GETFONT, WM_SETFONT, WM_SIZE, WM_TIMER, WNDCLASSW,
-    WS_CAPTION, WS_CHILD, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
+    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
+    GetClientRect, GetCursorPos, GetDlgItem, GetWindowRect, KillTimer, LoadIconW, MoveWindow,
+    RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, ShowWindow, SystemParametersInfoW,
+    TrackPopupMenu, HMENU, MF_STRING, SPI_GETWORKAREA, SW_HIDE, SW_SHOW,
+    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_CLOSE,
+    WM_CONTEXTMENU, WM_CTLCOLORSTATIC, WM_DESTROY, WM_GETFONT, WM_SETFONT, WM_SIZE, WM_TIMER,
+    WNDCLASSW, WS_CAPTION, WS_CHILD, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
 };
 
 use crate::utils::wstr;
@@ -34,12 +41,14 @@ const ID_STATS_LIST: i32 = 202;
 const ID_STATS_EMPTY_ICON: i32 = 203;
 const ID_STATS_EMPTY_TEXT: i32 = 204;
 const SS_CENTER: u32 = 0x1;
+const CMD_COPY: usize = 1;
+const CMD_CLEAR: usize = 2;
 const STATS_TIMER: usize = 1;
 const STATS_W: i32 = 350;
 const STATS_H: i32 = 400;
 
 thread_local! {
-    static STATS: RefCell<Option<(HWND, u64, Arc<Activity>)>> = const { RefCell::new(None) };
+    static STATS: RefCell<Option<(HWND, u64, u64, Arc<Activity>)>> = const { RefCell::new(None) };
 }
 
 pub fn toggle(activity: Arc<Activity>) {
@@ -58,7 +67,7 @@ unsafe fn open(activity: Arc<Activity>) {
         let _ = DestroyWindow(hwnd);
         return;
     }
-    STATS.with_borrow_mut(|stats| *stats = Some((hwnd, u64::MAX, activity)));
+    STATS.with_borrow_mut(|stats| *stats = Some((hwnd, u64::MAX, 0, activity)));
     layout(hwnd);
     refresh_stats(hwnd);
     SetTimer(Some(hwnd), STATS_TIMER, 300, None);
@@ -248,6 +257,10 @@ unsafe extern "system" fn stats_wndproc(
             let _ = DestroyWindow(hwnd);
             LRESULT(0)
         }
+        WM_CONTEXTMENU => {
+            context_menu(hwnd);
+            LRESULT(0)
+        }
         WM_CTLCOLORSTATIC => {
             let hdc = HDC(wparam.0 as _);
             SetTextColor(hdc, COLORREF(GetSysColor(COLOR_GRAYTEXT)));
@@ -296,8 +309,8 @@ unsafe fn layout(hwnd: HWND) {
         fit_columns(list);
     }
     for (id, top, h) in [
-        (ID_STATS_EMPTY_ICON, body / 2 - 44, 40),
-        (ID_STATS_EMPTY_TEXT, body / 2, 18),
+        (ID_STATS_EMPTY_ICON, body / 2 - 32, 32),
+        (ID_STATS_EMPTY_TEXT, body / 2 + 2, 18),
     ] {
         if let Ok(ctl) = GetDlgItem(Some(hwnd), id) {
             let _ = MoveWindow(ctl, 0, top, width, h, true);
@@ -322,13 +335,87 @@ unsafe fn set_column_width(list: HWND, column: usize, width: i32) {
     );
 }
 
+unsafe fn context_menu(hwnd: HWND) {
+    let Ok(list) = GetDlgItem(Some(hwnd), ID_STATS_LIST) else { return };
+    let mut cursor = POINT::default();
+    let _ = GetCursorPos(&mut cursor);
+    let mut hit = LVHITTESTINFO {
+        pt: cursor,
+        ..Default::default()
+    };
+    let _ = ScreenToClient(list, &mut hit.pt);
+    let item = SendMessageW(
+        list,
+        LVM_HITTEST,
+        None,
+        Some(LPARAM((&mut hit as *mut LVHITTESTINFO) as isize)),
+    )
+    .0;
+    let Ok(menu) = CreatePopupMenu() else { return };
+    if item >= 0 {
+        let _ = AppendMenuW(menu, MF_STRING, CMD_COPY, w!("Copy"));
+    }
+    let _ = AppendMenuW(menu, MF_STRING, CMD_CLEAR, w!("Clear"));
+    let picked = TrackPopupMenu(
+        menu,
+        TPM_RETURNCMD | TPM_NONOTIFY,
+        cursor.x,
+        cursor.y,
+        Some(0),
+        hwnd,
+        None,
+    );
+    let _ = DestroyMenu(menu);
+    match picked.0 as usize {
+        CMD_COPY => copy_path(hwnd, item as usize),
+        CMD_CLEAR => clear_transfers(hwnd),
+        _ => {}
+    }
+}
+
+unsafe fn copy_path(hwnd: HWND, index: usize) {
+    let state = STATS
+        .with_borrow(|stats| stats.as_ref().map(|(_, _, cleared, activity)| (*cleared, activity.clone())));
+    let Some((cleared, activity)) = state else { return };
+    let snap = activity.snapshot();
+    let Some(transfer) = snap.transfers.iter().filter(|t| t.id > cleared).nth(index) else {
+        return;
+    };
+    let wide = wstr(&transfer.path);
+    if OpenClipboard(Some(hwnd)).is_err() {
+        return;
+    }
+    let _ = EmptyClipboard();
+    if let Ok(mem) = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2) {
+        let dst = GlobalLock(mem);
+        if !dst.is_null() {
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), dst as *mut u16, wide.len());
+            let _ = GlobalUnlock(mem);
+            let _ = SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(mem.0)));
+        }
+    }
+    let _ = CloseClipboard();
+}
+
+fn clear_transfers(hwnd: HWND) {
+    STATS.with_borrow_mut(|stats| {
+        if let Some((_, shown, cleared, activity)) = stats {
+            let snap = activity.snapshot();
+            *cleared = snap.transfers.iter().map(|transfer| transfer.id).max().unwrap_or(*cleared);
+            *shown = u64::MAX;
+        }
+    });
+    refresh_stats(hwnd);
+}
+
 fn refresh_stats(hwnd: HWND) {
-    let activity = STATS.with_borrow(|stats| stats.as_ref().map(|(.., activity)| activity.clone()));
-    let Some(activity) = activity else { return };
+    let state = STATS
+        .with_borrow(|stats| stats.as_ref().map(|(_, _, cleared, activity)| (*cleared, activity.clone())));
+    let Some((cleared, activity)) = state else { return };
     let snap = activity.snapshot();
     set_rates(hwnd, &snap);
     let stale = STATS.with_borrow_mut(|stats| match stats {
-        Some((_, shown, _)) if *shown != snap.version => {
+        Some((_, shown, ..)) if *shown != snap.version => {
             *shown = snap.version;
             true
         }
@@ -336,7 +423,7 @@ fn refresh_stats(hwnd: HWND) {
     });
     if stale {
         unsafe {
-            render_transfers(hwnd, &snap);
+            render_transfers(hwnd, &snap, cleared);
         }
     }
 }
@@ -350,7 +437,7 @@ fn set_rates(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
     let up = format!("➚{}/s", fdrive_core::activity::fmt_compact(up));
     let traffic = fdrive_core::activity::sparkline(snap, 24);
     unsafe {
-        set_status_text(status, 0, &format!("{traffic}\t\t{down:>10}  {up:>10}"));
+        set_status_text(status, 0, &format!("{traffic}\t\t{down:>10}  {up:>10} "));
     }
 }
 
@@ -364,18 +451,19 @@ unsafe fn set_status_text(status: HWND, part: usize, text: &str) {
     );
 }
 
-unsafe fn render_transfers(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
+unsafe fn render_transfers(hwnd: HWND, snap: &fdrive_core::activity::Snapshot, cleared: u64) {
     let Ok(list) = GetDlgItem(Some(hwnd), ID_STATS_LIST) else {
         return;
     };
-    let empty = snap.transfers.is_empty();
+    let transfers: Vec<_> = snap.transfers.iter().filter(|t| t.id > cleared).collect();
+    let empty = transfers.is_empty();
     for id in [ID_STATS_EMPTY_ICON, ID_STATS_EMPTY_TEXT] {
         if let Ok(ctl) = GetDlgItem(Some(hwnd), id) {
             let _ = ShowWindow(ctl, if empty { SW_SHOW } else { SW_HIDE });
         }
     }
     let _ = ShowWindow(list, if empty { SW_HIDE } else { SW_SHOW });
-    let rows: Vec<String> = snap.transfers.iter().map(transfer_line).collect();
+    let rows: Vec<String> = transfers.iter().map(|transfer| transfer_line(transfer)).collect();
     let shown = SendMessageW(list, LVM_GETITEMCOUNT, None, None).0 as usize;
     for (index, row) in rows.iter().enumerate() {
         match index < shown {
