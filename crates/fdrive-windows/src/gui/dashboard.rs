@@ -3,30 +3,37 @@ use std::sync::Arc;
 
 use fdrive_core::activity::Activity;
 use windows::core::{w, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::{GetStockObject, COLOR_WINDOW, DEFAULT_GUI_FONT, HBRUSH, HGDIOBJ};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{
+    CreateFontIndirectW, DeleteObject, GetStockObject, GetSysColor, GetSysColorBrush, SetBkColor,
+    SetTextColor, COLOR_GRAYTEXT, COLOR_WINDOW, DEFAULT_GUI_FONT, HBRUSH, HDC, HGDIOBJ, LOGFONTW,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     InitCommonControlsEx, CCS_BOTTOM, CCS_NOPARENTALIGN, CCS_NORESIZE, ICC_BAR_CLASSES,
     ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, LVCFMT_LEFT, LVCF_FMT, LVCF_TEXT, LVCF_WIDTH,
-    LVCOLUMNW, LVIF_TEXT, LVITEMW, LVM_DELETEITEM, LVM_GETCOLUMNWIDTH, LVM_GETITEMCOUNT,
+    LVCOLUMNW, LVIF_TEXT, LVITEMW, LVM_DELETEITEM, LVM_GETITEMCOUNT,
     LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE,
-    LVM_SETITEMTEXTW, LVSCW_AUTOSIZE_USEHEADER, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT,
-    LVS_EX_GRIDLINES, LVS_EX_LABELTIP, LVS_NOCOLUMNHEADER, LVS_REPORT, LVS_SHOWSELALWAYS,
+    LVM_SETITEMTEXTW, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT,
+    LVS_EX_LABELTIP, LVS_NOCOLUMNHEADER, LVS_REPORT, LVS_SHOWSELALWAYS,
     LVS_SINGLESEL, SB_SETPARTS, SB_SETTEXTW, STATUSCLASSNAMEW, WC_LISTVIEWW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, GetCursorPos, GetDlgItem,
     GetWindowRect, KillTimer, LoadIconW, MoveWindow, RegisterClassW, SendMessageW,
-    SetForegroundWindow, SetTimer, SystemParametersInfoW, HMENU, SPI_GETWORKAREA,
-    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_STYLE, WM_CLOSE, WM_DESTROY, WM_SETFONT, WM_SIZE,
-    WM_TIMER, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
+    SetForegroundWindow, SetTimer, ShowWindow, SystemParametersInfoW, HMENU, SPI_GETWORKAREA,
+    SW_HIDE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WINDOW_STYLE, WM_CLOSE,
+    WM_CTLCOLORSTATIC, WM_DESTROY, WM_GETFONT, WM_SETFONT, WM_SIZE, WM_TIMER, WNDCLASSW,
+    WS_CAPTION, WS_CHILD, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
 };
 
 use crate::utils::wstr;
 
 const ID_STATS_STATUS: i32 = 201;
 const ID_STATS_LIST: i32 = 202;
+const ID_STATS_EMPTY_ICON: i32 = 203;
+const ID_STATS_EMPTY_TEXT: i32 = 204;
+const SS_CENTER: u32 = 0x1;
 const STATS_TIMER: usize = 1;
 const STATS_W: i32 = 350;
 const STATS_H: i32 = 400;
@@ -47,7 +54,7 @@ pub fn toggle(activity: Arc<Activity>) {
 unsafe fn open(activity: Arc<Activity>) {
     let Some(hwnd) = frame() else { return };
     let font = GetStockObject(DEFAULT_GUI_FONT);
-    if list(hwnd, font).is_none() || status_bar(hwnd, font).is_none() {
+    if list(hwnd, font).is_none() || status_bar(hwnd, font).is_none() || empty_state(hwnd, font).is_none() {
         let _ = DestroyWindow(hwnd);
         return;
     }
@@ -115,7 +122,7 @@ unsafe fn list(hwnd: HWND, font: HGDIOBJ) -> Option<HWND> {
     )
     .ok()?;
     set_font(list, font);
-    let ex = LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP | LVS_EX_GRIDLINES;
+    let ex = LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP;
     SendMessageW(
         list,
         LVM_SETEXTENDEDLISTVIEWSTYLE,
@@ -123,7 +130,6 @@ unsafe fn list(hwnd: HWND, font: HGDIOBJ) -> Option<HWND> {
         Some(LPARAM(ex as isize)),
     );
     insert_column(list, 0, "Name", 300, LVCFMT_LEFT);
-    insert_column(list, 1, "Status", 200, LVCFMT_LEFT);
     Some(list)
 }
 
@@ -145,6 +151,50 @@ unsafe fn status_bar(hwnd: HWND, font: HGDIOBJ) -> Option<HWND> {
     .ok()?;
     set_font(status, font);
     Some(status)
+}
+
+unsafe fn empty_state(hwnd: HWND, font: HGDIOBJ) -> Option<()> {
+    let instance = GetModuleHandleW(None).ok()?;
+    let icon = CreateWindowExW(
+        Default::default(),
+        w!("STATIC"),
+        w!("☁"),
+        WS_CHILD | WINDOW_STYLE(SS_CENTER),
+        0,
+        0,
+        0,
+        0,
+        Some(hwnd),
+        Some(HMENU(ID_STATS_EMPTY_ICON as _)),
+        Some(instance.into()),
+        None,
+    )
+    .ok()?;
+    let mut logfont = LOGFONTW {
+        lfHeight: -28,
+        ..Default::default()
+    };
+    for (dst, src) in logfont.lfFaceName.iter_mut().zip("Segoe UI Symbol".encode_utf16()) {
+        *dst = src;
+    }
+    set_font(icon, CreateFontIndirectW(&logfont).into());
+    let caption = CreateWindowExW(
+        Default::default(),
+        w!("STATIC"),
+        w!("No transfer"),
+        WS_CHILD | WINDOW_STYLE(SS_CENTER),
+        0,
+        0,
+        0,
+        0,
+        Some(hwnd),
+        Some(HMENU(ID_STATS_EMPTY_TEXT as _)),
+        Some(instance.into()),
+        None,
+    )
+    .ok()?;
+    set_font(caption, font);
+    Some(())
 }
 
 unsafe fn set_font(hwnd: HWND, font: HGDIOBJ) {
@@ -198,7 +248,17 @@ unsafe extern "system" fn stats_wndproc(
             let _ = DestroyWindow(hwnd);
             LRESULT(0)
         }
+        WM_CTLCOLORSTATIC => {
+            let hdc = HDC(wparam.0 as _);
+            SetTextColor(hdc, COLORREF(GetSysColor(COLOR_GRAYTEXT)));
+            SetBkColor(hdc, COLORREF(GetSysColor(COLOR_WINDOW)));
+            LRESULT(GetSysColorBrush(COLOR_WINDOW).0 as isize)
+        }
         WM_DESTROY => {
+            if let Ok(icon) = GetDlgItem(Some(hwnd), ID_STATS_EMPTY_ICON) {
+                let font = SendMessageW(icon, WM_GETFONT, None, None);
+                let _ = DeleteObject(HGDIOBJ(font.0 as _));
+            }
             let _ = KillTimer(Some(hwnd), STATS_TIMER);
             STATS.with_borrow_mut(|stats| *stats = None);
             LRESULT(0)
@@ -221,7 +281,7 @@ unsafe fn layout(hwnd: HWND) {
         if GetWindowRect(status, &mut status_rect).is_ok() {
             status_height = (status_rect.bottom - status_rect.top).max(status_height);
         }
-        let parts = [width * 45 / 100, width * 73 / 100, -1];
+        let parts = [-1];
         SendMessageW(
             status,
             SB_SETPARTS,
@@ -230,9 +290,18 @@ unsafe fn layout(hwnd: HWND) {
         );
         let _ = MoveWindow(status, 0, height - status_height, width, status_height, true);
     }
+    let body = (height - status_height).max(1);
     if let Ok(list) = GetDlgItem(Some(hwnd), ID_STATS_LIST) {
-        let _ = MoveWindow(list, 0, 0, width, (height - status_height).max(1), true);
+        let _ = MoveWindow(list, 0, 0, width, body, true);
         fit_columns(list);
+    }
+    for (id, top, h) in [
+        (ID_STATS_EMPTY_ICON, body / 2 - 44, 40),
+        (ID_STATS_EMPTY_TEXT, body / 2, 18),
+    ] {
+        if let Ok(ctl) = GetDlgItem(Some(hwnd), id) {
+            let _ = MoveWindow(ctl, 0, top, width, h, true);
+        }
     }
 }
 
@@ -241,12 +310,7 @@ unsafe fn fit_columns(list: HWND) {
     if GetClientRect(list, &mut client).is_err() {
         return;
     }
-    let width = client.right - client.left;
-    set_column_width(list, 1, LVSCW_AUTOSIZE_USEHEADER);
-    let status_width = (SendMessageW(list, LVM_GETCOLUMNWIDTH, Some(WPARAM(1)), None).0 as i32)
-        .min((width / 3).max(1));
-    set_column_width(list, 1, status_width);
-    set_column_width(list, 0, (width - status_width).max(80));
+    set_column_width(list, 0, (client.right - client.left).max(80));
 }
 
 unsafe fn set_column_width(list: HWND, column: usize, width: i32) {
@@ -282,13 +346,11 @@ fn set_rates(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
         return;
     };
     let (up, down) = fdrive_core::activity::mean_rate(snap);
-    let down = format!("  ↓  {}/s", fdrive_core::activity::fmt_compact(down));
-    let up = format!("  ↑  {}/s", fdrive_core::activity::fmt_compact(up));
+    let down = format!("➘{}/s", fdrive_core::activity::fmt_compact(down));
+    let up = format!("➚{}/s", fdrive_core::activity::fmt_compact(up));
     let traffic = fdrive_core::activity::sparkline(snap, 24);
     unsafe {
-        set_status_text(status, 0, &traffic);
-        set_status_text(status, 1, &down);
-        set_status_text(status, 2, &up);
+        set_status_text(status, 0, &format!("{traffic}\t\t{down:>10}  {up:>10}"));
     }
 }
 
@@ -306,25 +368,19 @@ unsafe fn render_transfers(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
     let Ok(list) = GetDlgItem(Some(hwnd), ID_STATS_LIST) else {
         return;
     };
-    let rows: Vec<[String; 2]> = match snap.transfers.is_empty() {
-        true => vec![["No recent transfers".into(), String::new()]],
-        false => snap
-            .transfers
-            .iter()
-            .map(|transfer| {
-                [
-                    transfer.path.trim_start_matches('/').to_string(),
-                    transfer_detail(transfer),
-                ]
-            })
-            .collect(),
-    };
+    let empty = snap.transfers.is_empty();
+    for id in [ID_STATS_EMPTY_ICON, ID_STATS_EMPTY_TEXT] {
+        if let Ok(ctl) = GetDlgItem(Some(hwnd), id) {
+            let _ = ShowWindow(ctl, if empty { SW_SHOW } else { SW_HIDE });
+        }
+    }
+    let _ = ShowWindow(list, if empty { SW_HIDE } else { SW_SHOW });
+    let rows: Vec<String> = snap.transfers.iter().map(transfer_line).collect();
     let shown = SendMessageW(list, LVM_GETITEMCOUNT, None, None).0 as usize;
     for (index, row) in rows.iter().enumerate() {
-        let columns = [row[0].as_str(), row[1].as_str()];
         match index < shown {
-            true => set_row(list, index, columns),
-            false => insert_row(list, index, columns),
+            true => set_row(list, index, row),
+            false => insert_row(list, index, row),
         }
     }
     for index in (rows.len()..shown).rev() {
@@ -333,12 +389,12 @@ unsafe fn render_transfers(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
     fit_columns(list);
 }
 
-unsafe fn insert_row(list: HWND, index: usize, columns: [&str; 2]) {
-    let mut blank = wstr("");
+unsafe fn insert_row(list: HWND, index: usize, text: &str) {
+    let mut text = wstr(text);
     let item = LVITEMW {
         mask: LVIF_TEXT,
         iItem: index as i32,
-        pszText: PWSTR(blank.as_mut_ptr()),
+        pszText: PWSTR(text.as_mut_ptr()),
         ..Default::default()
     };
     SendMessageW(
@@ -347,40 +403,38 @@ unsafe fn insert_row(list: HWND, index: usize, columns: [&str; 2]) {
         Some(WPARAM(0)),
         Some(LPARAM((&item as *const LVITEMW) as isize)),
     );
-    set_row(list, index, columns);
 }
 
-unsafe fn set_row(list: HWND, index: usize, columns: [&str; 2]) {
-    for (subitem, text) in columns.iter().enumerate() {
-        let mut text = wstr(text);
-        let item = LVITEMW {
-            mask: LVIF_TEXT,
-            iItem: index as i32,
-            iSubItem: subitem as i32,
-            pszText: PWSTR(text.as_mut_ptr()),
-            ..Default::default()
-        };
-        SendMessageW(
-            list,
-            LVM_SETITEMTEXTW,
-            Some(WPARAM(index)),
-            Some(LPARAM((&item as *const LVITEMW) as isize)),
-        );
-    }
-}
-
-fn transfer_detail(transfer: &fdrive_core::activity::Transfer) -> String {
-    use fdrive_core::activity::{fmt_compact, Direction, Mode, Outcome};
-    if let Outcome::Failed(err) = &transfer.outcome {
-        return format!("✗ {err}");
-    }
-    let status = match transfer.direction {
-        Direction::Down => "↓",
-        Direction::Up => "↑",
+unsafe fn set_row(list: HWND, index: usize, text: &str) {
+    let mut text = wstr(text);
+    let item = LVITEMW {
+        mask: LVIF_TEXT,
+        iItem: index as i32,
+        iSubItem: 0,
+        pszText: PWSTR(text.as_mut_ptr()),
+        ..Default::default()
     };
-    let bytes = match (transfer.mode, &transfer.outcome) {
+    SendMessageW(
+        list,
+        LVM_SETITEMTEXTW,
+        Some(WPARAM(index)),
+        Some(LPARAM((&item as *const LVITEMW) as isize)),
+    );
+}
+
+fn transfer_line(transfer: &fdrive_core::activity::Transfer) -> String {
+    use fdrive_core::activity::{fmt_compact, Direction, Mode, Outcome};
+    let name = transfer.path.trim_start_matches('/');
+    if let Outcome::Failed(err) = &transfer.outcome {
+        return format!("✗ {name} ({err})");
+    }
+    let icon = match transfer.direction {
+        Direction::Down => "➘",
+        Direction::Up => "➚",
+    };
+    let detail = match (transfer.mode, &transfer.outcome) {
         (Mode::Delta, _) => format!(
-            "Δ{} of {}",
+            "Δ{} / {}",
             fmt_compact(transfer.wire),
             fmt_compact(transfer.size)
         ),
@@ -391,7 +445,7 @@ fn transfer_detail(transfer: &fdrive_core::activity::Transfer) -> String {
         ),
         _ => fmt_compact(transfer.size),
     };
-    format!("{status} {bytes}")
+    format!("{icon} {name} ({detail})")
 }
 
 fn flyout_position(w: i32, h: i32) -> (i32, i32) {
