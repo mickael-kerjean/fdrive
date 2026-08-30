@@ -4,7 +4,7 @@ use clap::Parser;
 use fdrive_core::sdk::normalize_server;
 
 use fdrive_windows::config::AppConfig;
-use fdrive_windows::gui::{self, Credentials};
+use fdrive_windows::gui::{self, Boot, Credentials};
 
 #[derive(Parser)]
 #[command(name = "fdrive-windows", about = "Filestash drive client — Windows")]
@@ -32,10 +32,7 @@ pub struct Setup {
     pub data: PathBuf,
     pub config: AppConfig,
     pub unregister: bool,
-    pub prefill_url: Option<String>,
-    pub credentials: Option<Credentials>,
-    pub prompt_login: bool,
-    pub fresh_credentials: bool,
+    pub boot: Boot,
 }
 
 pub fn init() -> Setup {
@@ -62,6 +59,7 @@ pub fn init() -> Setup {
     if let Err(err) = std::fs::create_dir_all(&data) {
         fail(&format!("{}: {err}", data.display()));
     }
+    crate::log::init(&data).unwrap_or_else(|err| fail(&err.to_string()));
     instance_lock(&data, &root).unwrap_or_else(|err| fail(&err));
     let config_path = args.config.unwrap_or_else(|| data.join("fdrive.toml"));
     let config = AppConfig::load(&config_path).unwrap_or_else(|err| fail(&err.to_string()));
@@ -77,14 +75,14 @@ pub fn init() -> Setup {
     }
     let stored = fdrive_core::config::load(&data);
     let server = args.server.as_deref().map(normalize_server);
-    let credentials = match (&server, args.token, &args.user) {
-        (Some(url), Some(token), _) => Some(Credentials {
+    let boot = match (&server, args.token, &args.user) {
+        (Some(url), Some(token), _) => Boot::Fresh(Credentials {
             url: url.clone(),
             token,
             insecure: args.insecure,
             ..Default::default()
         }),
-        (Some(url), None, Some(user)) => Some(Credentials {
+        (Some(url), None, Some(user)) => Boot::Fresh(Credentials {
             url: url.clone(),
             user: user.clone(),
             password: args.password.unwrap_or_default(),
@@ -92,19 +90,18 @@ pub fn init() -> Setup {
             insecure: args.insecure,
             ..Default::default()
         }),
-        (Some(_), None, None) => None,
-        (None, ..) => stored.ok().then(|| Credentials::from(stored.clone())),
+        (Some(url), None, None) => Boot::Prompt(url.clone()),
+        (None, ..) => match stored.ok() {
+            true => Boot::Restored(Credentials::from(stored)),
+            false => Boot::Idle(Some(stored.url)),
+        },
     };
-    let fresh_credentials = server.is_some() && credentials.is_some();
     Setup {
         root,
         data,
         config,
         unregister: args.unregister,
-        prompt_login: server.is_some() && credentials.is_none(),
-        prefill_url: server.or(Some(stored.url)),
-        credentials,
-        fresh_credentials,
+        boot,
     }
 }
 

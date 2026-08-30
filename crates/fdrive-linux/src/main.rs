@@ -2,123 +2,140 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-mod args;
+mod app;
 mod log;
 
-use fdrive_core::config as session_store;
+use fdrive_core::config as store;
 use fdrive_core::engine::UploadStatus;
 use fdrive_core::sdk::Sdk;
 use fdrive_linux::adapter::Adapter;
-use fdrive_linux::gui::{self, Credentials, Status, Tray, TrayEvent};
+use fdrive_linux::gui::{self, Boot, Credentials, Status, Tray, TrayEvent};
 use fdrive_linux::wire::MountFs;
 use fuser::{Config, MountOption};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args::Setup {
+    let app::Setup {
         mount,
         data,
         prefill,
-        mut credentials,
-        mut launching,
-        prompt_login,
-    } = args::init()?;
-    log::init(&data)?;
-    let (tray, mut events) = gui::init(data.clone(), mount.clone(), prompt_login).await?;
+        boot,
+    } = app::init()?;
+    let (tray, mut events) = gui::init(data.clone(), mount.clone(), &boot).await?;
 
-    loop {
-        let creds = match credentials.take() {
-            Some(creds) => creds,
-            None => {
-                launching = false;
-                match wait_for_login(&mut events, &tray, &prefill).await {
-                    Some(creds) => creds,
-                    None => break,
-                }
-            }
-        };
-        tray.set(Status::Syncing, true).await;
-        match session(&creds, &mount, &data, &mut events, &tray).await {
-            Ok(SessionEnd::Quit) => break,
-            Ok(SessionEnd::Logout) => tray.set(Status::LoggedOut, false).await,
-            Ok(SessionEnd::Restart) => credentials = Some(creds),
-            Err(err) if launching => {
-                log::error!("session: {err}");
+    let mut session = match &boot {
+        Boot::Fresh(creds) => match login(creds, &mount, &data, &tray).await {
+            Ok(session) => Some(session),
+            Err(err) => {
                 tray.shutdown().await;
                 return Err(err);
             }
-            Err(err) => {
-                log::error!("session: {err}");
-                tray.set(Status::Error, false).await;
+        },
+        Boot::Restored(creds) => login(creds, &mount, &data, &tray).await.ok(),
+        Boot::Prompt | Boot::Idle => None,
+    };
+    while let Some(event) = next(&mut session, &tray, &mut events).await {
+        match event {
+            TrayEvent::Quit => break,
+            TrayEvent::Login => {
+                if let Some(creds) = tray.login(prefill.clone()).await {
+                    if let Some(old) = session.take() {
+                        disconnect(old, &data, &tray, true).await;
+                    }
+                    session = login(&creds, &mount, &data, &tray).await.ok();
+                }
+            }
+            TrayEvent::Logout => {
+                if let Some(session) = session.take() {
+                    disconnect(session, &data, &tray, true).await;
+                }
+                tray.set(Status::LoggedOut, false).await;
+            }
+            TrayEvent::Restart => {
+                if let Some(old) = session.take() {
+                    let creds = old.creds.clone();
+                    disconnect(old, &data, &tray, false).await;
+                    session = login(&creds, &mount, &data, &tray).await.ok();
+                }
             }
         }
-        launching = false;
+    }
+    if let Some(session) = session {
+        disconnect(session, &data, &tray, false).await;
     }
     tray.shutdown().await;
     Ok(())
 }
 
-async fn wait_for_login(
-    events: &mut UnboundedReceiver<TrayEvent>,
+async fn next(
+    session: &mut Option<Session>,
     tray: &Tray,
-    prefill: &Credentials,
-) -> Option<Credentials> {
-    loop {
-        let attempt = tokio::select! {
-            event = events.recv() => match event {
-                None | Some(TrayEvent::Quit) => return None,
-                Some(TrayEvent::Login) => tray.login(prefill.clone()).await,
-                Some(TrayEvent::Logout | TrayEvent::Restart) => continue,
-            },
-            _ = tokio::signal::ctrl_c() => return None,
+    events: &mut UnboundedReceiver<TrayEvent>,
+) -> Option<TrayEvent> {
+    let Some(session) = session else {
+        return tokio::select! {
+            event = events.recv() => event,
+            _ = tokio::signal::ctrl_c() => None,
         };
-        if attempt.is_some() {
-            return attempt;
+    };
+
+    loop {
+        tokio::select! {
+            event = events.recv() => return event,
+            _ = session.upload_status.changed() => {
+                tray.set(match *session.upload_status.borrow() {
+                    UploadStatus::Idle => Status::Ok,
+                    UploadStatus::Busy => Status::Syncing,
+                    UploadStatus::Error => Status::Error,
+                }, true).await;
+            }
+            _ = tokio::signal::ctrl_c() => return None,
+            _ = session.fuse_watch.tick() => {
+                if session.fuse.guard.is_finished() {
+                    log::info!("unmounted externally, ending session");
+                    return None;
+                }
+            }
         }
     }
 }
 
-async fn session(
+struct Session {
+    creds: Credentials,
+    adapter: Arc<Adapter>,
+    fuse: fuser::BackgroundSession,
+    upload_status: tokio::sync::watch::Receiver<UploadStatus>,
+    fuse_watch: tokio::time::Interval,
+}
+
+async fn login(
     creds: &Credentials,
     mount: &Path,
     data: &Path,
-    events: &mut UnboundedReceiver<TrayEvent>,
     tray: &Tray,
-) -> Result<SessionEnd, Box<dyn std::error::Error>> {
-    let drive = connect(creds, mount, data).await?;
-    log::info!("mounted {}", mount.display());
-    tray.attach(drive.adapter.status().activity()).await;
-    tray.set(Status::Ok, true).await;
-
-    let end = serve(&drive, events, tray).await;
-
-    log::info!("unmounting {}", mount.display());
-    let Drive { adapter, fuse } = drive;
-    if fuse.guard.is_finished() {
-        let _ = fuse.join();
-    } else {
-        fuse.umount_and_join()?;
+) -> Result<Session, Box<dyn std::error::Error>> {
+    tray.set(Status::Syncing, true).await;
+    match connect(creds, mount, data).await {
+        Ok(session) => {
+            log::info!("mounted {}", mount.display());
+            tray.attach(session.adapter.status().activity()).await;
+            tray.set(Status::Ok, true).await;
+            Ok(session)
+        }
+        Err(err) => {
+            log::error!("connect: {err}");
+            tray.set(Status::Error, false).await;
+            Err(err)
+        }
     }
-    adapter.system().flush(Duration::from_secs(30)).await;
-    if matches!(end, SessionEnd::Logout) {
-        adapter.system().vacuum()?;
-        session_store::forget(data);
-        adapter.system().logout().await;
-    }
-    Ok(end)
-}
-
-struct Drive {
-    adapter: Arc<Adapter>,
-    fuse: fuser::BackgroundSession,
 }
 
 async fn connect(
     creds: &Credentials,
     mount: &Path,
     data: &Path,
-) -> Result<Drive, Box<dyn std::error::Error>> {
+) -> Result<Session, Box<dyn std::error::Error>> {
     if let Err(err) = std::fs::symlink_metadata(mount) {
         if err.raw_os_error() == Some(libc::ENOTCONN) {
             log::warn!("stale mount at {}, detaching", mount.display());
@@ -132,7 +149,7 @@ async fn connect(
     } else {
         builder.token(creds.token.clone())?
     };
-    session_store::remember(data, &creds.url, sdk.token().unwrap_or_default(), creds.insecure);
+    store::remember(data, &creds.url, sdk.token().unwrap_or_default(), creds.insecure);
     let adapter = Arc::new(Adapter::new(tokio::runtime::Handle::current(), Arc::new(sdk), data)?);
     let mount_config = {
         let mut c = Config::default();
@@ -142,48 +159,30 @@ async fn connect(
     let filesystem = MountFs::new(adapter.clone(), tokio::runtime::Handle::current());
     let fuse = fuser::spawn_mount2(filesystem, mount, &mount_config)?;
 
-    Ok(Drive { adapter, fuse })
+    Ok(Session {
+        creds: creds.clone(),
+        upload_status: adapter.status().watch(),
+        adapter,
+        fuse,
+        fuse_watch: tokio::time::interval(Duration::from_secs(2)),
+    })
 }
 
-async fn serve(
-    drive: &Drive,
-    events: &mut UnboundedReceiver<TrayEvent>,
-    tray: &Tray,
-) -> SessionEnd {
-    let mut upload_status = drive.adapter.status().watch();
-    loop {
-        tokio::select! {
-            event = events.recv() => match event {
-                None | Some(TrayEvent::Quit) => break SessionEnd::Quit,
-                Some(TrayEvent::Logout) => break SessionEnd::Logout,
-                Some(TrayEvent::Restart) => break SessionEnd::Restart,
-                Some(TrayEvent::Login) => {}
-            },
-            _ = upload_status.changed() => {
-                tray.set(tray_status(*upload_status.borrow()), true).await;
-            },
-            _ = tokio::signal::ctrl_c() => break SessionEnd::Quit,
-            _ = tokio::time::sleep(Duration::from_secs(2)) => {
-                if drive.fuse.guard.is_finished() {
-                    log::info!("unmounted externally, ending session");
-                    break SessionEnd::Quit;
-                }
-            }
-        }
+async fn disconnect(session: Session, data: &Path, tray: &Tray, forget: bool) {
+    log::info!("unmounting");
+    tray.set(Status::Syncing, true).await;
+    let Session { adapter, fuse, .. } = session;
+    if fuse.guard.is_finished() {
+        let _ = fuse.join();
+    } else if let Err(err) = fuse.umount_and_join() {
+        log::warn!("unmount: {err}");
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum SessionEnd {
-    Logout,
-    Restart,
-    Quit,
-}
-
-fn tray_status(upload: UploadStatus) -> Status {
-    match upload {
-        UploadStatus::Idle => Status::Ok,
-        UploadStatus::Busy => Status::Syncing,
-        UploadStatus::Error => Status::Error,
+    adapter.system().flush(Duration::from_secs(30)).await;
+    if forget {
+        if let Err(err) = adapter.system().vacuum() {
+            log::warn!("vacuum on logout: {err}");
+        }
+        store::forget(data);
+        adapter.system().logout().await;
     }
 }

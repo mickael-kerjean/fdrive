@@ -2,7 +2,7 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use fdrive_linux::gui::{self, Credentials};
+use fdrive_linux::gui::{self, Boot, Credentials};
 
 #[derive(Parser)]
 #[command(name = "fdrive", about = "Filestash drive client")]
@@ -29,9 +29,7 @@ pub struct Setup {
     pub mount: PathBuf,
     pub data: PathBuf,
     pub prefill: Credentials,
-    pub credentials: Option<Credentials>,
-    pub launching: bool,
-    pub prompt_login: bool,
+    pub boot: Boot,
 }
 
 pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
@@ -41,6 +39,7 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
     }
     let data = args.data.unwrap_or_else(gui::default_data);
     std::fs::create_dir_all(&data)?;
+    crate::log::init(&data)?;
     instance_lock(&data)?;
 
     if args.token.is_some() && args.user.is_some() {
@@ -50,14 +49,14 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
         return Err("--token and --user need --server".into());
     }
     let server = args.server.as_deref().map(gui::normalize_server);
-    let credentials = match (&server, args.token, &args.user) {
-        (Some(url), Some(token), _) => Some(Credentials {
+    let boot = match (&server, args.token, &args.user) {
+        (Some(url), Some(token), _) => Boot::Fresh(Credentials {
             url: url.clone(),
             token,
             insecure: args.insecure,
             ..Default::default()
         }),
-        (Some(url), None, Some(user)) => Some(Credentials {
+        (Some(url), None, Some(user)) => Boot::Fresh(Credentials {
             url: url.clone(),
             user: user.clone(),
             password: args.password.unwrap_or_default(),
@@ -65,23 +64,24 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
             insecure: args.insecure,
             ..Default::default()
         }),
-        (Some(_), None, None) => None,
+        (Some(_), None, None) => Boot::Prompt,
         (None, ..) => {
             let session = fdrive_core::config::load(&data);
-            session.ok().then(|| Credentials::from(session))
+            match session.ok() {
+                true => Boot::Restored(Credentials::from(session)),
+                false => Boot::Idle,
+            }
         }
     };
     Ok(Setup {
         mount: args.mount,
-        prompt_login: server.is_some() && credentials.is_none(),
-        launching: server.is_some() && credentials.is_some(),
         prefill: Credentials {
             url: server.unwrap_or_default(),
             insecure: args.insecure,
             ..Default::default()
         },
         data,
-        credentials,
+        boot,
     })
 }
 

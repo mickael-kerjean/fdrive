@@ -30,5 +30,8 @@ pub fn init(data: &Path) -> std::io::Result<()> {
         )
     })
     .init();
+    std::panic::set_hook(Box::new(|info| {
+        error!("panic: {info}");
+    }));
     Ok(())
 }

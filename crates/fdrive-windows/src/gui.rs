@@ -23,22 +23,39 @@ pub use tray::Tray;
 
 pub fn init(
     data: &std::path::Path,
-    prefill_url: Option<String>,
-    prompt_login: bool,
+    boot: &Boot,
 ) -> std::io::Result<(Tray, tokio::sync::mpsc::UnboundedReceiver<TrayEvent>)> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let tray = tray::spawn(
         Arc::new(Mutex::new(TrayState {
-            url: prefill_url,
+            url: boot.url(),
             ..Default::default()
         })),
         tx,
         data.to_path_buf(),
     )?;
-    if prompt_login {
+    if let Boot::Prompt(_) = boot {
         tray.prompt_login();
     }
     Ok((tray, rx))
+}
+
+#[derive(Debug)]
+pub enum Boot {
+    Fresh(Credentials),
+    Restored(Credentials),
+    Prompt(String),
+    Idle(Option<String>),
+}
+
+impl Boot {
+    fn url(&self) -> Option<String> {
+        match self {
+            Boot::Fresh(creds) | Boot::Restored(creds) => Some(creds.url.clone()),
+            Boot::Prompt(url) => Some(url.clone()),
+            Boot::Idle(url) => url.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -49,6 +66,20 @@ pub struct Credentials {
     pub password: String,
     pub storage: String,
     pub insecure: bool,
+}
+
+impl Credentials {
+    pub fn account(&self) -> String {
+        let rest = self
+            .url
+            .split_once("://")
+            .map_or(self.url.as_str(), |(_, rest)| rest);
+        let host = rest.split(['/', '?']).next().unwrap_or(rest);
+        match self.user.is_empty() {
+            true => host.to_string(),
+            false => format!("{}@{host}/{}", self.user, self.storage),
+        }
+    }
 }
 
 impl From<fdrive_core::config::Session> for Credentials {

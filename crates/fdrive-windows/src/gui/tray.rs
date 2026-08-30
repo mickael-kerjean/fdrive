@@ -65,7 +65,7 @@ impl Tray {
         self.state.lock().unwrap().autostart = enabled;
     }
 
-    pub fn clear_click(&self) {
+    pub fn reset(&self) {
         self.state.lock().unwrap().on_click = None;
     }
 

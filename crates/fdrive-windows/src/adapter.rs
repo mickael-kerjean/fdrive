@@ -169,6 +169,10 @@ impl Adapter {
         self.busy.load(Ordering::Relaxed) > 0
     }
 
+    pub fn upload_status(self: &Arc<Self>) -> fdrive_core::engine::UploadStatus {
+        *self.status().watch().borrow()
+    }
+
     fn working(&self) -> Busy<'_> {
         self.busy.fetch_add(1, Ordering::Relaxed);
         Busy(self)
