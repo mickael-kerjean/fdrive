@@ -54,7 +54,6 @@ impl From<fdrive_core::config::Session> for Credentials {
 pub enum TrayEvent {
     Login,
     Logout,
-    Restart,
     Quit,
 }
 

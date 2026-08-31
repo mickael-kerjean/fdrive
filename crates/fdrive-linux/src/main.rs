@@ -52,13 +52,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 tray.set(Status::LoggedOut, false).await;
             }
-            TrayEvent::Restart => {
-                if let Some(old) = session.take() {
-                    let creds = old.creds.clone();
-                    disconnect(old, &data, &tray, false).await;
-                    session = login(&creds, &mount, &data, &tray).await.ok();
-                }
-            }
         }
     }
     if let Some(session) = session {
@@ -102,7 +95,6 @@ async fn next(
 }
 
 struct Session {
-    creds: Credentials,
     adapter: Arc<Adapter>,
     fuse: fuser::BackgroundSession,
     upload_status: tokio::sync::watch::Receiver<UploadStatus>,
@@ -160,7 +152,6 @@ async fn connect(
     let fuse = fuser::spawn_mount2(filesystem, mount, &mount_config)?;
 
     Ok(Session {
-        creds: creds.clone(),
         upload_status: adapter.status().watch(),
         adapter,
         fuse,

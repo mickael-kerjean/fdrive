@@ -282,6 +282,20 @@ fn build_menu(ui: &mut Ui) -> gtk::Menu {
         });
         item
     };
+    let autostart = gtk::CheckMenuItem::with_label("Autostart");
+    let desktop = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config/autostart/filestash.desktop");
+    autostart.set_active(desktop.exists());
+    let mount = ui.ctx.mount.clone();
+    autostart.connect_toggled(move |item| {
+        let _ = match item.is_active() {
+            false => std::fs::remove_file(&desktop),
+            true => std::fs::write(&desktop, format!(
+                "[Desktop Entry]\nType=Application\nName=Filestash\nExec=\"{}\" \"{}\"\n",
+                std::env::current_exe().unwrap_or_default().display(),
+                mount.display(),
+            )),
+        };
+    });
     if ui.signed_in {
         if file_manager().is_some() {
             let browse = gtk::MenuItem::with_label("Browse");
@@ -297,12 +311,13 @@ fn build_menu(ui: &mut Ui) -> gtk::Menu {
                 menu.append(&stats);
             }
         }
+        menu.append(&autostart);
+        menu.append(&gtk::SeparatorMenuItem::new());
         menu.append(&item("Logout", TrayEvent::Logout));
-        menu.append(&item("Restart", TrayEvent::Restart));
     } else {
-        menu.append(&item("Login…", TrayEvent::Login));
+        menu.append(&item("Login", TrayEvent::Login));
+        menu.append(&autostart);
     }
-    menu.append(&gtk::SeparatorMenuItem::new());
     menu.append(&item("Quit", TrayEvent::Quit));
     menu.show_all();
     menu
