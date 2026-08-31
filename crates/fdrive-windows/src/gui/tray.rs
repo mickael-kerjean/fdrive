@@ -14,9 +14,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
     DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, PostQuitMessage,
     PostThreadMessageW, RegisterClassW, SetForegroundWindow, TrackPopupMenu, TranslateMessage,
-    HICON, IDI_APPLICATION, IMAGE_FLAGS, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_LBUTTONUP,
+    HICON, IDI_APPLICATION, IMAGE_FLAGS, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_KEYDOWN, WM_LBUTTONUP,
     WM_RBUTTONUP, WNDCLASSW,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
 
 use super::login::prompt_login;
 use super::{send, state, Credentials, Ctx, Status, TrayEvent, TrayState, CTX};
@@ -45,9 +46,7 @@ impl Tray {
             }
             state.status = status;
         }
-        unsafe {
-            let _ = PostThreadMessageW(self.thread, WM_TRAY_REFRESH, WPARAM(0), LPARAM(0));
-        }
+        self.refresh();
     }
 
     pub fn account(&self, creds: &Credentials) {
@@ -65,8 +64,36 @@ impl Tray {
         self.state.lock().unwrap().autostart = enabled;
     }
 
+    pub fn set_rates(&self, snap: &fdrive_core::activity::Snapshot) {
+        let (up, down) = fdrive_core::activity::mean_rate(snap);
+        let rates = format!(
+            "➘{}/s  ➚{}/s",
+            fdrive_core::activity::fmt_compact(down),
+            fdrive_core::activity::fmt_compact(up)
+        );
+        {
+            let mut state = self.state.lock().unwrap();
+            if state.rates == rates {
+                return;
+            }
+            state.rates = rates;
+        }
+        self.refresh();
+    }
+
     pub fn reset(&self) {
-        self.state.lock().unwrap().on_click = None;
+        {
+            let mut state = self.state.lock().unwrap();
+            state.on_click = None;
+            state.rates.clear();
+        }
+        self.refresh();
+    }
+
+    fn refresh(&self) {
+        unsafe {
+            let _ = PostThreadMessageW(self.thread, WM_TRAY_REFRESH, WPARAM(0), LPARAM(0));
+        }
     }
 
     pub fn prompt_login(&self) {
@@ -141,6 +168,12 @@ fn tray_thread(
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
+            if msg.message == WM_KEYDOWN
+                && msg.wParam.0 == VK_ESCAPE.0 as usize
+                && super::dashboard::close()
+            {
+                continue;
+            }
             if msg.hwnd.is_invalid() && msg.message == WM_TRAY_REFRESH {
                 data = icon_data(hwnd);
                 let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
@@ -159,8 +192,7 @@ fn tray_thread(
 }
 
 fn icon_data(hwnd: HWND) -> NOTIFYICONDATAW {
-    let status =
-        state(|state| state.status);
+    let (status, rates) = state(|state| (state.status, state.rates.clone()));
     let mut data = NOTIFYICONDATAW {
         cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
@@ -170,7 +202,11 @@ fn icon_data(hwnd: HWND) -> NOTIFYICONDATAW {
         hIcon: status_icon(status),
         ..Default::default()
     };
-    let tip: Vec<u16> = status.tip().encode_utf16().take(127).collect();
+    let text = match rates.is_empty() {
+        true => status.tip().to_string(),
+        false => format!("{}\n{rates}", status.tip()),
+    };
+    let tip: Vec<u16> = text.encode_utf16().take(127).collect();
     data.szTip[..tip.len()].copy_from_slice(&tip);
     data
 }

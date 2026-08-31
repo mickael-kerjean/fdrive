@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use fdrive_core::activity::Activity;
@@ -21,6 +22,7 @@ use windows::Win32::UI::Controls::{
     LVCOLUMNW, LVHITTESTINFO, LVIF_TEXT, LVITEMW, LVM_DELETEITEM, LVM_GETITEMCOUNT,
     LVM_HITTEST, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH,
     LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT,
+    NMHDR, NMITEMACTIVATE, NM_DBLCLK,
     LVS_EX_LABELTIP, LVS_NOCOLUMNHEADER, LVS_REPORT, LVS_SHOWSELALWAYS,
     LVS_SINGLESEL, SB_SETPARTS, SB_SETTEXTW, STATUSCLASSNAMEW, WC_LISTVIEWW,
 };
@@ -30,7 +32,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     RegisterClassW, SendMessageW, SetForegroundWindow, SetTimer, ShowWindow, SystemParametersInfoW,
     TrackPopupMenu, HMENU, MF_STRING, SPI_GETWORKAREA, SW_HIDE, SW_SHOW,
     SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_CLOSE,
-    WM_CONTEXTMENU, WM_CTLCOLORSTATIC, WM_DESTROY, WM_GETFONT, WM_SETFONT, WM_SIZE, WM_TIMER,
+    WM_CONTEXTMENU, WM_CTLCOLORSTATIC, WM_DESTROY, WM_GETFONT, WM_NOTIFY, WM_SETFONT, WM_SIZE,
+    WM_TIMER,
     WNDCLASSW, WS_CAPTION, WS_CHILD, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE,
 };
 
@@ -43,31 +46,60 @@ const ID_STATS_EMPTY_TEXT: i32 = 204;
 const SS_CENTER: u32 = 0x1;
 const CMD_COPY: usize = 1;
 const CMD_CLEAR: usize = 2;
+const CMD_REVEAL: usize = 3;
 const STATS_TIMER: usize = 1;
 const STATS_W: i32 = 350;
 const STATS_H: i32 = 400;
 
-thread_local! {
-    static STATS: RefCell<Option<(HWND, u64, u64, Arc<Activity>)>> = const { RefCell::new(None) };
+struct Stats {
+    hwnd: HWND,
+    shown: u64,
+    cleared: u64,
+    activity: Arc<Activity>,
+    root: PathBuf,
 }
 
-pub fn toggle(activity: Arc<Activity>) {
-    match STATS.with_borrow(|stats| stats.as_ref().map(|(hwnd, ..)| *hwnd)) {
+thread_local! {
+    static STATS: RefCell<Option<Stats>> = const { RefCell::new(None) };
+}
+
+pub fn toggle(activity: Arc<Activity>, root: PathBuf) {
+    match STATS.with_borrow(|stats| stats.as_ref().map(|stats| stats.hwnd)) {
         Some(hwnd) => unsafe {
             let _ = DestroyWindow(hwnd);
         },
-        None => unsafe { open(activity) },
+        None => unsafe { open(activity, root) },
     }
 }
 
-unsafe fn open(activity: Arc<Activity>) {
+pub(crate) fn close() -> bool {
+    match STATS.with_borrow(|stats| stats.as_ref().map(|stats| stats.hwnd)) {
+        Some(hwnd) => {
+            unsafe {
+                let _ = DestroyWindow(hwnd);
+            }
+            true
+        }
+        None => false,
+    }
+}
+
+unsafe fn open(activity: Arc<Activity>, root: PathBuf) {
     let Some(hwnd) = frame() else { return };
     let font = GetStockObject(DEFAULT_GUI_FONT);
     if list(hwnd, font).is_none() || status_bar(hwnd, font).is_none() || empty_state(hwnd, font).is_none() {
         let _ = DestroyWindow(hwnd);
         return;
     }
-    STATS.with_borrow_mut(|stats| *stats = Some((hwnd, u64::MAX, 0, activity)));
+    STATS.with_borrow_mut(|stats| {
+        *stats = Some(Stats {
+            hwnd,
+            shown: u64::MAX,
+            cleared: 0,
+            activity,
+            root,
+        })
+    });
     layout(hwnd);
     refresh_stats(hwnd);
     SetTimer(Some(hwnd), STATS_TIMER, 300, None);
@@ -190,7 +222,7 @@ unsafe fn empty_state(hwnd: HWND, font: HGDIOBJ) -> Option<()> {
     let caption = CreateWindowExW(
         Default::default(),
         w!("STATIC"),
-        w!("No transfer"),
+        w!("No Transfer"),
         WS_CHILD | WINDOW_STYLE(SS_CENTER),
         0,
         0,
@@ -255,6 +287,16 @@ unsafe extern "system" fn stats_wndproc(
         }
         WM_CLOSE => {
             let _ = DestroyWindow(hwnd);
+            LRESULT(0)
+        }
+        WM_NOTIFY => {
+            let hdr = &*(lparam.0 as *const NMHDR);
+            if hdr.idFrom == ID_STATS_LIST as usize && hdr.code == NM_DBLCLK {
+                let item = (*(lparam.0 as *const NMITEMACTIVATE)).iItem;
+                if item >= 0 {
+                    reveal(item as usize);
+                }
+            }
             LRESULT(0)
         }
         WM_CONTEXTMENU => {
@@ -353,6 +395,7 @@ unsafe fn context_menu(hwnd: HWND) {
     .0;
     let Ok(menu) = CreatePopupMenu() else { return };
     if item >= 0 {
+        let _ = AppendMenuW(menu, MF_STRING, CMD_REVEAL, w!("Open"));
         let _ = AppendMenuW(menu, MF_STRING, CMD_COPY, w!("Copy"));
     }
     let _ = AppendMenuW(menu, MF_STRING, CMD_CLEAR, w!("Clear"));
@@ -367,20 +410,33 @@ unsafe fn context_menu(hwnd: HWND) {
     );
     let _ = DestroyMenu(menu);
     match picked.0 as usize {
+        CMD_REVEAL => reveal(item as usize),
         CMD_COPY => copy_path(hwnd, item as usize),
         CMD_CLEAR => clear_transfers(hwnd),
         _ => {}
     }
 }
 
-unsafe fn copy_path(hwnd: HWND, index: usize) {
-    let state = STATS
-        .with_borrow(|stats| stats.as_ref().map(|(_, _, cleared, activity)| (*cleared, activity.clone())));
-    let Some((cleared, activity)) = state else { return };
+fn transfer_at(index: usize) -> Option<(fdrive_core::activity::Transfer, PathBuf)> {
+    let state = STATS.with_borrow(|stats| {
+        stats.as_ref().map(|s| (s.cleared, s.activity.clone(), s.root.clone()))
+    });
+    let (cleared, activity, root) = state?;
     let snap = activity.snapshot();
-    let Some(transfer) = snap.transfers.iter().filter(|t| t.id > cleared).nth(index) else {
-        return;
-    };
+    let transfer = snap.transfers.iter().filter(|t| t.id > cleared).nth(index)?.clone();
+    Some((transfer, root))
+}
+
+fn reveal(index: usize) {
+    let Some((transfer, root)) = transfer_at(index) else { return };
+    let local = root.join(transfer.path.trim_start_matches('/').replace('/', "\\"));
+    let _ = std::process::Command::new("explorer.exe")
+        .arg(format!("/select,{}", local.display()))
+        .spawn();
+}
+
+unsafe fn copy_path(hwnd: HWND, index: usize) {
+    let Some((transfer, _)) = transfer_at(index) else { return };
     let wide = wstr(&transfer.path);
     if OpenClipboard(Some(hwnd)).is_err() {
         return;
@@ -399,10 +455,10 @@ unsafe fn copy_path(hwnd: HWND, index: usize) {
 
 fn clear_transfers(hwnd: HWND) {
     STATS.with_borrow_mut(|stats| {
-        if let Some((_, shown, cleared, activity)) = stats {
-            let snap = activity.snapshot();
-            *cleared = snap.transfers.iter().map(|transfer| transfer.id).max().unwrap_or(*cleared);
-            *shown = u64::MAX;
+        if let Some(stats) = stats {
+            let snap = stats.activity.snapshot();
+            stats.cleared = snap.transfers.iter().map(|transfer| transfer.id).max().unwrap_or(stats.cleared);
+            stats.shown = u64::MAX;
         }
     });
     refresh_stats(hwnd);
@@ -410,13 +466,13 @@ fn clear_transfers(hwnd: HWND) {
 
 fn refresh_stats(hwnd: HWND) {
     let state = STATS
-        .with_borrow(|stats| stats.as_ref().map(|(_, _, cleared, activity)| (*cleared, activity.clone())));
+        .with_borrow(|stats| stats.as_ref().map(|s| (s.cleared, s.activity.clone())));
     let Some((cleared, activity)) = state else { return };
     let snap = activity.snapshot();
     set_rates(hwnd, &snap);
     let stale = STATS.with_borrow_mut(|stats| match stats {
-        Some((_, shown, ..)) if *shown != snap.version => {
-            *shown = snap.version;
+        Some(stats) if stats.shown != snap.version => {
+            stats.shown = snap.version;
             true
         }
         _ => false,

@@ -137,6 +137,7 @@ pub struct TrayState {
     pub url: Option<String>,
     pub user: String,
     pub storage: String,
+    pub rates: String,
     pub autostart: bool,
     pub on_click: Option<Arc<dyn Fn() + Send + Sync>>,
 }

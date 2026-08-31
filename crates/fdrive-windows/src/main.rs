@@ -116,6 +116,7 @@ async fn next(
                     (UploadStatus::Busy, _) | (_, true) => Status::Syncing,
                     _ => Status::Ok,
                 });
+                tray.set_rates(&adapter.status().activity().snapshot());
             }
             _ = session.sweep.tick() => {
                 if session.sweep_task.as_ref().is_none_or(|task| task.is_finished()) {
@@ -157,7 +158,8 @@ async fn login(
     match connect(creds, root, data, config).await {
         Ok(session) => {
             let activity = session.adapter.status().activity();
-            tray.on_click(move || gui::dashboard(activity.clone()));
+            let root = root.to_path_buf();
+            tray.on_click(move || gui::dashboard(activity.clone(), root.clone()));
             tray.set_status(Status::Ok);
             Some(session)
         }
