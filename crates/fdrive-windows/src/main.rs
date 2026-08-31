@@ -33,7 +33,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if unregister {
         shell::vacuum(&config.windows.provider_name, "");
-        let _ = wire::unregister(&root);
+        if let Err(err) = wire::unregister(&root) {
+            log::warn!("unregister: {err}");
+        }
         store::forget(&data);
         log::info!("unregistered {}", root.display());
         gui::info(&format!("Unregistered {}", root.display()));
@@ -59,21 +61,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             TrayEvent::Autostart => toggle_autostart(&data, &tray),
             TrayEvent::Login(creds) => {
                 if let Some(old) = session.take() {
-                    disconnect(old, &data, &tray, true).await;
+                    disconnect(old, &root, &data, &tray, true).await;
                 }
                 gui::open_folder(&root);
                 session = login(&creds, &root, &data, &config, &tray).await;
             }
             TrayEvent::Logout => {
                 if let Some(session) = session.take() {
-                    disconnect(session, &data, &tray, true).await;
+                    disconnect(session, &root, &data, &tray, true).await;
                 }
                 tray.set_status(Status::LoggedOut);
             }
         }
     }
     if let Some(session) = session {
-        disconnect(session, &data, &tray, false).await;
+        disconnect(session, &root, &data, &tray, false).await;
     }
     Ok(())
 }
@@ -239,7 +241,7 @@ async fn connect(
     })
 }
 
-async fn disconnect(session: Session, data: &Path, tray: &Tray, forget: bool) {
+async fn disconnect(session: Session, root: &Path, data: &Path, tray: &Tray, forget: bool) {
     log::info!("disconnecting");
     tray.set_status(Status::Syncing);
     tray.reset();
@@ -254,6 +256,9 @@ async fn disconnect(session: Session, data: &Path, tray: &Tray, forget: bool) {
         match shell::unregister(&session.sync_root_id) {
             Ok(()) => log::info!("sync root unregistered"),
             Err(err) => log::warn!("unregister on logout: {err}"),
+        }
+        if let Err(err) = wire::unregister(root) {
+            log::warn!("unregister sync root on logout: {err}");
         }
         store::forget(data);
         let _ = session.sdk.logout().await;
