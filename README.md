@@ -3,12 +3,12 @@
 A cross platform drive client that does not try to own your storage, but rather connects to it wherever it already lives. From S3 and SFTP to FTP, NFS, SMB, IPFS, Azure, Google Cloud, and beyond, it is powered by <a href="https://github.com/mickael-kerjean/filestash">Filestash</a>
 
 <p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-windows.png" alt="windows screenshot" />
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-windows.png?v=20260831" alt="windows screenshot" />
     <em>Windows - <a href="https://downloads.filestash.app/latest/Filestash.exe">exe</a></em>
 </p>
 
 <p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-mac.png" alt="mac screenshot" />
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-mac.png?v=20260831" alt="mac screenshot" />
     <em>Mac - <a href="https://downloads.filestash.app/latest/Filestash.dmg">silicon</a></em>
 </p>
 
@@ -36,9 +36,9 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 | `fdrive-core` | `model` (the sync vocabulary: `Operation`, `Plan`, `Fate`), `engine` (the journal and its state, plan replay, conflict rules, cache policy), the `LocalStore` port, the Filestash HTTP sdk |
 | `fdrive-linux` | FUSE, GTK |
 | `fdrive-windows` | CfAPI, Win32 |
-| `fdrive-mac` | FileProvider |
-| `fdrive-ios` | FileProvider |
-| `fdrive-android` | Storage Access Framework |
+| `fdrive-mac` | FileProvider, Swift |
+| `fdrive-ios` | FileProvider, Swift |
+| `fdrive-android` | Storage Access Framework, Kotlin |
 
 ## Features
 
@@ -64,7 +64,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 - [ ] Deep integration with Filestash for file versioning
 - [ ] Deep integration with Filestash for search
 - [ ] Explorer actions: surface share links and friends right from the file manager
-- [X] MacOS FileProvider: we are using fuse-t temporarly until we have actual apple hardware
+- [X] MacOS FileProvider: ~~we are using fuse-t temporarly until we have actual apple hardware~~
 - [ ] Testing: test on all possible devices / configuration
 - [X] Support for delta download: same as the existing upload but for download. Awaiting for server support
 - [ ] MDM integration: preconfigure the client and roll it out across a fleet
