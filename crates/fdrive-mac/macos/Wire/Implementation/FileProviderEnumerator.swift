@@ -4,6 +4,7 @@ import OSLog
 final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     private let logger = Logger(subsystem: "app.filestash.mac.fileprovider", category: "Enumerator")
     private let adapter: Adapter
+    private let manager: NSFileProviderManager
     let container: NSFileProviderItemIdentifier
     private let signals: SignalService
     private let metadata: MetadataService
@@ -12,6 +13,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
 
     init(
         adapter: Adapter,
+        manager: NSFileProviderManager,
         container: NSFileProviderItemIdentifier,
         signals: SignalService,
         metadata: MetadataService,
@@ -20,6 +22,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         viewerRequest: Bool
     ) {
         self.adapter = adapter
+        self.manager = manager
         self.container = container
         self.signals = signals
         self.metadata = metadata
@@ -30,7 +33,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             signals.add(container)
             Task { [weak self] in
                 while true {
-                    try? await Task.sleep(for: .seconds(10))
+                    try? await Task.sleep(for: .seconds(24 * 60 * 60))
                     guard let self else { return }
                     self.signals.add(self.container)
                 }
@@ -94,11 +97,13 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         Task {
             do {
                 let watched = signals.targets()
+                var downloads = Set<NSFileProviderItemIdentifier>()
                 logger.debug("Changes reporting \(watched.count) watched containers: \(watched.map(\.rawValue).joined(separator: ","), privacy: .public)")
                 for target in watched {
                     let items = try await list(FileProviderPath.path(for: target))
                     let delta = metadata.delta(items, in: target)
                     if !delta.updated.isEmpty {
+                        downloads.formUnion(await downloadedFiles(in: delta.updated))
                         logger.info("Delta \(target.rawValue, privacy: .public): updated \(delta.updated.map(\.filename).joined(separator: ","), privacy: .public)")
                         observer.didUpdate(delta.updated)
                     }
@@ -108,6 +113,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
                     }
                 }
                 observer.finishEnumeratingChanges(upTo: metadata.version(), moreComing: false)
+                await requestUpdates(for: downloads)
             } catch {
                 logger.error("Changes failed: \(error.localizedDescription, privacy: .public)")
                 observer.finishEnumeratingWithError(mapToProviderError(error))
@@ -129,5 +135,56 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             let path = FileProviderPath.child(of: directory, name: entry.name, isDirectory: isDirectory)
             return FileProviderItem(path: path, entry: entry)
         }
+    }
+
+    private func downloadedFiles(in items: [FileProviderItem]) async -> [NSFileProviderItemIdentifier] {
+        var downloaded: [NSFileProviderItemIdentifier] = []
+        for item in items where item.contentType != .folder {
+            do {
+                let url = try await manager.getUserVisibleURL(for: item.itemIdentifier)
+                let values = try url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+                switch values.ubiquitousItemDownloadingStatus {
+                case .current, .downloaded:
+                    downloaded.append(item.itemIdentifier)
+                default:
+                    break
+                }
+            } catch {
+                logger.debug("Download state unavailable for \(item.itemIdentifier.rawValue, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return downloaded
+    }
+
+    private func requestUpdates(for identifiers: Set<NSFileProviderItemIdentifier>) async {
+        for identifier in identifiers {
+            do {
+                guard try await waitForRemoteUpdate(identifier) else { continue }
+                logger.info("Request content update \(identifier.rawValue, privacy: .public)")
+                try await manager.requestDownloadForItem(withIdentifier: identifier)
+            } catch {
+                logger.error("Request content update \(identifier.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private func waitForRemoteUpdate(_ identifier: NSFileProviderItemIdentifier) async throws -> Bool {
+        var url = try await manager.getUserVisibleURL(for: identifier)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            url.removeAllCachedResourceValues()
+            let values = try url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+            switch values.ubiquitousItemDownloadingStatus {
+            case .downloaded, .notDownloaded:
+                return true
+            case .current:
+                try await Task.sleep(for: .milliseconds(50))
+            default:
+                return false
+            }
+        }
+        logger.debug("Content still current after enumeration \(identifier.rawValue, privacy: .public)")
+        return false
     }
 }

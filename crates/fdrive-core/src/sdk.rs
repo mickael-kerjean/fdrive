@@ -1,5 +1,6 @@
 use std::time::{Duration, SystemTime};
 
+use bytes::{Buf, Bytes};
 use futures_util::TryStreamExt;
 use reqwest::header::{HeaderMap, ACCEPT, AUTHORIZATION, CONTENT_TYPE, RANGE, SET_COOKIE};
 use reqwest::{Body, Method, Response, StatusCode};
@@ -7,6 +8,7 @@ use serde::Deserialize;
 use url::Url;
 
 use crate::ByteStream;
+
 
 const COOKIE_NAME_SESSION: &str = "auth";
 pub(crate) const DELTA_MEDIA_TYPE: &str = "application/vnd.filestash.delta.rdiff";
@@ -577,6 +579,138 @@ fn extract_token(headers: &HeaderMap) -> String {
         }
     }
     token
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Mutation {
+    pub operation: String,
+    pub path: String,
+    pub target: Option<String>,
+}
+
+pub struct WatchEvent {
+    pub id: Option<String>,
+    pub mutation: Option<Mutation>,
+}
+
+pub struct WatchStream {
+    response: reqwest::Response,
+    pending: Bytes,
+    decoder: Decoder,
+}
+
+impl Sdk {
+    pub async fn watch(&self, cursor: Option<&str>) -> Result<WatchStream> {
+        let mut request = self
+            .http
+            .get(self.api(&["api", "files", "watch"]))
+            .header("X-Requested-With", "SDKHttpRequest")
+            .header(AUTHORIZATION, self.bearer()?)
+            .header(ACCEPT, "text/event-stream");
+        if let Some(cursor) = cursor {
+            request = request.header("Last-Event-ID", cursor);
+        }
+        let response = check_status(request.send().await?).await?;
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("");
+        if !content_type
+            .split(';')
+            .next()
+            .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/event-stream"))
+        {
+            return Err(Error::Api("watch response is not an event stream".into()));
+        }
+        Ok(WatchStream {
+            response,
+            pending: Bytes::new(),
+            decoder: Decoder::default(),
+        })
+    }
+}
+
+impl WatchStream {
+    pub async fn next(&mut self) -> Result<Option<WatchEvent>> {
+        loop {
+            if self.pending.is_empty() {
+                let Some(chunk) = self.response.chunk().await? else {
+                    return Ok(None);
+                };
+                self.pending = chunk;
+                continue;
+            }
+            if let Some(frame) = self.decoder.push(self.pending.get_u8())? {
+                let mutation = if frame.event == "fs" {
+                    serde_json::from_str(&frame.data).ok()
+                } else {
+                    None
+                };
+                return Ok(Some(WatchEvent { id: frame.id, mutation }));
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct Frame {
+    event: String,
+    data: String,
+    id: Option<String>,
+}
+
+#[derive(Default)]
+struct Decoder {
+    line: Vec<u8>,
+    frame: Frame,
+    size: usize,
+    skip_lf: bool,
+    started: bool,
+}
+
+impl Decoder {
+    fn push(&mut self, byte: u8) -> Result<Option<Frame>> {
+        if std::mem::take(&mut self.skip_lf) && byte == b'\n' {
+            return Ok(None);
+        }
+        self.size += 1;
+        if self.size > 64 * 1024 {
+            return Err(Error::Api("watch event exceeds 64 KiB".into()));
+        }
+        if byte != b'\r' && byte != b'\n' {
+            self.line.push(byte);
+            return Ok(None);
+        }
+        self.skip_lf = byte == b'\r';
+        let line = std::mem::take(&mut self.line);
+        let line = std::str::from_utf8(&line).map_err(|_| Error::Api("invalid UTF-8 in watch event".into()))?;
+        let line = if std::mem::replace(&mut self.started, true) {
+            line
+        } else {
+            line.trim_start_matches('\u{feff}')
+        };
+        if line.is_empty() {
+            self.size = 0;
+            let mut frame = std::mem::take(&mut self.frame);
+            if frame.data.ends_with('\n') {
+                frame.data.pop();
+            }
+            return Ok(Some(frame));
+        }
+        let (field, value) = line.split_once(':').unwrap_or((line, ""));
+        let value = value.strip_prefix(' ').unwrap_or(value);
+        match field {
+            "event" => self.frame.event = value.into(),
+            "data" => {
+                self.frame.data.push_str(value);
+                self.frame.data.push('\n');
+            }
+            "id" if !value.contains('\0') => self.frame.id = Some(value.into()),
+            _ => {}
+        }
+        Ok(None)
+    }
 }
 
 #[cfg(test)]

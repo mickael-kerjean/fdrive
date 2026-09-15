@@ -33,10 +33,17 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         activityService = adapter.map(ActivityService.init(adapter:))
         Beacon.reset()
         super.init()
+        adapter?.startWatch(observer: signals)
         logger.info("Started domain \(domain.identifier.rawValue, privacy: .public)")
     }
 
-    func invalidate() {}
+    func invalidate() {
+        adapter?.stopWatch()
+    }
+
+    deinit {
+        adapter?.stopWatch()
+    }
 
     func enumerator(
         for containerItemIdentifier: NSFileProviderItemIdentifier,
@@ -49,6 +56,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             && request.isFileViewerRequest
         return FileProviderEnumerator(
             adapter: adapter,
+            manager: manager,
             container: containerItemIdentifier,
             signals: signals,
             metadata: metadata,

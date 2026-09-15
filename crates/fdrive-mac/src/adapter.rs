@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use fdrive_core::engine::{Engine, Observation};
+use fdrive_core::engine::{Engine, Observation, Watch};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, Sdk};
@@ -61,12 +61,28 @@ impl From<sdk::FileInfo> for Entry {
 pub(crate) struct CacheTree {
     cache_dir: PathBuf,
     ledger: PathBuf,
-    meta: Mutex<HashMap<RelPath, (Instant, Vec<sdk::FileInfo>)>>,
+    meta: Arc<Mutex<HashMap<RelPath, MetadataEntry>>>,
+}
+
+#[derive(Default)]
+struct MetadataEntry {
+    generation: u64,
+    listing: Option<(Instant, Vec<sdk::FileInfo>)>,
+}
+
+impl MetadataEntry {
+    fn invalidate(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.listing = None;
+    }
 }
 
 impl CacheTree {
     fn invalidate(&self, directory: &RelPath) {
-        self.meta.lock().unwrap().remove(directory);
+        let mut meta = self.meta.lock().unwrap();
+        if let Some(entry) = meta.get_mut(directory) {
+            entry.invalidate();
+        }
     }
 }
 
@@ -94,8 +110,14 @@ impl LocalStore for CacheTree {
 
 #[derive(uniffi::Object)]
 pub struct Adapter {
+    watcher: Mutex<Option<Watch>>,
     _runtime: Runtime,
     pub(crate) engine: Arc<Engine<CacheTree>>,
+}
+
+#[uniffi::export(callback_interface)]
+pub trait RemoteObserver: Send + Sync {
+    fn changed(&self, directories: Vec<String>);
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -111,12 +133,37 @@ impl Adapter {
         let tree = CacheTree {
             cache_dir: cache_dir.clone(),
             ledger: data_dir.join("fdrive.db"),
-            meta: Mutex::new(HashMap::new()),
+            meta: Arc::new(Mutex::new(HashMap::new())),
         };
         let engine = Engine::start(runtime.handle().clone(), Arc::new(sdk), tree);
         engine.cache().evict(&cache_dir)?;
         engine.system().recover();
-        Ok(Arc::new(Self { _runtime: runtime, engine }))
+        Ok(Arc::new(Self {
+            watcher: Mutex::new(None),
+            _runtime: runtime,
+            engine,
+        }))
+    }
+
+    pub fn start_watch(&self, observer: Box<dyn RemoteObserver>) {
+        let meta = self.engine.local().meta.clone();
+        let mut watcher = self.watcher.lock().unwrap();
+        watcher.take();
+        *watcher = Some(self.engine.watch(move |changes| {
+            {
+                let mut meta = meta.lock().unwrap();
+                for (directory, entry) in meta.iter_mut() {
+                    if changes.affects(directory) {
+                        entry.invalidate();
+                    }
+                }
+            }
+            observer.changed(changes.directories().map(RelPath::as_dir).collect());
+        }));
+    }
+
+    pub fn stop_watch(&self) {
+        self.watcher.lock().unwrap().take();
     }
 
     pub async fn ls(&self, path: String) -> Result<Vec<Entry>, FsError> {
@@ -265,28 +312,37 @@ impl Adapter {
     }
 
     async fn listing(&self, directory: &RelPath) -> Result<Vec<sdk::FileInfo>, FsError> {
-        let cached = {
-            let metadata = self.engine.local().meta.lock().unwrap();
-            metadata
-                .get(directory)
-                .filter(|(created, _)| created.elapsed() < META_TTL)
-                .map(|(_, listing)| listing.clone())
-        };
-        let listing = match cached {
-            Some(listing) => listing,
-            None => {
-                let listing = self.engine.fs().ls(directory).await?;
-                self.engine.view().note(directory, &listing);
-                self.engine
-                    .local()
-                    .meta
-                    .lock()
-                    .unwrap()
-                    .insert(directory.clone(), (Instant::now(), listing.clone()));
-                listing
+        let mut retried = false;
+        loop {
+            let (generation, cached) = {
+                let mut metadata = self.engine.local().meta.lock().unwrap();
+                let entry = metadata.entry(directory.clone()).or_default();
+                (
+                    entry.generation,
+                    entry
+                        .listing
+                        .as_ref()
+                        .filter(|(created, _)| created.elapsed() < META_TTL)
+                        .map(|(_, listing)| listing.clone()),
+                )
+            };
+            if let Some(listing) = cached {
+                return Ok(self.engine.view().merge(directory, listing));
             }
-        };
-        Ok(self.engine.view().merge(directory, listing))
+            let listing = self.engine.fs().ls(directory).await?;
+            {
+                let mut metadata = self.engine.local().meta.lock().unwrap();
+                let entry = metadata.entry(directory.clone()).or_default();
+                if entry.generation == generation {
+                    entry.listing = Some((Instant::now(), listing.clone()));
+                } else if !retried {
+                    retried = true;
+                    continue;
+                }
+            }
+            self.engine.view().note(directory, &listing);
+            return Ok(self.engine.view().merge(directory, listing));
+        }
     }
 
     fn local_path(&self, path: &RelPath) -> String {
