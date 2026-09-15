@@ -10,6 +10,7 @@ use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, Sdk};
 use tokio::runtime::Runtime;
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::{runtime, FsError};
 
@@ -111,6 +112,7 @@ impl LocalStore for CacheTree {
 #[derive(uniffi::Object)]
 pub struct Adapter {
     watcher: Mutex<Option<Watch>>,
+    listing_gates: Mutex<HashMap<RelPath, Arc<AsyncMutex<()>>>>,
     _runtime: Runtime,
     pub(crate) engine: Arc<Engine<CacheTree>>,
 }
@@ -140,6 +142,7 @@ impl Adapter {
         engine.system().recover();
         Ok(Arc::new(Self {
             watcher: Mutex::new(None),
+            listing_gates: Mutex::new(HashMap::new()),
             _runtime: runtime,
             engine,
         }))
@@ -219,7 +222,6 @@ impl Adapter {
                 let _ = file.set_modified(time);
             }
         }
-        self.engine.local().invalidate(&path.parent_or_root());
         Ok(self.local_path(&path))
     }
 
@@ -311,7 +313,15 @@ impl Adapter {
         entry
     }
 
+    fn listing_gate(&self, directory: &RelPath) -> Arc<AsyncMutex<()>> {
+        let mut gates = self.listing_gates.lock().unwrap();
+        gates.retain(|_, gate| Arc::strong_count(gate) > 1);
+        gates.entry(directory.clone()).or_default().clone()
+    }
+
     async fn listing(&self, directory: &RelPath) -> Result<Vec<sdk::FileInfo>, FsError> {
+        let gate = self.listing_gate(directory);
+        let _guard = gate.lock().await;
         let mut retried = false;
         loop {
             let (generation, cached) = {
