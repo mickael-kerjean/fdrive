@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
-use fdrive_core::engine::Engine;
+use fdrive_core::engine::{Engine, RemoteChanges, Watch};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{FileInfo, Sdk};
@@ -22,6 +22,8 @@ pub use fs::Fs;
 pub use system::System;
 pub use xattr::Xattr;
 
+const META_TTL: Duration = Duration::from_secs(5);
+
 pub struct Adapter {
     engine: Arc<Engine<CacheTree>>,
     xattrs: XattrDb,
@@ -31,7 +33,22 @@ pub struct Adapter {
 pub struct CacheTree {
     cache_dir: PathBuf,
     ledger: PathBuf,
-    meta: Mutex<HashMap<RelPath, (Instant, Vec<FileInfo>)>>,
+    meta: Arc<Mutex<HashMap<RelPath, MetadataEntry>>>,
+}
+
+#[derive(Default)]
+struct MetadataEntry {
+    generation: u64,
+    listing: Option<(Instant, Vec<FileInfo>)>,
+}
+
+impl MetadataEntry {
+    fn invalidate(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        if let Some((at, _)) = &mut self.listing {
+            *at = Instant::now() - META_TTL;
+        }
+    }
 }
 
 #[derive(Default)]
@@ -71,11 +88,14 @@ impl LocalStore for CacheTree {
 
 impl CacheTree {
     fn invalidate(&self, dir: &RelPath) {
-        self.meta.lock().unwrap().remove(dir);
+        if let Some(entry) = self.meta.lock().unwrap().get_mut(dir) {
+            entry.invalidate();
+        }
     }
 
     fn drop(&self, dir: &RelPath, name: &str) {
-        if let Some((_, listing)) = self.meta.lock().unwrap().get_mut(dir) {
+        let mut meta = self.meta.lock().unwrap();
+        if let Some((_, listing)) = meta.get_mut(dir).and_then(|entry| entry.listing.as_mut()) {
             listing.retain(|e| e.name != name);
         }
     }
@@ -88,7 +108,7 @@ impl Adapter {
         let tree = CacheTree {
             cache_dir,
             ledger: data_dir.join("fdrive.db"),
-            meta: Mutex::new(HashMap::new()),
+            meta: Arc::new(Mutex::new(HashMap::new())),
         };
         let adapter = Self {
             engine: Engine::start(rt, sdk, tree),
@@ -98,6 +118,18 @@ impl Adapter {
         adapter.prune()?;
         adapter.engine.system().recover();
         Ok(adapter)
+    }
+
+    pub fn watch(&self, notify: impl Fn(RemoteChanges) + Send + 'static) -> Watch {
+        let meta = self.engine.local().meta.clone();
+        self.engine.watch(move |changes| {
+            for (directory, entry) in &mut *meta.lock().unwrap() {
+                if changes.affects(directory) {
+                    entry.invalidate();
+                }
+            }
+            notify(changes);
+        })
     }
 
     pub fn fs(&self) -> Fs<'_> {

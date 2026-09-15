@@ -2,49 +2,49 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::FileExt;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, FileInfo, FileType};
 
 use super::utils::{ensure_parent, fill_at, remove_path};
-use super::{Adapter, Xattr};
-
-const META_TTL: Duration = Duration::from_secs(5);
+use super::{Adapter, Xattr, META_TTL};
 
 #[derive(Clone, Copy)]
 pub struct Fs<'a>(pub(super) &'a Adapter);
 
 impl<'a> Fs<'a> {
     pub fn ls(self, dir: &RelPath) -> io::Result<Vec<FileInfo>> {
-        let cached = self
-            .0
-            .engine
-            .local()
-            .meta
-            .lock()
-            .unwrap()
-            .get(dir)
-            .and_then(|(at, listing)| (at.elapsed() < META_TTL).then(|| listing.clone()));
-        let listing = match cached {
-            Some(listing) => listing,
-            None => match self.0.engine.block_on(self.0.engine.fs().ls(dir)) {
+        let mut retried = false;
+        loop {
+            let (generation, cached) = {
+                let mut meta = self.0.engine.local().meta.lock().unwrap();
+                let entry = meta.entry(dir.clone()).or_default();
+                let cached = entry.listing.as_ref().filter(|(at, _)| at.elapsed() < META_TTL);
+                (entry.generation, cached.map(|(_, listing)| listing.clone()))
+            };
+            if let Some(listing) = cached {
+                return Ok(self.0.engine.view().merge(dir, listing));
+            }
+            let listing = match self.0.engine.block_on(self.0.engine.fs().ls(dir)) {
                 Ok(fetched) => {
+                    let mut meta = self.0.engine.local().meta.lock().unwrap();
+                    let entry = meta.entry(dir.clone()).or_default();
+                    if entry.generation == generation {
+                        entry.listing = Some((Instant::now(), fetched.clone()));
+                    } else if !retried {
+                        retried = true;
+                        continue;
+                    }
+                    drop(meta);
                     self.0.engine.view().note(dir, &fetched);
-                    self.0
-                        .engine
-                        .local()
-                        .meta
-                        .lock()
-                        .unwrap()
-                        .insert(dir.clone(), (Instant::now(), fetched.clone()));
                     fetched
                 }
                 Err(err @ (sdk::Error::NotFound | sdk::Error::PermissionDenied)) => return Err(err.into()),
                 Err(err) => {
                     let meta = self.0.engine.local().meta.lock().unwrap();
-                    match meta.get(dir) {
+                    match meta.get(dir).and_then(|entry| entry.listing.as_ref()) {
                         Some((_, listing)) => {
                             log::debug!("ls {dir} unreachable, serving stale: {err}");
                             listing.clone()
@@ -56,9 +56,9 @@ impl<'a> Fs<'a> {
                         }
                     }
                 }
-            },
-        };
-        Ok(self.0.engine.view().merge(dir, listing))
+            };
+            return Ok(self.0.engine.view().merge(dir, listing));
+        }
     }
 
     pub fn attr(self, path: &RelPath) -> io::Result<Option<(bool, u64, SystemTime)>> {

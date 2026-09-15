@@ -15,6 +15,7 @@ use fdrive_core::path::RelPath;
 const TTL: Duration = Duration::from_secs(5);
 const ROOT: u64 = 1;
 
+#[derive(Clone)]
 pub struct MountFs {
     rt: tokio::runtime::Handle,
     wire: Arc<Wire>,
@@ -50,7 +51,7 @@ impl Filesystem for MountFs {
                 wire.bump(attr.ino.0);
                 reply.entry(&TTL, &attr, Generation(0));
             }
-            None => reply.entry(&TTL, &wire.make_attr(0, false, 0, SystemTime::UNIX_EPOCH), Generation(0)),
+            None => reply.entry(&Duration::ZERO, &wire.make_attr(0, false, 0, SystemTime::UNIX_EPOCH), Generation(0)),
         });
     }
 
@@ -377,6 +378,33 @@ impl MountFs {
                 gid: unsafe { libc::getgid() },
             }),
         }
+    }
+
+    pub fn watch(&self, notifier: fuser::Notifier) -> fdrive_core::engine::Watch {
+        let wire = self.wire.clone();
+        self.wire.adapter.watch(move |changes| {
+            let (inodes, entries): (Vec<_>, Vec<_>) = {
+                let table = wire.inodes.lock().unwrap();
+                let paths: Vec<_> = table.inos.keys().filter(|p| changes.affects(p)).collect();
+                let inodes = paths.iter().filter_map(|p| table.inos.get(*p).copied()).collect();
+                let entries = paths
+                    .iter()
+                    .filter(|p| !p.is_root())
+                    .filter_map(|p| table.inos.get(&p.parent_or_root()).map(|ino| (*ino, p.name().to_owned())))
+                    .collect();
+                (inodes, entries)
+            };
+            for ino in inodes {
+                if let Err(err) = notifier.inval_inode(INodeNo(ino), 0, 0) {
+                    log::debug!("watch invalidate inode {ino}: {err}");
+                }
+            }
+            for (parent, name) in entries {
+                if let Err(err) = notifier.inval_entry(INodeNo(parent), OsStr::new(&name)) {
+                    log::debug!("watch invalidate entry {parent}/{name}: {err}");
+                }
+            }
+        })
     }
 
     fn go(&self, task: impl FnOnce(&Wire) + Send + 'static) {

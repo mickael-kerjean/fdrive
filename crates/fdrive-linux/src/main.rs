@@ -95,6 +95,7 @@ async fn next(
 }
 
 struct Session {
+    remote_watch: fdrive_core::engine::Watch,
     adapter: Arc<Adapter>,
     fuse: fuser::BackgroundSession,
     upload_status: tokio::sync::watch::Receiver<UploadStatus>,
@@ -149,9 +150,10 @@ async fn connect(
         c
     };
     let filesystem = MountFs::new(adapter.clone(), tokio::runtime::Handle::current());
-    let fuse = fuser::spawn_mount2(filesystem, mount, &mount_config)?;
+    let fuse = fuser::spawn_mount2(filesystem.clone(), mount, &mount_config)?;
 
     Ok(Session {
+        remote_watch: filesystem.watch(fuse.notifier()),
         upload_status: adapter.status().watch(),
         adapter,
         fuse,
@@ -162,7 +164,13 @@ async fn connect(
 async fn disconnect(session: Session, data: &Path, tray: &Tray, forget: bool) {
     log::info!("unmounting");
     tray.set(Status::Syncing, true).await;
-    let Session { adapter, fuse, .. } = session;
+    let Session {
+        adapter,
+        fuse,
+        remote_watch,
+        ..
+    } = session;
+    drop(remote_watch);
     if fuse.guard.is_finished() {
         let _ = fuse.join();
     } else if let Err(err) = fuse.umount_and_join() {
