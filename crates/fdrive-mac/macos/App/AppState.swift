@@ -16,6 +16,7 @@ final class AppState: ObservableObject {
     @Published var server: String?
 
     @Published private var syncing = false
+    @Published private var online = false
     private var beacon: NSKeyValueObservation?
 
     init() {
@@ -33,6 +34,7 @@ final class AppState: ObservableObject {
             }
         }
         syncing = Beacon.active
+        Task { await monitorConnection() }
         beacon = Beacon.watch {
             Task { @MainActor in
                 self.syncing = Beacon.active
@@ -44,8 +46,31 @@ final class AppState: ObservableObject {
         syncStatus != nil
     }
 
+    private func monitorConnection() async {
+        while !Task.isCancelled {
+            let session = RuntimeSessionStore.load()
+            if session.ok && isConnected {
+                let reachable: Bool
+                do {
+                    _ = try await probe(url: session.url, insecure: session.insecure)
+                    reachable = true
+                } catch {
+                    reachable = false
+                }
+                let current = RuntimeSessionStore.load()
+                if current.url == session.url && current.token == session.token && isConnected {
+                    online = reachable
+                }
+            } else {
+                online = false
+            }
+            try? await Task.sleep(for: .seconds(10))
+        }
+    }
+
     var systemImage: String {
-        switch syncStatus {
+        guard online else { return "icloud.slash" }
+        return switch syncStatus {
         case .upToDate: syncing ? "arrow.triangle.2.circlepath.icloud" : "checkmark.icloud"
         case .error: "xmark.icloud"
         case nil: "icloud.slash"
@@ -58,6 +83,7 @@ final class AppState: ObservableObject {
             RuntimeSessionStore.save(url: serverURL, token: token, insecure: serverURL.hasPrefix("http://"))
             try await DomainManager.add()
             syncStatus = .upToDate
+            online = true
             try? SMAppService.mainApp.register()
             try? await DomainManager.open()
         } catch {
@@ -78,6 +104,7 @@ final class AppState: ObservableObject {
                 Task.detached { try? logout(url: session.url, insecure: session.insecure, token: session.token) }
             }
             syncStatus = nil
+            online = false
         } catch {
             logger.error("Disconnect failed: \(error.localizedDescription, privacy: .public)")
             syncStatus = .error
