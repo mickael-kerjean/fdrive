@@ -36,7 +36,7 @@ struct RecentActivityView: View {
             HStack {
                 Text("Activity").font(.headline)
                 Spacer()
-                if !transfers.isEmpty {
+                if transfers.contains(where: { $0.state == .done }) {
                     Button("Clear", action: clear)
                         .buttonStyle(.plain)
                         .font(.caption)

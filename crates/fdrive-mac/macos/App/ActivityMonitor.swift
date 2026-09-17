@@ -11,11 +11,11 @@ final class ActivityMonitor: ObservableObject {
 
     private var connection: NSXPCConnection?
     private var version: UInt64?
-    private var cleared: UInt64 = 0
+    private var cleared: Set<UInt64> = []
 
     func clear() {
-        cleared = transfers.first?.id ?? 0
-        transfers = []
+        cleared.formUnion(transfers.filter { $0.state == .done }.map(\.id))
+        transfers.removeAll { $0.state == .done }
     }
 
     func run() async {
@@ -31,7 +31,8 @@ final class ActivityMonitor: ObservableObject {
         meter = snapshot.meter
         guard snapshot.version != version else { return }
         version = snapshot.version
-        transfers = snapshot.transfers.filter { $0.id > cleared }
+        cleared.formIntersection(snapshot.transfers.map(\.id))
+        transfers = snapshot.transfers.filter { !cleared.contains($0.id) }
     }
 
     private func fetch() async -> ActivitySnapshot? {
