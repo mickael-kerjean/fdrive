@@ -582,15 +582,16 @@ fn extract_token(headers: &HeaderMap) -> String {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Mutation {
-    pub operation: String,
+pub struct WatchMessage {
+    pub kind: String,
+    pub op: String,
     pub path: String,
     pub target: Option<String>,
 }
 
 pub struct WatchEvent {
     pub id: Option<String>,
-    pub mutation: Option<Mutation>,
+    pub message: Option<WatchMessage>,
 }
 
 pub struct WatchStream {
@@ -642,12 +643,10 @@ impl WatchStream {
                 continue;
             }
             if let Some(frame) = self.decoder.push(self.pending.get_u8())? {
-                let mutation = if frame.event == "fs" {
-                    serde_json::from_str(&frame.data).ok()
-                } else {
-                    None
-                };
-                return Ok(Some(WatchEvent { id: frame.id, mutation }));
+                let message = serde_json::from_str(&frame.data)
+                    .ok()
+                    .filter(|message: &WatchMessage| message.kind == "fs");
+                return Ok(Some(WatchEvent { id: frame.id, message }));
             }
         }
     }

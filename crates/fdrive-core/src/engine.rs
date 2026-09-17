@@ -22,7 +22,7 @@ use tokio::time::Instant;
 
 use crate::path::RelPath;
 use crate::port::LocalStore;
-use crate::sdk::{Mutation, Sdk};
+use crate::sdk::{Sdk, WatchMessage};
 use self::{ledger::Ledger, play::Outcome};
 pub use self::{
     cache::Cache, download::Reader, fs::Fs, scheduler::UploadStatus, state::LedgerGuard,
@@ -95,20 +95,20 @@ impl RemoteChanges {
                 .any(|path| path.is_root() || directory == path || directory.is_descendant_of(path))
     }
 
-    fn add(&mut self, mutation: Mutation) {
+    fn add(&mut self, message: WatchMessage) {
         let valid = |path: &str| !path.contains('\0') && !path.split('/').any(|part| part == "..");
-        if !valid(&mutation.path) {
+        if !valid(&message.path) {
             return;
         }
-        let target = match mutation.operation.as_str() {
+        let target = match message.op.as_str() {
             "save" | "touch" | "mkdir" | "rm" => None,
-            "mv" => match mutation.target.filter(|target| !target.is_empty() && valid(target)) {
+            "mv" => match message.target.filter(|target| !target.is_empty() && valid(target)) {
                 Some(target) => Some(target),
                 None => return,
             },
             _ => return,
         };
-        for path in std::iter::once(mutation.path).chain(target) {
+        for path in std::iter::once(message.path).chain(target) {
             let path = RelPath::new(&path);
             self.directories.insert(path.parent_or_root());
             self.paths.insert(path);
@@ -145,8 +145,8 @@ async fn watch(sdk: Arc<Sdk>, notify: impl Fn(RemoteChanges)) {
                             if let Some(id) = event.id {
                                 cursor = (!id.is_empty()).then_some(id);
                             }
-                            if let Some(mutation) = event.mutation {
-                                pending.add(mutation);
+                            if let Some(message) = event.message {
+                                pending.add(message);
                                 if !pending.paths.is_empty() {
                                     deadline.get_or_insert_with(|| Instant::now() + Duration::from_millis(200));
                                 }

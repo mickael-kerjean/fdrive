@@ -59,6 +59,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 - [X] Ignore list: `node_modules`, `.DS_Store` and friends stay home by default, adjustable via `fdrive.toml`
 - [X] Login: done through your server's own login page, password, LDAP, SSO, 2FA all just work
 - [X] No Electron: native everything from the tray, filesystem integration into one single binary
+- [ ] Add P2P transfer
 - [ ] Profiles: connect to several servers / accounts in the same time
 - [ ] Deep integration with Filestash for file locks
 - [ ] Deep integration with Filestash for file versioning
