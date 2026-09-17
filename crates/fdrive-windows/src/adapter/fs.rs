@@ -1,7 +1,6 @@
 use std::fs;
 use std::io;
 use std::sync::Arc;
-use std::time::Instant;
 
 use fdrive_core::path::RelPath;
 use fdrive_core::sdk::Error as SdkError;
@@ -16,11 +15,10 @@ pub struct Fs<'a>(pub(super) &'a Arc<Adapter>);
 
 impl Fs<'_> {
     pub fn populate(self, dir: &RelPath) -> io::Result<()> {
-        let listing = match self
-            .0
-            .engine
-            .block_on(self.0.engine.fs().ls(dir))
-        {
+        let gate = self.0.refreshing.lock().unwrap().entry(dir.clone()).or_default().clone();
+        let _guard = self.0.engine.block_on(gate.lock());
+        self.0.populated.lock().unwrap().insert(dir.clone());
+        let listing = match self.0.engine.block_on(self.0.engine.fs().ls(dir)) {
             Ok(listing) => listing,
             Err(SdkError::NotFound) => return Ok(()),
             Err(err) => return Err(err.into()),
@@ -42,9 +40,7 @@ impl Fs<'_> {
         if self.0.engine.local().is_suppressed(from) {
             return Ok(());
         }
-        self.0
-            .engine
-            .block_on(self.0.engine.fs().rename(from, to, is_dir))
+        self.0.engine.block_on(self.0.engine.fs().rename(from, to, is_dir))
     }
 
     pub async fn on_change(self, path: &RelPath) {
@@ -96,8 +92,24 @@ impl Fs<'_> {
     }
 
     pub async fn refresh(self, dir: &RelPath) -> io::Result<()> {
-        const STUCK: std::time::Duration = std::time::Duration::from_secs(120);
+        self.refresh_inner(dir, false).await
+    }
+
+    pub(super) async fn refresh_remote(self, dir: &RelPath) -> io::Result<()> {
+        self.refresh_inner(dir, true).await
+    }
+
+    async fn refresh_inner(self, dir: &RelPath, wait: bool) -> io::Result<()> {
         let _busy = self.0.working();
+        let gate = self.0.refreshing.lock().unwrap().entry(dir.clone()).or_default().clone();
+        let _guard = if wait {
+            gate.lock().await
+        } else {
+            match gate.try_lock() {
+                Ok(guard) => guard,
+                Err(_) => return Ok(()),
+            }
+        };
         let dir_abs = self.0.abs(dir);
         if !dir.is_root() {
             match wire::placeholder_state(&dir_abs) {
@@ -106,14 +118,7 @@ impl Fs<'_> {
                 _ => {}
             }
         }
-        {
-            let mut refreshing = self.0.refreshing.lock().unwrap();
-            match refreshing.get(dir) {
-                Some(at) if at.elapsed() < STUCK => return Ok(()),
-                _ => {}
-            }
-            refreshing.insert(dir.clone(), Instant::now());
-        }
+        self.0.populated.lock().unwrap().insert(dir.clone());
         let result = match self.0.engine.fs().ls(dir).await {
             Ok(listing) => {
                 let this = self.0.clone();
@@ -125,7 +130,6 @@ impl Fs<'_> {
             Err(SdkError::NotFound) => Ok(()),
             Err(err) => Err(err.into()),
         };
-        self.0.refreshing.lock().unwrap().remove(dir);
         result
     }
 }

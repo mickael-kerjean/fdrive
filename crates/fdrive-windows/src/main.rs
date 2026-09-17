@@ -113,9 +113,10 @@ async fn next(
                 }
             }
             _ = session.beat.tick() => {
-                tray.set_status(match (adapter.upload_status(), adapter.busy()) {
-                    (UploadStatus::Error, _) => Status::Error,
-                    (UploadStatus::Busy, _) | (_, true) => Status::Syncing,
+                tray.set_status(match (*session.online.borrow(), adapter.upload_status(), adapter.busy()) {
+                    (false, _, _) => Status::Offline,
+                    (_, UploadStatus::Error, _) => Status::Error,
+                    (_, UploadStatus::Busy, _) | (_, _, true) => Status::Syncing,
                     _ => Status::Ok,
                 });
                 tray.set_rates(&adapter.status().activity().snapshot());
@@ -146,6 +147,9 @@ struct Session {
     sweep: tokio::time::Interval,
     refreshed: HashMap<RelPath, Instant>,
     sweep_task: Option<tokio::task::JoinHandle<()>>,
+    remote_watch: fdrive_windows::adapter::RemoteWatch,
+    online: tokio::sync::watch::Receiver<bool>,
+    connection_monitor: tokio::task::JoinHandle<()>,
 }
 
 async fn login(
@@ -162,7 +166,7 @@ async fn login(
             let activity = session.adapter.status().activity();
             let root = root.to_path_buf();
             tray.on_click(move || gui::dashboard(activity.clone(), root.clone()));
-            tray.set_status(Status::Ok);
+            tray.set_status(Status::Offline);
             Some(session)
         }
         Err(err) => {
@@ -226,6 +230,21 @@ async fn connect(
 
     let mut sweep = tokio::time::interval(Duration::from_secs(30));
     sweep.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let remote_watch = adapter.watch();
+    let (online_tx, online) = tokio::sync::watch::channel(false);
+    let probe_sdk = sdk.clone();
+    let connection_monitor = tokio::spawn(async move {
+        loop {
+            let reachable = matches!(
+                tokio::time::timeout(Duration::from_secs(10), probe_sdk.probe()).await,
+                Ok(Ok(_))
+            );
+            if online_tx.send(reachable).is_err() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    });
     Ok(Session {
         sdk,
         adapter,
@@ -238,6 +257,9 @@ async fn connect(
         sweep,
         refreshed: HashMap::new(),
         sweep_task: None,
+        remote_watch,
+        online,
+        connection_monitor,
     })
 }
 
@@ -245,6 +267,11 @@ async fn disconnect(session: Session, root: &Path, data: &Path, tray: &Tray, for
     log::info!("disconnecting");
     tray.set_status(Status::Syncing);
     tray.reset();
+    drop(session.remote_watch);
+    session.connection_monitor.abort();
+    if let Some(task) = session.sweep_task {
+        task.abort();
+    }
     session.adapter.system().flush(Duration::from_secs(30)).await;
     if forget {
         if let Err(err) = session.adapter.system().vacuum() {

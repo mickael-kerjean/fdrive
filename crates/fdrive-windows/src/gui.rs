@@ -106,6 +106,7 @@ pub enum TrayEvent {
 pub enum Status {
     #[default]
     LoggedOut,
+    Offline,
     Ok,
     Syncing,
     Error,
@@ -114,7 +115,7 @@ pub enum Status {
 impl Status {
     fn icon_bytes(self) -> &'static [u8] {
         match self {
-            Status::LoggedOut => include_bytes!(concat!(env!("OUT_DIR"), "/tray-unlogged.ico")),
+            Status::LoggedOut | Status::Offline => include_bytes!(concat!(env!("OUT_DIR"), "/tray-unlogged.ico")),
             Status::Ok => include_bytes!(concat!(env!("OUT_DIR"), "/tray-ok.ico")),
             Status::Syncing => include_bytes!(concat!(env!("OUT_DIR"), "/tray-sync.ico")),
             Status::Error => include_bytes!(concat!(env!("OUT_DIR"), "/tray-error.ico")),
@@ -124,6 +125,7 @@ impl Status {
     fn tip(self) -> &'static str {
         match self {
             Status::LoggedOut => "Filestash — not signed in",
+            Status::Offline => "Filestash — server unreachable",
             Status::Ok => "Filestash",
             Status::Syncing => "Filestash — syncing",
             Status::Error => "Filestash — sync error",
