@@ -3,7 +3,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 
 use fdrive_core::engine::Engine;
 use fdrive_core::path::RelPath;
@@ -17,10 +17,12 @@ mod fs;
 mod pin;
 mod reconcile;
 mod system;
+mod watch;
 
 pub use cache::Cache;
 pub use fs::Fs;
 pub use system::System;
+pub use watch::RemoteWatch;
 use reconcile::Reconcile;
 pub use wire::pin::Pin;
 
@@ -116,7 +118,8 @@ impl LocalStore for PlaceholderTree {
 pub struct Adapter {
     engine: Arc<Engine<PlaceholderTree>>,
     root: PathBuf,
-    refreshing: Mutex<BTreeMap<RelPath, Instant>>,
+    refreshing: Mutex<BTreeMap<RelPath, Arc<tokio::sync::Mutex<()>>>>,
+    populated: Mutex<BTreeSet<RelPath>>,
     kept: Mutex<BTreeSet<RelPath>>,
     pinning: Mutex<BTreeSet<RelPath>>,
     busy: AtomicUsize,
@@ -143,6 +146,7 @@ impl Adapter {
                 },
             ),
             refreshing: Mutex::new(BTreeMap::new()),
+            populated: Mutex::new(BTreeSet::new()),
             kept: Mutex::new(BTreeSet::new()),
             pinning: Mutex::new(BTreeSet::new()),
             busy: AtomicUsize::new(0),
