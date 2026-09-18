@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -17,6 +17,7 @@ use crate::path::RelPath;
 use crate::port::LocalStore;
 
 const CONCURRENCY: usize = 4;
+const DOWNLOAD_CONCURRENCY: usize = 6;
 const STALL: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +110,8 @@ async fn run<T: LocalStore>(
     let mut flushes: Vec<oneshot::Sender<()>> = Vec::new();
     let mut failing = false;
     let mut rushed = false;
+    let mut downloads = VecDeque::new();
+    let mut downloading = JoinSet::new();
     let mut last_progress = Instant::now();
     let mut last_stall_log = Instant::now();
     loop {
@@ -116,6 +119,12 @@ async fn run<T: LocalStore>(
             let Some(engine) = engine.upgrade() else {
                 return;
             };
+            while downloading.len() < DOWNLOAD_CONCURRENCY {
+                let Some((path, tmp, tx, current, base)) = downloads.pop_front() else {
+                    break;
+                };
+                downloading.spawn(engine.clone().stream(path, tmp, tx, current, base));
+            }
             let step = engine.step(CONCURRENCY - running.len(), std::mem::take(&mut rushed));
             for (seq, plan) in step.plans {
                 let engine = engine.clone();
@@ -164,9 +173,7 @@ async fn run<T: LocalStore>(
                     }
                 }
                 Some(Msg::Stream(path, tmp, tx, current, base)) => {
-                    if let Some(engine) = engine.upgrade() {
-                        tokio::spawn(engine.stream(path, tmp, tx, current, base));
-                    }
+                    downloads.push_back((path, tmp, tx, current, base));
                 }
             },
             Some(joined) = running.join_next_with_id(), if !running.is_empty() => {
@@ -189,6 +196,11 @@ async fn run<T: LocalStore>(
                     failing = engine.settle(seq, outcome);
                 }
             },
+            Some(result) = downloading.join_next() => {
+                if let Err(err) = result {
+                    log::error!("download task failed: {err}");
+                }
+            }
             _ = tokio::time::sleep_until(wake.map(Instant::from_std).unwrap_or_else(Instant::now)), if wake.is_some() => {}
         }
     }
