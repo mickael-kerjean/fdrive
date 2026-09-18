@@ -1,5 +1,6 @@
 import FileProvider
 import OSLog
+import UniformTypeIdentifiers
 
 final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, NSFileProviderEnumerating {
     private let logger = Logger(subsystem: "app.filestash.mac.fileprovider", category: "Extension")
@@ -317,8 +318,15 @@ extension FileProviderExtension: NSFileProviderThumbnailing {
 
         Task {
             for identifier in itemIdentifiers {
+                let path = FileProviderPath.path(for: identifier)
+                let contentType = UTType(filenameExtension: (path as NSString).pathExtension)
+                guard contentType?.conforms(to: .image) == true else {
+                    perThumbnailCompletionHandler(identifier, nil, nil)
+                    progress.completedUnitCount += 1
+                    continue
+                }
                 do {
-                    let thumbnail = try await adapter.thumbnail(path: FileProviderPath.path(for: identifier))
+                    let thumbnail = try await adapter.thumbnail(path: path)
                     perThumbnailCompletionHandler(identifier, thumbnail, nil)
                 } catch {
                     perThumbnailCompletionHandler(identifier, nil, mapToProviderError(error))

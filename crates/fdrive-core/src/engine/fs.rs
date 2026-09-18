@@ -9,6 +9,8 @@ use crate::ByteStream;
 
 use super::Engine;
 
+const MAX_THUMBNAIL_BYTES: u64 = 10 * 1024 * 1024;
+
 pub struct Fs<'a, T: LocalStore>(pub(super) &'a Engine<T>);
 
 impl<'a, T: LocalStore> Fs<'a, T> {
@@ -81,6 +83,26 @@ impl<'a, T: LocalStore> Fs<'a, T> {
     }
 
     pub async fn thumbnail(&self, path: &RelPath) -> Result<Vec<u8>> {
+        let known_size = self
+            .0
+            .ledger()
+            .observations
+            .get(path)
+            .map(|observation| observation.size);
+        let size = match known_size {
+            Some(size) => Some(size),
+            None => self
+                .0
+                .sdk
+                .stat(&path.as_file())
+                .await
+                .ok()
+                .and_then(|info| info.size),
+        };
+        if size.is_some_and(|size| size > MAX_THUMBNAIL_BYTES) {
+            log::debug!("thumbnail skipped for {path}: file exceeds 10 MiB");
+            return Ok(Vec::new());
+        }
         self.0.sdk.thumbnail(&path.as_file()).await
     }
 }
