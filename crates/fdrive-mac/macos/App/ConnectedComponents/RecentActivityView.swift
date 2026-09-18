@@ -7,6 +7,9 @@ struct RecentActivityView: View {
     @State private var scrolled = false
 
     var body: some View {
+        let ordered = transfers.filter { $0.state == .running }
+            + transfers.filter { $0.state != .running }
+
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 if transfers.isEmpty {
@@ -20,7 +23,7 @@ struct RecentActivityView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
                 }
-                ForEach(transfers) { transfer in
+                ForEach(ordered) { transfer in
                     row(transfer)
                 }
             }
@@ -36,7 +39,7 @@ struct RecentActivityView: View {
             HStack {
                 Text("Activity").font(.headline)
                 Spacer()
-                if transfers.contains(where: { $0.state == .done }) {
+                if transfers.contains(where: { $0.state != .running }) {
                     Button("Clear", action: clear)
                         .buttonStyle(.plain)
                         .font(.caption)
@@ -50,8 +53,7 @@ struct RecentActivityView: View {
 
     private func row(_ transfer: Transfer) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: transfer.systemImage)
-                .font(.system(size: 19))
+            TransferIcon(systemImage: transfer.systemImage, active: transfer.state == .running)
                 .frame(width: 24)
                 .foregroundStyle(transfer.state == .failed ? Color.red : Color.primary)
 
@@ -68,5 +70,30 @@ struct RecentActivityView: View {
 
             Spacer(minLength: 0)
         }
+    }
+}
+
+private struct TransferIcon: View {
+    let systemImage: String
+    let active: Bool
+
+    var body: some View {
+        ZStack {
+            if active {
+                TimelineView(.animation) { context in
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.22), lineWidth: 1.5)
+                        .overlay {
+                            Circle()
+                                .trim(from: 0, to: 0.28)
+                                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                                .rotationEffect(.degrees(context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.9) / 0.9 * 360))
+                        }
+                }
+            }
+            Image(systemName: systemImage)
+                .font(.system(size: active ? 12 : 19))
+        }
+        .frame(width: 24, height: 24)
     }
 }

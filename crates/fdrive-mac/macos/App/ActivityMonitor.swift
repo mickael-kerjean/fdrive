@@ -14,8 +14,8 @@ final class ActivityMonitor: ObservableObject {
     private var cleared: Set<UInt64> = []
 
     func clear() {
-        cleared.formUnion(transfers.filter { $0.state == .done }.map(\.id))
-        transfers.removeAll { $0.state == .done }
+        cleared.formUnion(transfers.filter { $0.state != .running }.map(\.id))
+        transfers.removeAll { $0.state != .running }
     }
 
     func run() async {
