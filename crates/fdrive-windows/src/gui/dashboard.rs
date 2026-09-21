@@ -511,7 +511,12 @@ unsafe fn render_transfers(hwnd: HWND, snap: &fdrive_core::activity::Snapshot, c
     let Ok(list) = GetDlgItem(Some(hwnd), ID_STATS_LIST) else {
         return;
     };
-    let transfers: Vec<_> = snap.transfers.iter().filter(|t| t.id > cleared).collect();
+    let mut transfers: Vec<_> = snap.transfers.iter().filter(|t| t.id > cleared).collect();
+    transfers.sort_by_key(|transfer| match &transfer.outcome {
+        Outcome::Failed(_) => 0,
+        Outcome::Running => 1,
+        Outcome::Done => 2,
+    });
     let empty = transfers.is_empty();
     for id in [ID_STATS_EMPTY_ICON, ID_STATS_EMPTY_TEXT] {
         if let Ok(ctl) = GetDlgItem(Some(hwnd), id) {

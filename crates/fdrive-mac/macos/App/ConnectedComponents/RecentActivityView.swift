@@ -7,8 +7,9 @@ struct RecentActivityView: View {
     @State private var scrolled = false
 
     var body: some View {
-        let ordered = transfers.filter { $0.state == .running }
-            + transfers.filter { $0.state != .running }
+        let ordered = transfers.filter { $0.state == .failed }
+            + transfers.filter { $0.state == .running }
+            + transfers.filter { $0.state == .done }
 
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {

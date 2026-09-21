@@ -109,7 +109,13 @@ fn rebuild_rows(list: &gtk::Box, snap: &Snapshot) {
         list.show_all();
         return;
     }
-    for t in &snap.transfers {
+    let mut transfers = snap.transfers.iter().collect::<Vec<_>>();
+    transfers.sort_by_key(|transfer| match &transfer.outcome {
+        Outcome::Failed(_) => 0,
+        Outcome::Running => 1,
+        Outcome::Done => 2,
+    });
+    for t in transfers {
         let detail = match &t.outcome {
             Outcome::Running => None,
             Outcome::Failed(_) => Some("✕".to_string()),
