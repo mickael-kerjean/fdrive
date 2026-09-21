@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 use bytes::{Buf, Bytes};
 use futures_util::TryStreamExt;
 use reqwest::header::{HeaderMap, ACCEPT, AUTHORIZATION, CONTENT_TYPE, RANGE, SET_COOKIE};
-use reqwest::{Body, Method, Response, StatusCode};
+use reqwest::{Body, Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use url::Url;
 
@@ -167,6 +167,12 @@ impl Sdk {
     fn with_options(url: &str, insecure: bool) -> Result<Self> {
         let url = Url::parse(url.trim_end_matches('/'))?;
         let http = reqwest::Client::builder()
+            .user_agent(format!(
+                "Filestash/{} ({}; {})",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            ))
             .danger_accept_invalid_certs(insecure)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
@@ -192,9 +198,7 @@ impl Sdk {
         let mut url = self.api(&["api", "session", "auth", ""]);
         url.query_pairs_mut().append_pair("label", storage);
         let resp = self
-            .http
-            .post(url)
-            .header("X-Requested-With", "SDKHttpRequest")
+            .http_request(Method::POST, url)?
             .form(&[("user", user), ("password", password)])
             .send()
             .await?;
@@ -285,9 +289,7 @@ impl Sdk {
         let mut url = self.api(&["api", "files", "cat"]);
         url.query_pairs_mut().append_pair("path", path);
         let resp = self
-            .http
-            .get(url)
-            .header("X-Requested-With", "SDKHttpRequest")
+            .http_request(Method::GET, url)?
             .header(AUTHORIZATION, self.bearer()?)
             .header(ACCEPT, DELTA_MEDIA_TYPE)
             .send()
@@ -323,9 +325,7 @@ impl Sdk {
         let mut url = self.api(&["api", "files", "cat"]);
         url.query_pairs_mut().append_pair("path", path);
         let resp = self
-            .http
-            .get(url)
-            .header("X-Requested-With", "SDKHttpRequest")
+            .http_request(Method::GET, url)?
             .header(AUTHORIZATION, self.bearer()?)
             .header(RANGE, format!("bytes={start}-{end}"))
             .send()
@@ -339,9 +339,7 @@ impl Sdk {
 
     pub async fn probe(&self) -> Result<String> {
         let resp = self
-            .http
-            .get(self.api(&["about"]))
-            .header("X-Requested-With", "SDKHttpRequest")
+            .http_request(Method::GET, self.api(&["about"]))?
             .send()
             .await?;
         resp.headers()
@@ -384,9 +382,7 @@ impl Sdk {
         let mut url = self.api(&["api", "files", "cat"]);
         url.query_pairs_mut().append_pair("path", path);
         let mut req = self
-            .http
-            .post(url)
-            .header("X-Requested-With", "SDKHttpRequest")
+            .http_request(Method::POST, url)?
             .header(AUTHORIZATION, self.bearer()?);
         if let Some(since) = since {
             req = req.header("If-Unmodified-Since", httpdate::fmt_http_date(since));
@@ -411,9 +407,7 @@ impl Sdk {
 
     async fn probe_delta(&self) -> Result<bool> {
         let resp = self
-            .http
-            .request(Method::OPTIONS, self.api(&["api", "files", "save"]))
-            .header("X-Requested-With", "SDKHttpRequest")
+            .http_request(Method::OPTIONS, self.api(&["api", "files", "save"]))?
             .header(AUTHORIZATION, self.bearer()?)
             .send()
             .await?;
@@ -434,9 +428,7 @@ impl Sdk {
         let mut url = self.api(&["api", "files", "cat"]);
         url.query_pairs_mut().append_pair("path", path);
         let mut req = self
-            .http
-            .post(url)
-            .header("X-Requested-With", "SDKHttpRequest")
+            .http_request(Method::POST, url)?
             .header(AUTHORIZATION, self.bearer()?)
             .header(CONTENT_TYPE, DELTA_MEDIA_TYPE)
             .header("If-Unmodified-Since", httpdate::fmt_http_date(since));
@@ -487,6 +479,17 @@ impl Sdk {
         Ok(format!("Bearer {token}"))
     }
 
+    fn http_request(&self, method: Method, url: Url) -> Result<RequestBuilder> {
+        let mut id = [0u8; 16];
+        getrandom::fill(&mut id)
+            .map_err(|err| Error::Api(format!("cannot generate request ID: {err}")))?;
+        let id = u128::from_be_bytes(id);
+        Ok(self.http
+            .request(method, url)
+            .header("X-Requested-With", "SDKHttpRequest")
+            .header("X-Request-Id", format!("{id:032x}")))
+    }
+
     async fn request(
         &self,
         method: Method,
@@ -498,9 +501,7 @@ impl Sdk {
             url.query_pairs_mut().append_pair(k, v);
         }
         let resp = self
-            .http
-            .request(method, url)
-            .header("X-Requested-With", "SDKHttpRequest")
+            .http_request(method, url)?
             .header(AUTHORIZATION, self.bearer()?)
             .send()
             .await?;
@@ -603,9 +604,7 @@ pub struct WatchStream {
 impl Sdk {
     pub async fn watch(&self, cursor: Option<&str>) -> Result<WatchStream> {
         let mut request = self
-            .http
-            .get(self.api(&["api", "files", "watch"]))
-            .header("X-Requested-With", "SDKHttpRequest")
+            .http_request(Method::GET, self.api(&["api", "files", "watch"]))?
             .header(AUTHORIZATION, self.bearer()?)
             .header(ACCEPT, "text/event-stream");
         if let Some(cursor) = cursor {

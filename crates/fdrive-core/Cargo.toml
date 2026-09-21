@@ -13,6 +13,7 @@ url = "2"
 futures-core = "0.3"
 futures-util = { version = "0.3", default-features = false }
 gethostname = "1"
+getrandom = "0.4"
 httpdate = "1"
 bytes = "1"
 log = "0.4"
