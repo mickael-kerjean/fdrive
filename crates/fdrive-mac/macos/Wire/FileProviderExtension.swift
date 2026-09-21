@@ -106,7 +106,11 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                 let item = FileProviderItem(path: path, entry: try await adapter.stat(path: path))
                 completionHandler(URL(fileURLWithPath: localPath), item, nil)
             } catch {
-                completionHandler(nil, nil, progress.isCancelled ? CocoaError(.userCancelled) : mapToProviderError(error))
+                var failure = mapToProviderError(error)
+                if let fsError = error as? FsError, case .Other = fsError {
+                    failure = CocoaError(.fileReadUnknown, userInfo: [NSUnderlyingErrorKey: error])
+                }
+                completionHandler(nil, nil, progress.isCancelled ? CocoaError(.userCancelled) : failure)
             }
         }
         return progress

@@ -66,13 +66,17 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
         Task {
             defer { forget() }
             do {
-                if container == .workingSet {
-                    let items = try await list("/")
-                    metadata.record(items, in: .rootContainer)
-                    observer.didEnumerate(items)
-                } else {
-                    observer.didEnumerate(try await list(FileProviderPath.path(for: container)))
+                let directory = container == .workingSet ? "/" : FileProviderPath.path(for: container)
+                var items = try await list(directory)
+                // TODO: Add pagination that handles directory changes between pages.
+                if items.count > 20_000 {
+                    logger.warning("Listing \(directory, privacy: .public) truncated to 20000 of \(items.count) items; pagination is not implemented")
+                    items = Array(items.prefix(20_000))
                 }
+                if container == .workingSet {
+                    metadata.record(items, in: .rootContainer)
+                }
+                observer.didEnumerate(items)
                 observer.finishEnumerating(upTo: nil)
             } catch {
                 logger.error("Listing \(self.container.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
