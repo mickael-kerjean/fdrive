@@ -33,7 +33,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
             signals.add(container)
             Task { [weak self] in
                 while true {
-                    try? await Task.sleep(for: .seconds(24 * 60 * 60))
+                    try? await Task.sleep(for: .seconds(10))
                     guard let self else { return }
                     self.signals.add(self.container)
                 }
@@ -134,7 +134,7 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
     }
 
     private func list(_ directory: String) async throws -> [FileProviderItem] {
-        try await adapter.ls(path: directory).map { entry in
+        try await adapter.ls(path: directory, viewerRequest: true).map { entry in
             let isDirectory = entry.kind == .directory
             let path = FileProviderPath.child(of: directory, name: entry.name, isDirectory: isDirectory)
             return FileProviderItem(path: path, entry: entry)

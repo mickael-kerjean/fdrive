@@ -102,8 +102,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         Task {
             defer { unload() }
             do {
-                let localPath = try await adapter.open(path: path, base: base)
-                let item = FileProviderItem(path: path, entry: try await adapter.stat(path: path))
+                let localPath = try await adapter.open(path: path, base: base, viewerRequest: request.isFileViewerRequest)
+                let item = FileProviderItem(path: path, entry: try await adapter.stat(path: path, viewerRequest: request.isFileViewerRequest))
                 completionHandler(URL(fileURLWithPath: localPath), item, nil)
             } catch {
                 var failure = mapToProviderError(error)
@@ -139,7 +139,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
             defer { unload() }
             do {
                 let path = FileProviderPath.path(for: identifier)
-                completionHandler(FileProviderItem(path: path, entry: try await adapter.stat(path: path)), nil)
+                completionHandler(FileProviderItem(path: path, entry: try await adapter.stat(path: path, viewerRequest: request.isFileViewerRequest)), nil)
             } catch {
                 completionHandler(nil, mapToProviderError(error))
             }
@@ -180,7 +180,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     adapter.saved(path: path)
                     await adapter.flush(timeoutMs: 30_000)
                 }
-                let entry = try await adapter.stat(path: path)
+                let entry = try await adapter.stat(path: path, viewerRequest: request.isFileViewerRequest)
                 completionHandler(FileProviderItem(path: path, entry: entry), [], false, nil)
             } catch {
                 completionHandler(nil, [], false, mapToProviderError(error))
@@ -219,12 +219,12 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     path = destination
                 }
                 if changedFields.contains(.contents), let newContents {
-                    let localPath = try await adapter.open(path: path, base: nil)
+                    let localPath = try await adapter.open(path: path, base: nil, viewerRequest: request.isFileViewerRequest)
                     try await replace(at: localPath, with: newContents)
                     adapter.saved(path: path)
                     await adapter.flush(timeoutMs: 30_000)
                 }
-                let entry = try await adapter.stat(path: path)
+                let entry = try await adapter.stat(path: path, viewerRequest: request.isFileViewerRequest)
                 completionHandler(FileProviderItem(path: path, entry: entry), [], false, nil)
             } catch {
                 logger.error("Modify \(path, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")

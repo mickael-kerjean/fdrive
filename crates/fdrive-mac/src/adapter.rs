@@ -14,7 +14,8 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use crate::{runtime, FsError};
 
-const META_TTL: Duration = Duration::from_secs(5);
+const VIEWER_META_TTL: Duration = Duration::from_secs(5);
+const BACKGROUND_META_TTL: Duration = Duration::from_secs(60 * 60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum EntryKind {
@@ -169,17 +170,17 @@ impl Adapter {
         self.watcher.lock().unwrap().take();
     }
 
-    pub async fn ls(&self, path: String) -> Result<Vec<Entry>, FsError> {
+    pub async fn ls(&self, path: String, viewer_request: bool) -> Result<Vec<Entry>, FsError> {
         let dir = RelPath::new(&path);
         Ok(self
-            .listing(&dir)
+            .listing(&dir, viewer_request)
             .await?
             .into_iter()
             .map(|info| self.entry(&dir.join(&info.name), info))
             .collect())
     }
 
-    pub async fn stat(&self, path: String) -> Result<Entry, FsError> {
+    pub async fn stat(&self, path: String, viewer_request: bool) -> Result<Entry, FsError> {
         let path = RelPath::new(&path);
         if let Some(metadata) = self.engine.view().pending_metadata(&path) {
             let mut entry = Entry::from(sdk::FileInfo {
@@ -192,7 +193,7 @@ impl Adapter {
             entry.time_local = entry.time_remote.take();
             return Ok(entry);
         }
-        self.listing(&path.parent_or_root())
+        self.listing(&path.parent_or_root(), viewer_request)
             .await?
             .into_iter()
             .find(|entry| entry.name == path.name())
@@ -200,10 +201,10 @@ impl Adapter {
             .ok_or(FsError::NotFound)
     }
 
-    pub async fn open(&self, path: String, base: Option<String>) -> Result<String, FsError> {
+    pub async fn open(&self, path: String, base: Option<String>, viewer_request: bool) -> Result<String, FsError> {
         let path = RelPath::new(&path);
         let mut current = None;
-        if let Ok(listing) = self.listing(&path.parent_or_root()).await {
+        if let Ok(listing) = self.listing(&path.parent_or_root(), viewer_request).await {
             if let Some(entry) = listing.iter().find(|entry| entry.name == path.name()) {
                 let observation = Observation::of(entry);
                 if self.engine.view().current(&path, observation) {
@@ -319,7 +320,8 @@ impl Adapter {
         gates.entry(directory.clone()).or_default().clone()
     }
 
-    async fn listing(&self, directory: &RelPath) -> Result<Vec<sdk::FileInfo>, FsError> {
+    async fn listing(&self, directory: &RelPath, viewer_request: bool) -> Result<Vec<sdk::FileInfo>, FsError> {
+        let ttl = if viewer_request { VIEWER_META_TTL } else { BACKGROUND_META_TTL };
         let gate = self.listing_gate(directory);
         let _guard = gate.lock().await;
         let mut retried = false;
@@ -332,7 +334,7 @@ impl Adapter {
                     entry
                         .listing
                         .as_ref()
-                        .filter(|(created, _)| created.elapsed() < META_TTL)
+                        .filter(|(created, _)| created.elapsed() < ttl)
                         .map(|(_, listing)| listing.clone()),
                 )
             };
