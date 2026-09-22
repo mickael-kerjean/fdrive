@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RecentActivityView: View {
     let transfers: [Transfer]
+    let completedCount: Int
     let clear: () -> Void
     @State private var height = CGFloat.zero
     @State private var scrolled = false
@@ -39,6 +40,11 @@ struct RecentActivityView: View {
         .safeAreaInset(edge: .top, spacing: 8) {
             HStack {
                 Text("Activity").font(.headline)
+                if completedCount > 15 {
+                    Text("(\(completedCount))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 if transfers.contains(where: { $0.state != .running }) {
                     Button("Clear", action: clear)

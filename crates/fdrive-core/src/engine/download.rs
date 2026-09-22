@@ -27,7 +27,7 @@ fn part_file(abs: &Path) -> PathBuf {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum DownloadStatus {
     Running,
-    Done,
+    Done(Observation),
     Failed,
 }
 
@@ -45,7 +45,7 @@ impl Reader {
             let (written, status) = *state.borrow_and_update();
             match status {
                 DownloadStatus::Failed => return Err(io::Error::other("download failed")),
-                DownloadStatus::Done => break,
+                DownloadStatus::Done(_) => break,
                 DownloadStatus::Running if written >= end => break,
                 DownloadStatus::Running => {
                     if state.changed().await.is_err() {
@@ -67,12 +67,12 @@ impl Reader {
         Ok(buf)
     }
 
-    pub(super) async fn done(&self) -> io::Result<()> {
+    pub(super) async fn done(&self) -> io::Result<Observation> {
         let mut state = self.state.clone();
         loop {
             let status = state.borrow_and_update().1;
             match status {
-                DownloadStatus::Done => return Ok(()),
+                DownloadStatus::Done(observation) => return Ok(observation),
                 DownloadStatus::Failed => return Err(io::Error::other("download failed")),
                 DownloadStatus::Running => {
                     if state.changed().await.is_err() {
@@ -116,11 +116,25 @@ impl<'a, T: LocalStore> Cache<'a, T> {
         current: Option<Observation>,
         base: Option<PathBuf>,
     ) -> io::Result<()> {
-        self.prefetch(path, current, base).await?;
-        let reader = self.0.transfers.downloads.lock().unwrap().get(path).cloned();
+        self.hydrate_observed(path, current, base).await.map(|_| ())
+    }
+
+    pub async fn hydrate_observed(
+        &self,
+        path: &RelPath,
+        current: Option<Observation>,
+        base: Option<PathBuf>,
+    ) -> io::Result<Observation> {
+        let gate = self.0.transfers.hydrate_gate(path);
+        let guard = gate.lock().await;
+        let reader = self.0.fetch_start(path, current, base).await?;
+        drop(guard);
         match reader {
             Some(reader) => reader.done().await,
-            None => Ok(()),
+            None => {
+                let metadata = fs::metadata(self.0.local.backing(path))?;
+                Ok(Observation::of_local(&metadata))
+            }
         }
     }
 
@@ -132,7 +146,7 @@ impl<'a, T: LocalStore> Cache<'a, T> {
     ) -> io::Result<()> {
         let gate = self.0.transfers.hydrate_gate(path);
         let _gate = gate.lock().await;
-        self.0.fetch_start(path, current, base).await
+        self.0.fetch_start(path, current, base).await.map(|_| ())
     }
 
     pub fn cancel(&self, path: &RelPath) {
@@ -155,9 +169,9 @@ impl<T: LocalStore> Engine<T> {
         path: &RelPath,
         current: Option<Observation>,
         base: Option<PathBuf>,
-    ) -> io::Result<()> {
-        if self.transfers.downloads.lock().unwrap().contains_key(path) {
-            return Ok(());
+    ) -> io::Result<Option<Arc<Reader>>> {
+        if let Some(reader) = self.transfers.downloads.lock().unwrap().get(path).cloned() {
+            return Ok(Some(reader));
         }
         let (observed, dirty) = {
             let ledger = self.ledger();
@@ -167,7 +181,7 @@ impl<T: LocalStore> Engine<T> {
             )
         };
         if dirty {
-            return Ok(());
+            return Ok(None);
         }
         let upstream = match self.fates().get(path) {
             Some(Fate::Gone) => return Err(io::ErrorKind::NotFound.into()),
@@ -184,13 +198,13 @@ impl<T: LocalStore> Engine<T> {
                 }
                 Err(err) if abs.is_file() => {
                     log::debug!("hydrate {path} unreachable, serving the cache: {err}");
-                    return Ok(());
+                    return Ok(None);
                 }
                 Err(err) => return Err(err.into()),
             },
         };
         if observed == Some(current) && abs.is_file() {
-            return Ok(());
+            return Ok(None);
         }
         if let Some(parent) = abs.parent() {
             fs::create_dir_all(parent)?;
@@ -199,13 +213,14 @@ impl<T: LocalStore> Engine<T> {
         fs::File::create(&tmp)?;
         let file = fs::File::open(&tmp)?;
         let (tx, state) = watch::channel((0u64, DownloadStatus::Running));
+        let reader = Arc::new(Reader { file, state, abort: AtomicBool::new(false) });
         self.transfers
             .downloads
             .lock()
             .unwrap()
-            .insert(path.clone(), Arc::new(Reader { file, state, abort: AtomicBool::new(false) }));
+            .insert(path.clone(), reader.clone());
         self.scheduler.stream(path.clone(), tmp, tx, current, base);
-        Ok(())
+        Ok(Some(reader))
     }
 
     pub(super) async fn stream(
@@ -262,17 +277,22 @@ impl<T: LocalStore> Engine<T> {
         if self.ledger().dirty.contains(&path) {
             return fail(&"superseded by a local edit");
         }
+        if let Some(time) = info.mtime {
+            if let Err(err) = fs::File::options().write(true).open(&tmp).and_then(|file| file.set_modified(time)) {
+                return fail(&err);
+            }
+        }
         if let Err(err) = fs::rename(&tmp, self.local.backing(&path)) {
             return fail(&err);
         }
-        self.ledger()
-            .observe(&path, Observation::new(size, info.mtime));
+        let observation = Observation::new(size, info.mtime);
+        self.ledger().observe(&path, observation);
         if let Ok(data) = fs::read(self.local.backing(&path)) {
             self.ledger()
                 .sign_set(&path, &super::upload::signature(&data));
         }
         self.transfers.downloads.lock().unwrap().remove(&path);
-        tx.send_modify(|s| s.1 = DownloadStatus::Done);
+        tx.send_modify(|s| s.1 = DownloadStatus::Done(observation));
         self.activity.finish(act, Ok(()));
         log::info!("cached {path} ({size} bytes)");
     }

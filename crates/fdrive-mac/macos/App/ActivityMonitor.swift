@@ -8,12 +8,16 @@ final class ActivityMonitor: ObservableObject {
 
     @Published private(set) var transfers: [Transfer] = []
     @Published private(set) var meter: [Sample] = []
+    @Published private(set) var completedCount = 0
 
     private var connection: NSXPCConnection?
     private var version: UInt64?
     private var cleared: Set<UInt64> = []
+    private var counted: Set<UInt64> = []
 
     func clear() {
+        completedCount = 0
+        counted.formUnion(transfers.filter { $0.state != .running }.map(\.id))
         cleared.formUnion(transfers.filter { $0.state != .running }.map(\.id))
         transfers.removeAll { $0.state != .running }
     }
@@ -31,6 +35,11 @@ final class ActivityMonitor: ObservableObject {
         meter = snapshot.meter
         guard snapshot.version != version else { return }
         version = snapshot.version
+        for transfer in snapshot.transfers where transfer.state != .running {
+            if counted.insert(transfer.id).inserted {
+                completedCount += 1
+            }
+        }
         cleared.formIntersection(snapshot.transfers.map(\.id))
         transfers = snapshot.transfers.filter { !cleared.contains($0.id) }
     }

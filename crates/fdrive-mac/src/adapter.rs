@@ -37,6 +37,12 @@ pub struct Entry {
     pub can_delete: bool,
 }
 
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Download {
+    pub local_path: String,
+    pub entry: Entry,
+}
+
 impl From<sdk::FileInfo> for Entry {
     fn from(info: sdk::FileInfo) -> Self {
         Self {
@@ -202,28 +208,31 @@ impl Adapter {
     }
 
     pub async fn open(&self, path: String, base: Option<String>, viewer_request: bool) -> Result<String, FsError> {
+        Ok(self.fetch(path, base, viewer_request).await?.local_path)
+    }
+
+    pub async fn fetch(&self, path: String, base: Option<String>, viewer_request: bool) -> Result<Download, FsError> {
         let path = RelPath::new(&path);
         let mut current = None;
+        let mut permissions = sdk::Permissions::default();
         if let Ok(listing) = self.listing(&path.parent_or_root(), viewer_request).await {
             if let Some(entry) = listing.iter().find(|entry| entry.name == path.name()) {
-                let observation = Observation::of(entry);
-                if self.engine.view().current(&path, observation) {
-                    return Ok(self.local_path(&path));
-                }
-                current = Some(observation);
+                current = Some(Observation::of(entry));
+                permissions = entry.perms;
             }
         }
-        self.engine
+        let observation = self.engine
             .cache()
-            .hydrate(&path, current, base.map(PathBuf::from))
+            .hydrate_observed(&path, current, base.map(PathBuf::from))
             .await?;
-        if let Some(observation) = current {
-            let time = UNIX_EPOCH + Duration::from_secs(observation.time);
-            if let Ok(file) = fs::File::options().write(true).open(self.engine.local().backing(&path)) {
-                let _ = file.set_modified(time);
-            }
-        }
-        Ok(self.local_path(&path))
+        let entry = Entry::from(sdk::FileInfo {
+            name: path.name().to_owned(),
+            kind: sdk::FileType::File,
+            size: Some(observation.size),
+            mtime: (observation.time != 0).then(|| UNIX_EPOCH + Duration::from_secs(observation.time)),
+            perms: permissions,
+        });
+        Ok(Download { local_path: self.local_path(&path), entry })
     }
 
     pub fn cancel(&self, path: String) {

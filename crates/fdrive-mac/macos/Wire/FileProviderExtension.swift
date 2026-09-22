@@ -102,9 +102,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         Task {
             defer { unload() }
             do {
-                let localPath = try await adapter.open(path: path, base: base, viewerRequest: request.isFileViewerRequest)
-                let item = FileProviderItem(path: path, entry: try await adapter.stat(path: path, viewerRequest: request.isFileViewerRequest))
-                completionHandler(URL(fileURLWithPath: localPath), item, nil)
+                let download = try await adapter.fetch(path: path, base: base, viewerRequest: request.isFileViewerRequest)
+                let item = FileProviderItem(path: path, entry: download.entry)
+                completionHandler(URL(fileURLWithPath: download.localPath), item, nil)
             } catch {
                 var failure = mapToProviderError(error)
                 if let fsError = error as? FsError, case .Other = fsError {
