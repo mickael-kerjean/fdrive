@@ -77,6 +77,8 @@ struct RecentActivityView: View {
 
             Spacer(minLength: 0)
         }
+        .contentShape(Rectangle())
+        .help(transfer.name)
     }
 }
 

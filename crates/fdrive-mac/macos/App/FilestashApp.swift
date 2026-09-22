@@ -18,5 +18,9 @@ struct FilestashApp: App {
             LoginView().environmentObject(state)
         }
         .windowResizability(.contentSize)
+
+        Settings {
+            SettingsView().environmentObject(state)
+        }
     }
 }

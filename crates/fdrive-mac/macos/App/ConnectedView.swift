@@ -22,11 +22,8 @@ struct ConnectedView: View {
             Divider()
 
             HStack {
-                Button("Quit") {
-                    Task {
-                        try? await DomainManager.remove()
-                        NSApp.terminate(nil)
-                    }
+                if #available(macOS 14.0, *) {
+                    ButtonSettings()
                 }
 
                 Button("Disconnect") {
@@ -42,6 +39,17 @@ struct ConnectedView: View {
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
+        }
+    }
+}
+
+@available(macOS 14.0, *)
+private struct ButtonSettings: View {
+    @Environment(\.openSettings) private var openSettings
+    var body: some View {
+        Button("Settings") {
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
         }
     }
 }

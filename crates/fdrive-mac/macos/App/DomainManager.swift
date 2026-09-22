@@ -7,6 +7,10 @@ enum DomainManager {
         displayName: ""
     )
 
+    static var manager: NSFileProviderManager? {
+        NSFileProviderManager(for: domain)
+    }
+
     static func add() async throws {
         try? await NSFileProviderManager.remove(domain)
         try await NSFileProviderManager.add(domain)
