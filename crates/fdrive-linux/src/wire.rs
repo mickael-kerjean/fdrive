@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -24,9 +25,13 @@ pub struct MountFs {
 struct Wire {
     adapter: Arc<Adapter>,
     inodes: Mutex<InodeTable>,
+    directories: Mutex<HashMap<u64, DirectoryListing>>,
+    next_directory: AtomicU64,
     uid: u32,
     gid: u32,
 }
+
+type DirectoryListing = Vec<(INodeNo, FileType, String)>;
 
 struct InodeTable {
     paths: HashMap<u64, RelPath>,
@@ -105,14 +110,14 @@ impl Filesystem for MountFs {
         });
     }
 
-    fn readdir(&self, req: &Request, ino: INodeNo, _fh: FileHandle, offset: u64, mut reply: ReplyDirectory) {
+    fn opendir(&self, req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
         let Some(dir) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
         let pid = req.pid();
         self.go(move |wire| {
             log::debug!(
-                "ls path={dir} offset={offset} by={}#{pid}",
+                "ls path={dir} by={}#{pid}",
                 std::fs::read_to_string(format!("/proc/{pid}/comm"))
                     .unwrap_or_default()
                     .trim()
@@ -136,13 +141,28 @@ impl Filesystem for MountFs {
                 }
                 items.push((INodeNo(wire.ino(&child)), kind, entry.name));
             }
-            for (i, (ino, kind, name)) in items.into_iter().enumerate().skip(offset as usize) {
-                if reply.add(ino, (i + 1) as u64, kind, name) {
-                    break;
-                }
-            }
-            reply.ok();
+            let fh = wire.next_directory.fetch_add(1, Ordering::Relaxed);
+            wire.directories.lock().unwrap().insert(fh, items);
+            reply.opened(FileHandle(fh), FopenFlags::empty());
         });
+    }
+
+    fn readdir(&self, _req: &Request, _ino: INodeNo, fh: FileHandle, offset: u64, mut reply: ReplyDirectory) {
+        let directories = self.wire.directories.lock().unwrap();
+        let Some(items) = directories.get(&fh.0) else {
+            return reply.error(Errno::EBADF);
+        };
+        for (i, (ino, kind, name)) in items.iter().enumerate().skip(offset as usize) {
+            if reply.add(*ino, (i + 1) as u64, *kind, name) {
+                break;
+            }
+        }
+        reply.ok();
+    }
+
+    fn releasedir(&self, _req: &Request, _ino: INodeNo, fh: FileHandle, _flags: OpenFlags, reply: ReplyEmpty) {
+        self.wire.directories.lock().unwrap().remove(&fh.0);
+        reply.ok();
     }
 
     fn mkdir(&self, _req: &Request, parent: INodeNo, name: &OsStr, _mode: u32, _umask: u32, reply: ReplyEntry) {
@@ -374,6 +394,8 @@ impl MountFs {
                     lookups: HashMap::new(),
                     next_ino: 2,
                 }),
+                directories: Mutex::new(HashMap::new()),
+                next_directory: AtomicU64::new(1),
                 uid: unsafe { libc::getuid() },
                 gid: unsafe { libc::getgid() },
             }),
