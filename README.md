@@ -45,6 +45,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 - [X] Sane Architecture: one Rust core makes every decision and each platform only implements the lipstick, so sync behaves the same everywhere
 - [X] Delta sync: only ship the bytes that changed, not the whole file
 - [X] Lives in the tray: the tray icon shows the status, synced, syncing or in trouble at a glance
+- [X] No polling or periodic sweep shenanigans
 - [X] Files on demand: a file only downloads when you open it, with both content and listings cached so browsing stays snappy and the next open is instant
 - [X] Streaming: large files open immediately, reads are served as the bytes arrive
 - [X] Offline mode: cached files stay readable and editable, changes upload once the link returns
@@ -60,6 +61,9 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 - [X] Login: done through your server's own login page, password, LDAP, SSO, 2FA all just work
 - [X] No Electron: native everything from the tray, filesystem integration into one single binary
 - [ ] Add P2P transfer
+- [X] handle hundreds of thousands of files
+- [ ] handles millions of files
+- [ ] add support for more conflict strategies
 - [ ] Profiles: connect to several servers / accounts in the same time
 - [ ] Deep integration with Filestash for file locks
 - [ ] Deep integration with Filestash for file versioning
