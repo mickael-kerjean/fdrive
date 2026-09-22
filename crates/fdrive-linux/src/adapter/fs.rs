@@ -9,7 +9,7 @@ use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, FileInfo, FileType};
 
 use super::utils::{ensure_parent, fill_at, remove_path};
-use super::{Adapter, Xattr, META_TTL};
+use super::{Adapter, Xattr};
 
 #[derive(Clone, Copy)]
 pub struct Fs<'a>(pub(super) &'a Adapter);
@@ -21,18 +21,25 @@ impl<'a> Fs<'a> {
             let (generation, cached) = {
                 let mut meta = self.0.engine.local().meta.lock().unwrap();
                 let entry = meta.entry(dir.clone()).or_default();
-                let cached = entry.listing.as_ref().filter(|(at, _)| at.elapsed() < META_TTL);
-                (entry.generation, cached.map(|(_, listing)| listing.clone()))
+                let cached = entry.cached();
+                (entry.generation, cached.map(|listing| listing.values().cloned().collect()))
             };
             if let Some(listing) = cached {
                 return Ok(self.0.engine.view().merge(dir, listing));
             }
             let listing = match self.0.engine.block_on(self.0.engine.fs().ls(dir)) {
-                Ok(fetched) => {
+                Ok(mut fetched) => {
+                    fetched.sort_by(|a, b| a.name.cmp(&b.name));
                     let mut meta = self.0.engine.local().meta.lock().unwrap();
                     let entry = meta.entry(dir.clone()).or_default();
                     if entry.generation == generation {
-                        entry.listing = Some((Instant::now(), fetched.clone()));
+                        entry
+                            .removed
+                            .retain(|name, _| fetched.binary_search_by(|e| e.name.cmp(name)).is_ok());
+                    }
+                    fetched.retain(|e| !entry.removed.contains_key(&e.name));
+                    if entry.generation == generation {
+                        entry.listing = Some((Instant::now(), fetched.iter().map(|e| (e.name.clone(), e.clone())).collect()));
                     } else if !retried {
                         retried = true;
                         continue;
@@ -47,7 +54,7 @@ impl<'a> Fs<'a> {
                     match meta.get(dir).and_then(|entry| entry.listing.as_ref()) {
                         Some((_, listing)) => {
                             log::debug!("ls {dir} unreachable, serving stale: {err}");
-                            listing.clone()
+                            listing.values().cloned().collect()
                         }
                         None => {
                             drop(meta);
@@ -153,30 +160,42 @@ impl<'a> Fs<'a> {
     }
 
     pub fn create(self, path: &RelPath) -> io::Result<()> {
+        self.prepare_create(path)?;
         let file_path = self.0.engine.local().backing(path);
         ensure_parent(&file_path)?;
         self.0.engine.fs().created(path);
         fs::File::create(&file_path)?;
+        self.0.engine.local().created(path);
         Ok(())
     }
 
     pub fn mkdir(self, path: &RelPath) -> io::Result<()> {
+        self.prepare_create(path)?;
         self.0.engine.block_on(self.0.engine.fs().mkdir(path))?;
+        self.0.engine.local().created(path);
         self.0.engine.local().invalidate(&path.parent_or_root());
         Ok(())
     }
 
     pub fn delete(self, path: &RelPath, is_dir: bool) -> io::Result<()> {
-        self.0.engine.block_on(self.0.engine.fs().delete(path, is_dir))?;
+        self.0.engine.block_on(async {
+            let mut deletes = self.0.deletes.lock().await;
+            if is_dir {
+                deletes.push(path)?;
+            } else {
+                self.0.engine.fs().delete(path, false).await?;
+            }
+            deletes.last = Instant::now();
+            Ok::<_, io::Error>(())
+        })?;
         remove_path(&self.0.engine.local().backing(path))?;
         self.0.xattrs.forget(path);
         self.0.engine.local().invalidate(path);
-        self.0.engine.local().drop(&path.parent_or_root(), path.name());
+        self.0.engine.local().drop(&path.parent_or_root(), path.name(), is_dir);
         Ok(())
     }
 
     pub fn rmdir(self, path: &RelPath) -> io::Result<()> {
-        self.0.engine.local().invalidate(path);
         match self.ls(path) {
             Ok(listing) if listing.is_empty() => self.delete(path, true),
             Ok(_) => Err(io::Error::from_raw_os_error(libc::ENOTEMPTY)),
@@ -186,6 +205,7 @@ impl<'a> Fs<'a> {
     }
 
     pub fn rename(self, from: &RelPath, to: &RelPath) -> io::Result<()> {
+        self.prepare_create(to)?;
         let is_dir = matches!(self.attr(from)?, Some((true, ..)));
         self.0.engine.block_on(self.0.engine.fs().rename(from, to, is_dir))?;
         let from_backing = self.0.engine.local().backing(from);
@@ -196,6 +216,7 @@ impl<'a> Fs<'a> {
             fs::rename(&from_backing, &to_backing)?;
         }
         self.0.xattrs.remap(from, to);
+        self.0.engine.local().created(to);
         self.0.engine.local().invalidate(&from.parent_or_root());
         self.0.engine.local().invalidate(&to.parent_or_root());
         Ok(())
@@ -203,6 +224,33 @@ impl<'a> Fs<'a> {
 
     pub fn xattr(self) -> Xattr<'a> {
         Xattr(self.0)
+    }
+
+    fn prepare_create(self, path: &RelPath) -> io::Result<()> {
+        self.0.engine.block_on(async {
+            let queued = {
+                let mut deletes = self.0.deletes.lock().await;
+                let queued = deletes.dirs.iter().any(|p| p == path || path.is_descendant_of(p));
+                deletes.flush(&self.0.engine).await?;
+                queued
+            };
+            let replacing = self
+                .0
+                .engine
+                .local()
+                .meta
+                .lock()
+                .unwrap()
+                .get(&path.parent_or_root())
+                .is_some_and(|e| e.removed.get(path.name()) == Some(&true));
+            if queued || replacing {
+                self.0.engine.system().flush(std::time::Duration::from_secs(30)).await;
+                if *self.0.engine.status().watch().borrow() != fdrive_core::engine::UploadStatus::Idle {
+                    return Err(io::Error::from_raw_os_error(libc::EAGAIN));
+                }
+            }
+            Ok(())
+        })
     }
 
     fn file(self, fh: u64, path: &RelPath) -> Option<Arc<fs::File>> {

@@ -8,6 +8,9 @@ pub struct System<'a>(pub(super) &'a Adapter);
 
 impl System<'_> {
     pub async fn flush(self, timeout: Duration) {
+        if let Err(err) = self.0.deletes.lock().await.flush(&self.0.engine).await {
+            log::error!("flush directory deletes: {err}");
+        }
         self.0.engine.system().flush(timeout).await;
     }
 

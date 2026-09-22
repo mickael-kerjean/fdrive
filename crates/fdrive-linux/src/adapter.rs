@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -12,6 +12,7 @@ use fdrive_core::sdk::{FileInfo, Sdk};
 use crate::xattr::XattrDb;
 
 mod cache;
+mod deletes;
 mod fs;
 mod system;
 mod utils;
@@ -28,6 +29,7 @@ pub struct Adapter {
     engine: Arc<Engine<CacheTree>>,
     xattrs: XattrDb,
     handles: Handles,
+    deletes: Arc<tokio::sync::Mutex<deletes::Deletes>>,
 }
 
 pub struct CacheTree {
@@ -39,10 +41,19 @@ pub struct CacheTree {
 #[derive(Default)]
 struct MetadataEntry {
     generation: u64,
-    listing: Option<(Instant, Vec<FileInfo>)>,
+    listing: Option<(Instant, BTreeMap<String, FileInfo>)>,
+    removed: BTreeMap<String, bool>, // name -> was a directory
+    deleting: Option<Instant>,
 }
 
 impl MetadataEntry {
+    fn cached(&self) -> Option<&BTreeMap<String, FileInfo>> {
+        self.listing
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() < META_TTL || self.deleting.is_some_and(|at| at.elapsed() < META_TTL))
+            .map(|(_, listing)| listing)
+    }
+
     fn invalidate(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         if let Some((at, _)) = &mut self.listing {
@@ -93,10 +104,35 @@ impl CacheTree {
         }
     }
 
-    fn drop(&self, dir: &RelPath, name: &str) {
+    fn drop(&self, dir: &RelPath, name: &str, is_dir: bool) {
         let mut meta = self.meta.lock().unwrap();
-        if let Some((_, listing)) = meta.get_mut(dir).and_then(|entry| entry.listing.as_mut()) {
-            listing.retain(|e| e.name != name);
+        let entry = meta.entry(dir.clone()).or_default();
+        entry.generation = entry.generation.wrapping_add(1);
+        entry.removed.insert(name.to_owned(), is_dir);
+        if let Some((_, listing)) = &mut entry.listing {
+            listing.remove(name);
+        }
+        // Watch invalidations remain recorded, but don't refetch ancestors
+        // between every unlink during an active recursive deletion.
+        let mut dir = dir.clone();
+        loop {
+            if let Some(entry) = meta.get_mut(&dir) {
+                entry.deleting = Some(Instant::now());
+            }
+            if dir.is_root() {
+                break;
+            }
+            dir = dir.parent_or_root();
+        }
+    }
+
+    fn created(&self, path: &RelPath) {
+        let mut meta = self.meta.lock().unwrap();
+        if let Some(entry) = meta.get_mut(&path.parent_or_root()) {
+            if entry.removed.remove(path.name()).is_some() {
+                entry.deleting = None;
+                entry.invalidate();
+            }
         }
     }
 }
@@ -110,13 +146,32 @@ impl Adapter {
             ledger: data_dir.join("fdrive.db"),
             meta: Arc::new(Mutex::new(HashMap::new())),
         };
+        let deletes = deletes::Deletes::open(data_dir.join("rmdir.json"))?;
+        for path in &deletes.dirs {
+            tree.drop(&path.parent_or_root(), path.name(), true);
+        }
         let adapter = Self {
             engine: Engine::start(rt, sdk, tree),
             xattrs: XattrDb::open(data_dir.join("xattr.json")),
             handles: Handles::default(),
+            deletes: Arc::new(tokio::sync::Mutex::new(deletes)),
         };
         adapter.prune()?;
         adapter.engine.system().recover();
+        let engine = Arc::downgrade(&adapter.engine);
+        let deletes = adapter.deletes.clone();
+        adapter.engine.spawn(async move {
+            loop {
+                tokio::time::sleep(deletes::QUIET).await;
+                let Some(engine) = engine.upgrade() else { break };
+                let mut deletes = deletes.lock().await;
+                if deletes.last.elapsed() >= deletes::QUIET {
+                    if let Err(err) = deletes.flush(&engine).await {
+                        log::error!("flush directory deletes: {err}");
+                    }
+                }
+            }
+        });
         Ok(adapter)
     }
 
@@ -154,6 +209,20 @@ impl Adapter {
 
     fn entry(&self, path: &RelPath) -> io::Result<Option<FileInfo>> {
         let parent = path.parent_or_root();
+        let cached = {
+            let meta = self.engine.local().meta.lock().unwrap();
+            meta.get(&parent)
+                .and_then(MetadataEntry::cached)
+                .map(|listing| listing.get(path.name()).cloned())
+        };
+        if let Some(entry) = cached {
+            return Ok(self
+                .engine
+                .view()
+                .merge(&parent, entry.into_iter().collect())
+                .into_iter()
+                .find(|e| e.name == path.name()));
+        }
         match self.fs().ls(&parent) {
             Ok(listing) => Ok(listing.iter().find(|e| e.name == path.name()).cloned()),
             Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
