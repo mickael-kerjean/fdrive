@@ -16,7 +16,7 @@ final class AppState: ObservableObject {
     @Published var server: String?
 
     @Published private var syncing = false
-    @Published private var online = false
+    @Published private(set) var online = false
     private var beacon: NSKeyValueObservation?
 
     init() {

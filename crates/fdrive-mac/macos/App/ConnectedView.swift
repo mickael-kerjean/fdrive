@@ -26,10 +26,6 @@ struct ConnectedView: View {
                     ButtonSettings()
                 }
 
-                Button("Disconnect") {
-                    Task { await state.disconnect() }
-                }
-
                 Spacer()
 
                 Button("Explore") {
