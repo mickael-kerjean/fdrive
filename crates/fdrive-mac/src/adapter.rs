@@ -256,6 +256,14 @@ impl Adapter {
         Ok(self.local_path(&path))
     }
 
+    pub fn stage(&self, path: String) -> Result<String, FsError> {
+        let path = RelPath::new(&path);
+        if let Some(parent) = self.engine.local().backing(&path).parent() {
+            fs::create_dir_all(parent)?;
+        }
+        Ok(self.local_path(&path))
+    }
+
     pub fn saved(&self, path: String) {
         let path = RelPath::new(&path);
         self.engine.fs().modified(&path);

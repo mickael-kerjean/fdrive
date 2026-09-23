@@ -159,7 +159,7 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
                     path = destination
                 }
                 if changedFields.contains(.contents), let newContents {
-                    let localPath = try await adapter.open(path: path)
+                    let localPath = try adapter.stage(path: path)
                     try replace(at: localPath, with: newContents)
                     adapter.saved(path: path)
                     await adapter.flush(timeoutMs: 30_000)
