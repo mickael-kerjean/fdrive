@@ -508,6 +508,8 @@ unsafe fn set_status_text(status: HWND, part: usize, text: &str) {
 }
 
 unsafe fn render_transfers(hwnd: HWND, snap: &fdrive_core::activity::Snapshot, cleared: u64) {
+    use fdrive_core::activity::Outcome;
+
     let Ok(list) = GetDlgItem(Some(hwnd), ID_STATS_LIST) else {
         return;
     };
