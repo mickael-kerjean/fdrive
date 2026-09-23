@@ -279,14 +279,13 @@ async fn disconnect(session: Session, root: &Path, data: &Path, tray: &Tray, for
         }
     }
     drop(session.connection);
+    if let Err(err) = shell::unregister(&session.sync_root_id) {
+        log::warn!("unregister sync root on quit: {err}");
+    }
+    if let Err(err) = wire::unregister(root) {
+        log::warn!("unregister Cloud Files root on quit: {err}");
+    }
     if forget {
-        match shell::unregister(&session.sync_root_id) {
-            Ok(()) => log::info!("sync root unregistered"),
-            Err(err) => log::warn!("unregister on logout: {err}"),
-        }
-        if let Err(err) = wire::unregister(root) {
-            log::warn!("unregister sync root on logout: {err}");
-        }
         store::forget(data);
         let _ = session.sdk.logout().await;
     }
