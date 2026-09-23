@@ -9,6 +9,8 @@ enum SyncStatus {
 
 @MainActor
 final class AppState: ObservableObject {
+    static let shared = AppState()
+
     private let logger = Logger(subsystem: "app.filestash.mac", category: "App")
 
     @Published var syncStatus: SyncStatus?
@@ -94,7 +96,16 @@ final class AppState: ObservableObject {
         }
     }
 
-    func disconnect() async {
+    func disconnect(withClear clear: Bool = true) async {
+        guard clear else {
+            logger.info("Quit: removing domain")
+            do {
+                try await DomainManager.remove()
+            } catch {
+                logger.error("Quit: remove failed: \(error.localizedDescription, privacy: .public)")
+            }
+            return
+        }
         do {
             try await DomainManager.remove()
             try? await SMAppService.mainApp.unregister()

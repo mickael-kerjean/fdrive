@@ -2,7 +2,8 @@ import SwiftUI
 
 @main
 struct FilestashApp: App {
-    @StateObject private var state = AppState()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @StateObject private var state = AppState.shared
 
     var body: some Scene {
         MenuBarExtra("Filestash", systemImage: state.systemImage) {
