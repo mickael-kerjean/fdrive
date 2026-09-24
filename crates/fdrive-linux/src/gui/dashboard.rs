@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fdrive_core::activity::{fmt_compact, Activity, Direction, Mode, Outcome, Snapshot};
+use fdrive_core::activity::{fmt_compact, rate_line, sparkline, Activity, Direction, Mode, Outcome, Snapshot};
 use gtk::prelude::*;
 
 thread_local! {
@@ -9,7 +9,7 @@ thread_local! {
 }
 
 pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
-    use std::cell::RefCell;
+    use std::cell::Cell;
     use std::rc::Rc;
 
     if let Some(existing) = OPEN.with_borrow(|open| open.as_ref().and_then(|w| w.upgrade())) {
@@ -44,38 +44,61 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
     header.pack_start(&spark, false, false, 0);
     header.pack_end(&rate, false, false, 0);
 
+    let menu = gtk::Menu::new();
+    let clear = gtk::MenuItem::with_label("Clear");
+    menu.append(&clear);
+    menu.show_all();
+
+    let activity_area = gtk::EventBox::new();
+    activity_area.add(&scroll);
+    activity_area.add_events(gtk::gdk::EventMask::BUTTON_PRESS_MASK);
+    activity_area.connect_button_press_event(move |_, event| {
+        let context_menu = event.triggers_context_menu();
+        if context_menu {
+            menu.popup_easy(event.button(), event.time());
+        }
+        gtk::Inhibit(context_menu)
+    });
+
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 8);
     vbox.pack_start(&header, false, false, 0);
-    vbox.pack_start(&scroll, true, true, 0);
+    vbox.pack_start(&activity_area, true, true, 0);
     window.add(&vbox);
 
-    let snap: Rc<RefCell<Snapshot>> = Rc::new(RefCell::new(activity.snapshot()));
+    let snap = activity.snapshot();
+    spark.set_markup(&format!("<tt>{}</tt>", sparkline(&snap, 24)));
+    rate.set_markup(&format!("<tt>{}</tt>", rate_line(&snap)));
+    rebuild_rows(&list, &snap, 0);
+
+    let cleared = Rc::new(Cell::new(0u64));
     {
-        let snap = snap.clone();
-        let spark = spark.clone();
-        let rate = rate.clone();
+        let activity = activity.clone();
         let list = list.clone();
+        let cleared = cleared.clone();
+        clear.connect_activate(move |_| {
+            let snap = activity.snapshot();
+            let latest = snap.transfers.iter().map(|t| t.id).max();
+            cleared.set(latest.unwrap_or(cleared.get()));
+            rebuild_rows(&list, &snap, cleared.get());
+        });
+    }
+    {
         let window = window.downgrade();
-        let mut shown = 0u64;
+        let mut shown = snap.version;
         gtk::glib::timeout_add_local(std::time::Duration::from_millis(300), move || {
             let Some(_alive) = window.upgrade() else {
                 return gtk::glib::Continue(false);
             };
-            let fresh = activity.snapshot();
-            spark.set_markup(&format!("<tt>{}</tt>", spark_text(&fresh)));
-            rate.set_markup(&format!("<tt>{}</tt>", rate_text(&fresh)));
-            let version = fresh.version;
-            *snap.borrow_mut() = fresh;
-            if version != shown {
-                shown = version;
-                rebuild_rows(&list, &snap.borrow());
+            let snap = activity.snapshot();
+            spark.set_markup(&format!("<tt>{}</tt>", sparkline(&snap, 24)));
+            rate.set_markup(&format!("<tt>{}</tt>", rate_line(&snap)));
+            if snap.version != shown {
+                shown = snap.version;
+                rebuild_rows(&list, &snap, cleared.get());
             }
             gtk::glib::Continue(true)
         });
     }
-    spark.set_markup(&format!("<tt>{}</tt>", spark_text(&snap.borrow())));
-    rate.set_markup(&format!("<tt>{}</tt>", rate_text(&snap.borrow())));
-    rebuild_rows(&list, &snap.borrow());
     if let Some((center, y)) = near {
         window.move_(center - 190, y);
     }
@@ -89,19 +112,16 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
     }
 }
 
-fn spark_text(snap: &Snapshot) -> String {
-    fdrive_core::activity::sparkline(snap, 24)
-}
-
-fn rate_text(snap: &Snapshot) -> String {
-    fdrive_core::activity::rate_line(snap)
-}
-
-fn rebuild_rows(list: &gtk::Box, snap: &Snapshot) {
+fn rebuild_rows(list: &gtk::Box, snap: &Snapshot, cleared: u64) {
     for child in list.children() {
         list.remove(&child);
     }
-    if snap.transfers.is_empty() {
+    let mut transfers = snap
+        .transfers
+        .iter()
+        .filter(|transfer| transfer.id > cleared)
+        .collect::<Vec<_>>();
+    if transfers.is_empty() {
         let empty = gtk::Label::new(None);
         empty.set_markup("<span size=\"xx-large\" alpha=\"35%\">⊘</span>");
         empty.set_margin_top(64);
@@ -109,7 +129,6 @@ fn rebuild_rows(list: &gtk::Box, snap: &Snapshot) {
         list.show_all();
         return;
     }
-    let mut transfers = snap.transfers.iter().collect::<Vec<_>>();
     transfers.sort_by_key(|transfer| match &transfer.outcome {
         Outcome::Failed(_) => 0,
         Outcome::Running => 1,
