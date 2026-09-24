@@ -78,6 +78,7 @@ struct RecentActivityView: View {
             Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
+        .onTapGesture { Task { try? await DomainManager.reveal(transfer.path) } }
         .help(transfer.name)
     }
 }

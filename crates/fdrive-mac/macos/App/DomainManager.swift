@@ -38,4 +38,9 @@ enum DomainManager {
             NSWorkspace.shared.open(url)
         }
     }
+
+    static func reveal(_ path: String) async throws {
+        guard let url = try await manager?.getUserVisibleURL(for: NSFileProviderItemIdentifier(path)) else { return }
+        await MainActor.run { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+    }
 }
