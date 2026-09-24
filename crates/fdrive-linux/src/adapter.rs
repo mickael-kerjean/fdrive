@@ -176,13 +176,14 @@ impl Adapter {
     }
 
     pub fn watch(&self, notify: impl Fn(RemoteChanges) + Send + 'static) -> Watch {
-        let meta = self.engine.local().meta.clone();
+        let engine = self.engine.clone();
         self.engine.watch(move |changes| {
-            for (directory, entry) in &mut *meta.lock().unwrap() {
+            for (directory, entry) in &mut *engine.local().meta.lock().unwrap() {
                 if changes.affects(directory) {
                     entry.invalidate();
                 }
             }
+            engine.system().recover();
             notify(changes);
         })
     }
