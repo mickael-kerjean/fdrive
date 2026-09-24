@@ -166,6 +166,12 @@ final class FileProviderEnumerator: NSObject, NSFileProviderEnumerator {
                 guard try await waitForRemoteUpdate(identifier) else { continue }
                 logger.info("Request content update \(identifier.rawValue, privacy: .public)")
                 try await manager.requestDownloadForItem(withIdentifier: identifier)
+                try await Task.sleep(for: .seconds(1))
+                let url = try await manager.getUserVisibleURL(for: identifier)
+                if try url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]).ubiquitousItemDownloadingStatus != .current {
+                    logger.info("Request content update retry \(identifier.rawValue, privacy: .public)")
+                    try await manager.requestDownloadForItem(withIdentifier: identifier)
+                }
             } catch {
                 logger.error("Request content update \(identifier.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
