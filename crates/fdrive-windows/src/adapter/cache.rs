@@ -17,8 +17,8 @@ impl Cache<'_> {
     pub fn fetch(self, path: &RelPath, expected: i64, sink: wire::SinkFn) -> io::Result<u64> {
         const ALIGN: usize = 4096;
         const FLUSH_AT: usize = 1 << 20;
-        let info = self.0.engine.block_on(self.0.engine.fs().stat(path))?;
-        let size = info.size.unwrap_or(0);
+        let (info, mut stream) = self.0.engine.block_on(self.0.engine.fs().cat(path))?;
+        let size = info.size.unwrap_or(expected as u64);
         if size as i64 != expected {
             let mtime = info.mtime.unwrap_or_else(SystemTime::now);
             log::info!(
@@ -49,7 +49,6 @@ impl Cache<'_> {
             let mut sent: u64 = 0;
             let mut buf: Vec<u8> = Vec::with_capacity(FLUSH_AT + ALIGN);
             self.0.engine.block_on(async {
-                let (_, mut stream) = self.0.engine.fs().cat(path).await?;
                 while let Some(chunk) = stream.try_next().await? {
                     buf.extend_from_slice(&chunk);
                     if buf.len() >= FLUSH_AT {

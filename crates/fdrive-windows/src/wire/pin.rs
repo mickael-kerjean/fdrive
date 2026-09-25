@@ -8,8 +8,10 @@ use windows::Win32::Storage::CloudFilters::{
     CF_SET_PIN_FLAG_NONE,
 };
 use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_PINNED, FILE_ATTRIBUTE_UNPINNED};
+use windows::Win32::UI::Shell::{SHChangeNotify, SHCNE_UPDATEDIR, SHCNE_UPDATEITEM, SHCNF_PATHW};
 
 use super::with_oplock;
+use crate::utils::wstr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pin {
@@ -48,4 +50,11 @@ pub fn dehydrate(abs: &Path) -> io::Result<()> {
         unsafe { CfDehydratePlaceholder(handle, 0, -1, CF_DEHYDRATE_FLAG_NONE, None) }
             .map_err(|err| io::Error::other(format!("CfDehydratePlaceholder: {err}")))
     })
+}
+
+pub fn notify(abs: &Path) {
+    let path = wstr(abs);
+    for event in [SHCNE_UPDATEITEM, SHCNE_UPDATEDIR] {
+        unsafe { SHChangeNotify(event, SHCNF_PATHW, Some(path.as_ptr() as _), None) };
+    }
 }

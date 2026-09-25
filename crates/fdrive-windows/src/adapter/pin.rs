@@ -1,7 +1,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use fdrive_core::path::RelPath;
@@ -11,6 +11,8 @@ use crate::wire::pin::Pin;
 
 use super::{Adapter, FileState};
 
+const CONCURRENCY: usize = 6;
+
 pub(super) fn walk(adapter: &Arc<Adapter>, dir: &RelPath) {
     {
         let mut pinning = adapter.pinning.lock().unwrap();
@@ -19,7 +21,16 @@ pub(super) fn walk(adapter: &Arc<Adapter>, dir: &RelPath) {
         }
         pinning.insert(dir.clone());
     }
-    descend(adapter, dir, &adapter.abs(dir));
+    let (root, (missing, queue)) = (adapter.abs(dir), mpsc::channel());
+    let queue = Mutex::new(queue);
+    std::thread::scope(|scope| {
+        for _ in 0..CONCURRENCY {
+            scope.spawn(|| hydrate(&root, &queue));
+        }
+        descend(adapter, dir, &root, &missing);
+        drop(missing);
+    });
+    wire::pin::notify(&root);
     adapter.pinning.lock().unwrap().remove(dir);
 }
 
@@ -54,7 +65,7 @@ pub(super) async fn repin(abs: PathBuf, path: RelPath) -> io::Result<()> {
     .and_then(|result| result)
 }
 
-fn descend(adapter: &Arc<Adapter>, dir: &RelPath, root: &Path) {
+fn descend(adapter: &Arc<Adapter>, dir: &RelPath, root: &Path, missing: &mpsc::Sender<(PathBuf, RelPath, FileState)>) {
     let abs = adapter.abs(dir);
     if !pinned(root) {
         log::info!("pin walk {dir}: no longer pinned, stopping");
@@ -83,11 +94,20 @@ fn descend(adapter: &Arc<Adapter>, dir: &RelPath, root: &Path) {
             }
         }
         if md.is_dir() {
-            descend(adapter, &child, root);
+            descend(adapter, &child, root, missing);
         } else if pinned(root) && pinned(&abs) {
             if let Ok(state) = adapter.reconcile().classify(&abs, &child) {
-                enforce(&abs, &child, state);
+                let _ = missing.send((abs, child, state));
             }
+        }
+    }
+}
+
+fn hydrate(root: &Path, queue: &Mutex<mpsc::Receiver<(PathBuf, RelPath, FileState)>>) {
+    loop {
+        let Ok((abs, path, state)) = queue.lock().unwrap().recv() else { break };
+        if pinned(root) {
+            enforce(&abs, &path, state);
         }
     }
 }
