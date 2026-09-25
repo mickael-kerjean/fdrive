@@ -71,6 +71,14 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
     menu.append(&clear);
     menu.show_all();
 
+    let popup = menu.clone();
+    window.connect_focus_out_event(move |window, _| {
+        if !popup.is_visible() {
+            window.close();
+        }
+        gtk::Inhibit(false)
+    });
+
     {
         let paths = paths.clone();
         list.connect_button_press_event(move |list, event| {
@@ -141,6 +149,15 @@ fn rebuild_rows(list: &gtk::ListBox, snap: &Snapshot) -> Vec<String> {
     for child in list.children() {
         list.remove(&child);
     }
+    let style = list.style_context();
+    let (fg, base) = (style.color(gtk::StateFlags::NORMAL), style.lookup_color("theme_base_color").unwrap_or(gtk::gdk::RGBA::WHITE));
+    let channel = |f: f64, b: f64| ((f + (f - b) * 0.35).clamp(0.0, 1.0) * 255.0) as u8;
+    let ink = format!(
+        "#{:02x}{:02x}{:02x}",
+        channel(fg.red(), base.red()),
+        channel(fg.green(), base.green()),
+        channel(fg.blue(), base.blue()),
+    );
     let mut transfers = snap.transfers.iter().collect::<Vec<_>>();
     if transfers.is_empty() {
         let empty = gtk::Label::new(None);
@@ -161,10 +178,10 @@ fn rebuild_rows(list: &gtk::ListBox, snap: &Snapshot) -> Vec<String> {
     });
     for (index, t) in transfers.iter().enumerate() {
         let detail = transfer_detail(t);
-        let icon = transfer_icon(t.direction, &list.style_context());
+        let icon = transfer_icon(t.direction, &ink);
         let name = gtk::Label::new(None);
         name.set_markup(&format!(
-            "<tt>{}</tt>",
+            "<span foreground=\"{ink}\"><tt>{}</tt></span>",
             gtk::glib::markup_escape_text(t.path.trim_start_matches('/')),
         ));
         name.set_xalign(0.0);
@@ -212,16 +229,15 @@ fn transfer_detail(t: &Transfer) -> String {
     format!("{status} · {bytes}")
 }
 
-fn transfer_icon(direction: Direction, style: &gtk::StyleContext) -> gtk::Image {
+fn transfer_icon(direction: Direction, ink: &str) -> gtk::Image {
     let svg = match direction {
         Direction::Up => include_str!("../../assets/document-upload.svg"),
         Direction::Down => include_str!("../../assets/document-download.svg"),
     };
-    let color = style.color(gtk::StateFlags::NORMAL).to_string();
     let loader = gtk::gdk_pixbuf::PixbufLoader::new();
     loader.set_size(19, 24);
     loader
-        .write(svg.replace("fill=\"black\"", &format!("fill=\"{color}\"")).as_bytes())
+        .write(svg.replace("fill=\"black\"", &format!("fill=\"{ink}\"")).as_bytes())
         .expect("valid transfer SVG");
     loader.close().expect("complete transfer SVG");
     gtk::Image::from_pixbuf(loader.pixbuf().as_ref())
