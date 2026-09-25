@@ -26,9 +26,14 @@ impl<T: LocalStore> Engine<T> {
     }
 
     pub(super) async fn hydrate_subtree(&self, root: &RelPath) {
+        use futures_util::StreamExt;
+
         let (mut files, mut fetched) = (0, 0);
         let mut dirs = vec![root.clone()];
         while let Some(dir) = dirs.pop() {
+            if !self.cache().pinned(&dir) {
+                break;
+            }
             let listing = match self.sdk.ls(&dir.as_dir()).await {
                 Ok(listing) => listing,
                 Err(_) if dir == *root => {
@@ -43,6 +48,7 @@ impl<T: LocalStore> Engine<T> {
                 }
             };
             self.view().note(&dir, &listing);
+            let mut missing = Vec::new();
             for entry in listing {
                 let child = dir.join(&entry.name);
                 if child.parent_or_root() != dir {
@@ -53,15 +59,28 @@ impl<T: LocalStore> Engine<T> {
                     crate::sdk::FileType::File => {
                         files += 1;
                         let hint = Observation::of(&entry);
-                        if self.view().current(&child, hint) {
-                            continue;
-                        }
-                        match self.cache().hydrate(&child, Some(hint), None).await {
-                            Ok(()) => fetched += 1,
-                            Err(err) => log::debug!("pin {child}: {err}"),
+                        if !self.view().current(&child, hint) {
+                            missing.push((child, hint));
                         }
                     }
                 }
+            }
+            let mut fetching = futures_util::stream::iter(missing)
+                .map(|(child, hint)| async move {
+                    if !self.cache().pinned(&child) {
+                        return false;
+                    }
+                    match self.cache().hydrate(&child, Some(hint), None).await {
+                        Ok(()) => true,
+                        Err(err) => {
+                            log::debug!("pin {child}: {err}");
+                            false
+                        }
+                    }
+                })
+                .buffer_unordered(super::scheduler::DOWNLOAD_CONCURRENCY);
+            while let Some(done) = fetching.next().await {
+                fetched += i32::from(done);
             }
         }
         log::info!("pin {root}: {fetched} of {files} fetched");
@@ -77,6 +96,19 @@ impl<'a, T: LocalStore> Cache<'a, T> {
 
     pub fn unpin(&self, path: &RelPath) {
         self.0.ledger().pin_clear(path);
+        let in_flight: Vec<RelPath> = self
+            .0
+            .transfers
+            .downloads
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|p| *p == path || p.is_descendant_of(path))
+            .cloned()
+            .collect();
+        for path in &in_flight {
+            self.cancel(path);
+        }
         let keep = self.keep();
         let backing = self.0.local.backing(path);
         let dropped = if backing.is_dir() {

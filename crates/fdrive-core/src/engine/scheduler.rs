@@ -17,7 +17,7 @@ use crate::path::RelPath;
 use crate::port::LocalStore;
 
 const CONCURRENCY: usize = 4;
-const DOWNLOAD_CONCURRENCY: usize = 6;
+pub(super) const DOWNLOAD_CONCURRENCY: usize = 6;
 const STALL: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

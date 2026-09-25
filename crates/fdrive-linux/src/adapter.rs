@@ -183,7 +183,6 @@ impl Adapter {
                     entry.invalidate();
                 }
             }
-            engine.system().recover();
             notify(changes);
         })
     }
