@@ -3,7 +3,7 @@ use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use fdrive_core::activity::Activity;
+use fdrive_core::activity::{rate_line, Activity};
 use gtk::prelude::*;
 use libayatana_appindicator::{AppIndicator, AppIndicatorStatus};
 use tokio::sync::mpsc::UnboundedSender;
@@ -213,6 +213,14 @@ fn xembed_icon(icon_dir: &Path) -> *mut gtk::ffi::GtkStatusIcon {
             )),
             std::ptr::null_mut(),
         );
+        gtk::glib::signal::connect_raw::<()>(
+            icon as *mut gtk::glib::gobject_ffi::GObject,
+            c"query-tooltip".as_ptr(),
+            Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
+                on_query_tooltip as *const (),
+            )),
+            std::ptr::null_mut(),
+        );
         icon
     }
 }
@@ -236,6 +244,24 @@ unsafe extern "C" fn on_activate(icon: *mut gtk::ffi::GtkStatusIcon, _data: gtk:
         Some(activity) => show_stats(activity, stats_position(icon)),
         None => popup_menu(0, gtk::current_event_time()),
     }
+}
+
+unsafe extern "C" fn on_query_tooltip(
+    icon: *mut gtk::ffi::GtkStatusIcon,
+    _x: std::os::raw::c_int,
+    _y: std::os::raw::c_int,
+    _keyboard: gtk::glib::ffi::gboolean,
+    tooltip: *mut gtk::ffi::GtkTooltip,
+    _data: gtk::glib::ffi::gpointer,
+) -> gtk::glib::ffi::gboolean {
+    let Some(activity) = with_ui(|ui| ui.activity.clone().filter(|_| ui.signed_in)) else {
+        return gtk::glib::ffi::GFALSE;
+    };
+    let tip: Option<gtk::glib::GString> = gtk::glib::translate::from_glib_full(gtk::ffi::gtk_status_icon_get_tooltip_text(icon));
+    let tip = tip.as_deref().unwrap_or("Filestash");
+    let text = CString::new(format!("{tip} · {}", rate_line(&activity.snapshot()))).unwrap_or_default();
+    gtk::ffi::gtk_tooltip_set_text(tooltip, text.as_ptr());
+    gtk::glib::ffi::GTRUE
 }
 
 unsafe extern "C" fn on_popup(
