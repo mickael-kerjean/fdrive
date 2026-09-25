@@ -146,10 +146,14 @@ async fn run<T: LocalStore>(
                 last_stall_log = Instant::now();
                 log::error!("sync stalled: {}", engine.stall_report());
             }
-            let next = match (failing, idle) {
-                (true, _) => UploadStatus::Error,
-                (false, true) => UploadStatus::Idle,
-                (false, false) => UploadStatus::Busy,
+            let next = if !running.is_empty() || !downloading.is_empty() {
+                UploadStatus::Busy
+            } else if failing {
+                UploadStatus::Error
+            } else if idle {
+                UploadStatus::Idle
+            } else {
+                UploadStatus::Busy
             };
             if *status.borrow() != next {
                 let _ = status.send(next);
