@@ -56,7 +56,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 - [X] Crash safe: unpushed edits survive crashes and restarts
 - [X] Reset friendly: rage deleting the local cache partially or entirely is not undefined behavior
 - [X] Live view: changes made elsewhere show up in the folder you are browsing, no manual refresh
-- [X] Pinning: mark a folder always available offline, it syncs down ahead of time and survives cache cleanup (`setfattr -n user.fdrive.pin -v always <dir>` on linux)
+- [X] Pinning: mark a folder always available offline (`setfattr -n user.pin -v always <dir>` on linux)
 - [X] Ignore list: `node_modules`, `.DS_Store` and friends stay home by default, adjustable via `fdrive.toml`
 - [X] Login: done through your server's own login page, password, LDAP, SSO, 2FA all just work
 - [X] No Electron: native everything from the tray, filesystem integration into one single binary

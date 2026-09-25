@@ -2,7 +2,7 @@ use fdrive_core::path::RelPath;
 
 use super::Adapter;
 
-const PIN_XATTR: &str = "user.fdrive.pin";
+const PIN_XATTR: &str = "user.pin";
 
 #[derive(Clone, Copy)]
 pub struct Xattr<'a>(pub(super) &'a Adapter);

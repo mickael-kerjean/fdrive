@@ -100,6 +100,17 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
     vbox.pack_start(&scroll, true, true, 0);
     window.add(&vbox);
 
+    let style = list.style_context();
+    let (fg, base) = (style.color(gtk::StateFlags::NORMAL), style.lookup_color("theme_base_color").unwrap_or(gtk::gdk::RGBA::WHITE));
+    let channel = |f: f64, b: f64| ((f + (f - b) * 0.35).clamp(0.0, 1.0) * 255.0) as u8;
+    let ink = format!(
+        "#{:02x}{:02x}{:02x}",
+        channel(fg.red(), base.red()),
+        channel(fg.green(), base.green()),
+        channel(fg.blue(), base.blue()),
+    );
+    let icons = (transfer_icon(Direction::Up, &ink), transfer_icon(Direction::Down, &ink), ink);
+
     let shown = Cell::new(u64::MAX);
     let list = list.downgrade();
     let refresh = Rc::new({
@@ -110,7 +121,7 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
             spark.set_markup(&format!("<tt>{}</tt>", sparkline(&snap, 24)));
             rate.set_markup(&format!("<tt>{}</tt>", rate_line(&snap)));
             if shown.replace(snap.version) != snap.version {
-                *paths.borrow_mut() = rebuild_rows(&list, &snap);
+                *paths.borrow_mut() = rebuild_rows(&list, &snap, &icons);
             }
         }
     });
@@ -145,19 +156,13 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
     }
 }
 
-fn rebuild_rows(list: &gtk::ListBox, snap: &Snapshot) -> Vec<String> {
+type Icons = (Option<gtk::gdk_pixbuf::Pixbuf>, Option<gtk::gdk_pixbuf::Pixbuf>, String);
+
+fn rebuild_rows(list: &gtk::ListBox, snap: &Snapshot, icons: &Icons) -> Vec<String> {
+    let (up, down, ink) = icons;
     for child in list.children() {
         list.remove(&child);
     }
-    let style = list.style_context();
-    let (fg, base) = (style.color(gtk::StateFlags::NORMAL), style.lookup_color("theme_base_color").unwrap_or(gtk::gdk::RGBA::WHITE));
-    let channel = |f: f64, b: f64| ((f + (f - b) * 0.35).clamp(0.0, 1.0) * 255.0) as u8;
-    let ink = format!(
-        "#{:02x}{:02x}{:02x}",
-        channel(fg.red(), base.red()),
-        channel(fg.green(), base.green()),
-        channel(fg.blue(), base.blue()),
-    );
     let mut transfers = snap.transfers.iter().collect::<Vec<_>>();
     if transfers.is_empty() {
         let empty = gtk::Label::new(None);
@@ -178,7 +183,10 @@ fn rebuild_rows(list: &gtk::ListBox, snap: &Snapshot) -> Vec<String> {
     });
     for (index, t) in transfers.iter().enumerate() {
         let detail = transfer_detail(t);
-        let icon = transfer_icon(t.direction, &ink);
+        let icon = gtk::Image::from_pixbuf(match t.direction {
+            Direction::Up => up.as_ref(),
+            Direction::Down => down.as_ref(),
+        });
         let name = gtk::Label::new(None);
         name.set_markup(&format!(
             "<span foreground=\"{ink}\"><tt>{}</tt></span>",
@@ -229,7 +237,7 @@ fn transfer_detail(t: &Transfer) -> String {
     format!("{status} · {bytes}")
 }
 
-fn transfer_icon(direction: Direction, ink: &str) -> gtk::Image {
+fn transfer_icon(direction: Direction, ink: &str) -> Option<gtk::gdk_pixbuf::Pixbuf> {
     let svg = match direction {
         Direction::Up => include_str!("../../assets/document-upload.svg"),
         Direction::Down => include_str!("../../assets/document-download.svg"),
@@ -240,5 +248,5 @@ fn transfer_icon(direction: Direction, ink: &str) -> gtk::Image {
         .write(svg.replace("fill=\"black\"", &format!("fill=\"{ink}\"")).as_bytes())
         .expect("valid transfer SVG");
     loader.close().expect("complete transfer SVG");
-    gtk::Image::from_pixbuf(loader.pixbuf().as_ref())
+    loader.pixbuf()
 }

@@ -483,7 +483,7 @@ fn a_pin_hydrates_without_anyone_opening() {
     );
 
     let dir = std::ffi::CString::new(rig.path("keep").to_str().unwrap()).unwrap();
-    let name = std::ffi::CString::new("user.fdrive.pin").unwrap();
+    let name = std::ffi::CString::new("user.pin").unwrap();
     let mut buf = [0u8; 16];
     let n = unsafe { libc::getxattr(dir.as_ptr(), name.as_ptr(), buf.as_mut_ptr().cast(), buf.len()) };
     assert_eq!(&buf[..n as usize], b"always");
@@ -531,7 +531,7 @@ fn real_vim_saves_land_with_their_exact_bytes() {
 
 fn pin_always(path: &std::path::Path) {
     let target = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
-    let name = std::ffi::CString::new("user.fdrive.pin").unwrap();
+    let name = std::ffi::CString::new("user.pin").unwrap();
     let rc = unsafe { libc::setxattr(target.as_ptr(), name.as_ptr(), b"always".as_ptr().cast(), 6, 0) };
     assert_eq!(rc, 0, "setxattr failed: {}", std::io::Error::last_os_error());
 }

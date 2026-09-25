@@ -26,6 +26,7 @@ impl<T: LocalStore> Engine<T> {
     }
 
     pub(super) async fn hydrate_subtree(&self, root: &RelPath) {
+        let (mut files, mut fetched) = (0, 0);
         let mut dirs = vec![root.clone()];
         while let Some(dir) = dirs.pop() {
             let listing = match self.sdk.ls(&dir.as_dir()).await {
@@ -50,17 +51,20 @@ impl<T: LocalStore> Engine<T> {
                 match entry.kind {
                     crate::sdk::FileType::Directory => dirs.push(child),
                     crate::sdk::FileType::File => {
+                        files += 1;
                         let hint = Observation::of(&entry);
                         if self.view().current(&child, hint) {
                             continue;
                         }
-                        if let Err(err) = self.cache().hydrate(&child, Some(hint), None).await {
-                            log::debug!("pin {child}: {err}");
+                        match self.cache().hydrate(&child, Some(hint), None).await {
+                            Ok(()) => fetched += 1,
+                            Err(err) => log::debug!("pin {child}: {err}"),
                         }
                     }
                 }
             }
         }
+        log::info!("pin {root}: {fetched} of {files} fetched");
     }
 }
 
