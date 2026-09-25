@@ -161,6 +161,12 @@ impl Activity {
         }
     }
 
+    pub fn clear(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.version += 1;
+        inner.records.retain(|t| matches!(t.outcome, Outcome::Running));
+    }
+
     fn update(&self, id: u64, apply: impl FnOnce(&mut Transfer)) {
         let mut inner = self.inner.lock().unwrap();
         inner.version += 1;

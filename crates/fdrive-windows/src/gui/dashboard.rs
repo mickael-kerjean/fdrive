@@ -54,7 +54,6 @@ const STATS_H: i32 = 400;
 struct Stats {
     hwnd: HWND,
     shown: u64,
-    cleared: u64,
     activity: Arc<Activity>,
     root: PathBuf,
 }
@@ -95,7 +94,6 @@ unsafe fn open(activity: Arc<Activity>, root: PathBuf) {
         *stats = Some(Stats {
             hwnd,
             shown: u64::MAX,
-            cleared: 0,
             activity,
             root,
         })
@@ -418,12 +416,10 @@ unsafe fn context_menu(hwnd: HWND) {
 }
 
 fn transfer_at(index: usize) -> Option<(fdrive_core::activity::Transfer, PathBuf)> {
-    let state = STATS.with_borrow(|stats| {
-        stats.as_ref().map(|s| (s.cleared, s.activity.clone(), s.root.clone()))
-    });
-    let (cleared, activity, root) = state?;
+    let state = STATS.with_borrow(|stats| stats.as_ref().map(|s| (s.activity.clone(), s.root.clone())));
+    let (activity, root) = state?;
     let snap = activity.snapshot();
-    let transfer = snap.transfers.iter().filter(|t| t.id > cleared).nth(index)?.clone();
+    let transfer = snap.transfers.get(index)?.clone();
     Some((transfer, root))
 }
 
@@ -454,20 +450,17 @@ unsafe fn copy_path(hwnd: HWND, index: usize) {
 }
 
 fn clear_transfers(hwnd: HWND) {
-    STATS.with_borrow_mut(|stats| {
+    STATS.with_borrow(|stats| {
         if let Some(stats) = stats {
-            let snap = stats.activity.snapshot();
-            stats.cleared = snap.transfers.iter().map(|transfer| transfer.id).max().unwrap_or(stats.cleared);
-            stats.shown = u64::MAX;
+            stats.activity.clear();
         }
     });
     refresh_stats(hwnd);
 }
 
 fn refresh_stats(hwnd: HWND) {
-    let state = STATS
-        .with_borrow(|stats| stats.as_ref().map(|s| (s.cleared, s.activity.clone())));
-    let Some((cleared, activity)) = state else { return };
+    let state = STATS.with_borrow(|stats| stats.as_ref().map(|s| s.activity.clone()));
+    let Some(activity) = state else { return };
     let snap = activity.snapshot();
     set_rates(hwnd, &snap);
     let stale = STATS.with_borrow_mut(|stats| match stats {
@@ -479,7 +472,7 @@ fn refresh_stats(hwnd: HWND) {
     });
     if stale {
         unsafe {
-            render_transfers(hwnd, &snap, cleared);
+            render_transfers(hwnd, &snap);
         }
     }
 }
@@ -507,13 +500,13 @@ unsafe fn set_status_text(status: HWND, part: usize, text: &str) {
     );
 }
 
-unsafe fn render_transfers(hwnd: HWND, snap: &fdrive_core::activity::Snapshot, cleared: u64) {
+unsafe fn render_transfers(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
     use fdrive_core::activity::Outcome;
 
     let Ok(list) = GetDlgItem(Some(hwnd), ID_STATS_LIST) else {
         return;
     };
-    let mut transfers: Vec<_> = snap.transfers.iter().filter(|t| t.id > cleared).collect();
+    let mut transfers: Vec<_> = snap.transfers.iter().collect();
     transfers.sort_by_key(|transfer| match &transfer.outcome {
         Outcome::Failed(_) => 0,
         Outcome::Running => 1,

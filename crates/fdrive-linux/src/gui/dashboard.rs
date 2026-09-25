@@ -92,27 +92,27 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
     vbox.pack_start(&scroll, true, true, 0);
     window.add(&vbox);
 
-    let cleared = Cell::new(0);
-    let shown = Cell::new(None);
+    let shown = Cell::new(u64::MAX);
     let list = list.downgrade();
-    let refresh = Rc::new(move |clear_history| {
-        let Some(list) = list.upgrade() else { return };
-        let snap = activity.snapshot();
-        if clear_history {
-            let latest = snap.transfers.iter().map(|t| t.id).max();
-            cleared.set(latest.unwrap_or(cleared.get()));
-        }
-        spark.set_markup(&format!("<tt>{}</tt>", sparkline(&snap, 24)));
-        rate.set_markup(&format!("<tt>{}</tt>", rate_line(&snap)));
-        let version = Some((snap.version, cleared.get()));
-        if shown.replace(version) != version {
-            *paths.borrow_mut() = rebuild_rows(&list, &snap, cleared.get());
+    let refresh = Rc::new({
+        let activity = activity.clone();
+        move || {
+            let Some(list) = list.upgrade() else { return };
+            let snap = activity.snapshot();
+            spark.set_markup(&format!("<tt>{}</tt>", sparkline(&snap, 24)));
+            rate.set_markup(&format!("<tt>{}</tt>", rate_line(&snap)));
+            if shown.replace(snap.version) != snap.version {
+                *paths.borrow_mut() = rebuild_rows(&list, &snap);
+            }
         }
     });
-    refresh(false);
+    refresh();
     {
         let refresh = refresh.clone();
-        clear.connect_activate(move |_| refresh(true));
+        clear.connect_activate(move |_| {
+            activity.clear();
+            refresh();
+        });
     }
     {
         let window = window.downgrade();
@@ -120,7 +120,7 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
             let Some(_alive) = window.upgrade() else {
                 return gtk::glib::Continue(false);
             };
-            refresh(false);
+            refresh();
             gtk::glib::Continue(true)
         });
     }
@@ -137,15 +137,11 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
     }
 }
 
-fn rebuild_rows(list: &gtk::ListBox, snap: &Snapshot, cleared: u64) -> Vec<String> {
+fn rebuild_rows(list: &gtk::ListBox, snap: &Snapshot) -> Vec<String> {
     for child in list.children() {
         list.remove(&child);
     }
-    let mut transfers = snap
-        .transfers
-        .iter()
-        .filter(|transfer| transfer.id > cleared)
-        .collect::<Vec<_>>();
+    let mut transfers = snap.transfers.iter().collect::<Vec<_>>();
     if transfers.is_empty() {
         let empty = gtk::Label::new(None);
         empty.set_markup("<span size=\"xx-large\" alpha=\"35%\">⊘</span>");
