@@ -334,7 +334,7 @@ unsafe fn layout(hwnd: HWND) {
         if GetWindowRect(status, &mut status_rect).is_ok() {
             status_height = (status_rect.bottom - status_rect.top).max(status_height);
         }
-        let parts = [-1];
+        let parts = [width - 8 * status_height, -1];
         SendMessageW(
             status,
             SB_SETPARTS,
@@ -486,7 +486,8 @@ fn set_rates(hwnd: HWND, snap: &fdrive_core::activity::Snapshot) {
     let up = format!("➚{}/s", fdrive_core::activity::fmt_compact(up));
     let traffic = fdrive_core::activity::sparkline(snap, 24);
     unsafe {
-        set_status_text(status, 0, &format!("{traffic}\t\t{down:>10}  {up:>10} "));
+        set_status_text(status, 0, &traffic);
+        set_status_text(status, 1, &format!("\t\t{down:>10}  {up:>10} "));
     }
 }
 

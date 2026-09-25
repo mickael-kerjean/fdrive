@@ -74,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+    tray.hide();
     if let Some(session) = session {
         disconnect(session, &root, &data, &tray, false).await;
     }
@@ -273,17 +274,15 @@ async fn disconnect(session: Session, root: &Path, data: &Path, tray: &Tray, for
         task.abort();
     }
     session.adapter.system().flush(Duration::from_secs(30)).await;
-    if forget {
-        if let Err(err) = session.adapter.system().vacuum() {
-            log::warn!("vacuum on logout: {err}");
-        }
+    if let Err(err) = session.adapter.system().vacuum() {
+        log::warn!("vacuum: {err}");
     }
     drop(session.connection);
     if let Err(err) = shell::unregister(&session.sync_root_id) {
-        log::warn!("unregister sync root on quit: {err}");
+        log::warn!("unregister sync root: {err}");
     }
     if let Err(err) = wire::unregister(root) {
-        log::warn!("unregister Cloud Files root on quit: {err}");
+        log::warn!("unregister Cloud Files root: {err}");
     }
     if forget {
         store::forget(data);

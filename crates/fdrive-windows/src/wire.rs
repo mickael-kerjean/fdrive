@@ -42,7 +42,7 @@ use windows::Win32::Storage::CloudFilters::{
 };
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FileAttributeTagInfo, GetFileInformationByHandleEx, FILE_ATTRIBUTE_DIRECTORY,
-    FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_TAG_INFO, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS,
     FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
     OPEN_EXISTING,
 };
@@ -149,6 +149,10 @@ fn place(root: &Path, path: &RelPath, attrs: u32, size: u64, mtime: SystemTime) 
     let name_w = wstr(path.name());
     let identity = path.as_str().as_bytes();
     let time = filetime(mtime);
+    let attrs = match path.name().starts_with('.') {
+        true => attrs & !FILE_ATTRIBUTE_NORMAL.0 | FILE_ATTRIBUTE_HIDDEN.0,
+        false => attrs,
+    };
     let mut info = CF_PLACEHOLDER_CREATE_INFO {
         RelativeFileName: PCWSTR(name_w.as_ptr()),
         FsMetadata: CF_FS_METADATA {
