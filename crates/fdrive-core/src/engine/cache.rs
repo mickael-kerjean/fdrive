@@ -77,7 +77,31 @@ impl<'a, T: LocalStore> Cache<'a, T> {
 
     pub fn unpin(&self, path: &RelPath) {
         self.0.ledger().pin_clear(path);
+        let keep = self.keep();
+        let backing = self.0.local.backing(path);
+        let dropped = if backing.is_dir() {
+            prune_dir(&backing, &keep)
+        } else if backing.is_file() && !keep.iter().any(|k| backing.starts_with(k)) {
+            fs::remove_file(&backing)
+        } else {
+            Ok(())
+        };
+        if let Err(err) = dropped {
+            log::debug!("unpin {path}: {err}");
+        }
         log::info!("unpinned {path}");
+    }
+
+    fn keep(&self) -> Vec<PathBuf> {
+        let owed: BTreeSet<RelPath> = self.0.state().owed();
+        let ledger = self.0.ledger();
+        ledger
+            .dirty
+            .iter()
+            .chain(owed.iter())
+            .chain(ledger.pins.iter())
+            .map(|p| self.0.local.backing(p))
+            .collect()
     }
 
     pub fn pinned(&self, path: &RelPath) -> bool {
@@ -106,19 +130,7 @@ impl<'a, T: LocalStore> Cache<'a, T> {
             fs::create_dir_all(cache_root)?;
             return Ok(());
         }
-        let owed: BTreeSet<RelPath> = self.0.state().owed();
-        let ledger = self.0.ledger();
-        let pins = ledger.pins.clone();
-        let keep: Vec<PathBuf> = ledger
-            .dirty
-            .iter()
-            .chain(owed.iter())
-            .chain(pins.iter())
-            .map(|p| self.0.local.backing(p))
-            .collect();
-        drop(ledger);
-        prune_dir(cache_root, &keep)?;
-        Ok(())
+        prune_dir(cache_root, &self.keep())
     }
 }
 

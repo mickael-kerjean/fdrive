@@ -92,6 +92,12 @@ impl Ledger {
     }
 
     pub(super) fn pin_set(&mut self, path: &RelPath) {
+        if self.pins.iter().any(|pin| path.is_descendant_of(pin)) {
+            return;
+        }
+        for inside in self.pins.iter().filter(|pin| pin.is_descendant_of(path)).cloned().collect::<Vec<_>>() {
+            self.pin_clear(&inside);
+        }
         if self.pins.insert(path.clone()) {
             self.exec("INSERT INTO pins(path) VALUES (?1)", [path.as_str()]);
         }
