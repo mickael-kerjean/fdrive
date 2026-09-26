@@ -20,8 +20,12 @@ const SUBTREE: &str = "path = ?1 OR (path >= ?1 || '/' AND path < ?1 || '0')";
 fn open_db(file: &Path, schema: &str) -> rusqlite::Result<rusqlite::Connection> {
     let db = rusqlite::Connection::open(file)?;
     db.busy_timeout(Duration::from_secs(5))?;
-    db.pragma_update(None, "synchronous", "FULL")?;
-    let _: String = db.query_row("PRAGMA journal_mode=TRUNCATE", [], |row| row.get(0))?;
+    let (sync, journal) = match crate::config::ledger_wal(file.parent().unwrap_or(Path::new(""))) {
+        true => ("NORMAL", "PRAGMA journal_mode=WAL"),
+        false => ("FULL", "PRAGMA journal_mode=TRUNCATE"),
+    };
+    db.pragma_update(None, "synchronous", sync)?;
+    let _: String = db.query_row(journal, [], |row| row.get(0))?;
     db.execute_batch(schema)?;
     Ok(db)
 }

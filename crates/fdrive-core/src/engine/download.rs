@@ -287,9 +287,15 @@ impl<T: LocalStore> Engine<T> {
         }
         let observation = Observation::new(size, info.mtime);
         self.ledger().observe(&path, observation);
-        if let Ok(data) = fs::read(self.local.backing(&path)) {
-            self.ledger()
-                .sign_set(&path, &super::upload::signature(&data));
+        if size >= super::upload::SIGN_MIN {
+            let abs = self.local.backing(&path);
+            let signed = tokio::task::spawn_blocking(move || {
+                fs::read(&abs).ok().and_then(|data| super::upload::signature(&data))
+            })
+            .await;
+            if let Ok(Some(sig)) = signed {
+                self.ledger().sign_set(&path, &sig);
+            }
         }
         self.transfers.downloads.lock().unwrap().remove(&path);
         tx.send_modify(|s| s.1 = DownloadStatus::Done(observation));

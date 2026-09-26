@@ -29,6 +29,7 @@ impl<T: LocalStore> Engine<T> {
         use futures_util::StreamExt;
 
         let (mut files, mut fetched) = (0, 0);
+        let mut missing = Vec::new();
         let mut dirs = vec![root.clone()];
         while let Some(dir) = dirs.pop() {
             if !self.cache().pinned(&dir) {
@@ -48,7 +49,6 @@ impl<T: LocalStore> Engine<T> {
                 }
             };
             self.view().note(&dir, &listing);
-            let mut missing = Vec::new();
             for entry in listing {
                 let child = dir.join(&entry.name);
                 if child.parent_or_root() != dir {
@@ -65,23 +65,23 @@ impl<T: LocalStore> Engine<T> {
                     }
                 }
             }
-            let mut fetching = futures_util::stream::iter(missing)
-                .map(|(child, hint)| async move {
-                    if !self.cache().pinned(&child) {
-                        return false;
+        }
+        let mut fetching = futures_util::stream::iter(missing)
+            .map(|(child, hint)| async move {
+                if !self.cache().pinned(&child) {
+                    return false;
+                }
+                match self.cache().hydrate(&child, Some(hint), None).await {
+                    Ok(()) => true,
+                    Err(err) => {
+                        log::debug!("pin {child}: {err}");
+                        false
                     }
-                    match self.cache().hydrate(&child, Some(hint), None).await {
-                        Ok(()) => true,
-                        Err(err) => {
-                            log::debug!("pin {child}: {err}");
-                            false
-                        }
-                    }
-                })
-                .buffer_unordered(super::scheduler::DOWNLOAD_CONCURRENCY);
-            while let Some(done) = fetching.next().await {
-                fetched += i32::from(done);
-            }
+                }
+            })
+            .buffer_unordered(super::scheduler::DOWNLOAD_CONCURRENCY);
+        while let Some(done) = fetching.next().await {
+            fetched += i32::from(done);
         }
         log::info!("pin {root}: {fetched} of {files} fetched");
     }

@@ -125,10 +125,11 @@ async fn prune_keeps_the_delta_base_across_restarts() {
     let engine = engine(&server);
     let root = engine.local().dir.clone();
     let path = RelPath::new("big.txt");
-    let synced = vec![b'a'; 8192];
+    let synced = vec![b'a'; crate::engine::upload::BLOCK as usize * 4];
+    let len = synced.len() as u64;
     engine.local().write("big.txt", &synced);
-    engine.ledger().observe(&path, observed(8192));
-    let sig = crate::engine::upload::signature(&synced);
+    engine.ledger().observe(&path, observed(len));
+    let sig = crate::engine::upload::signature(&synced).expect("a file at the floor is signed");
     engine.ledger().sign_set(&path, &sig);
 
     engine.cache().evict(&root).unwrap();
@@ -138,7 +139,7 @@ async fn prune_keeps_the_delta_base_across_restarts() {
         "the signature describes server content, it outlives the bytes"
     );
     assert!(
-        !engine.view().current(&path, observed(8192)),
+        !engine.view().current(&path, observed(len)),
         "a kept observation cannot fake freshness"
     );
 

@@ -114,6 +114,23 @@ pub fn ignore(data: &Path) -> Ignore {
 }
 
 
+pub fn ledger_wal(data: &Path) -> bool {
+    #[derive(Default, serde::Deserialize)]
+    struct File {
+        #[serde(default)]
+        sync: Sync,
+    }
+    #[derive(Default, serde::Deserialize)]
+    struct Sync {
+        ledger_wal: Option<bool>,
+    }
+    read::<File>(&data.join(FILE))
+        .unwrap_or_default()
+        .sync
+        .ledger_wal
+        .unwrap_or(true)
+}
+
 #[cfg(test)]
 #[path = "config_test.rs"]
 mod tests;

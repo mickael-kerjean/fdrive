@@ -15,15 +15,23 @@ enum Saved {
     Conflict,
 }
 
-pub(super) fn signature(data: &[u8]) -> Vec<u8> {
-    fast_rsync::Signature::calculate(
-        data,
-        fast_rsync::SignatureOptions {
-            block_size: 2048,
-            crypto_hash_size: 16,
-        },
+pub(super) const BLOCK: u32 = 2048;
+pub(super) const SIGN_MIN: u64 = BLOCK as u64;
+
+pub(super) fn signature(data: &[u8]) -> Option<Vec<u8>> {
+    if (data.len() as u64) < SIGN_MIN {
+        return None;
+    }
+    Some(
+        fast_rsync::Signature::calculate(
+            data,
+            fast_rsync::SignatureOptions {
+                block_size: BLOCK,
+                crypto_hash_size: 16,
+            },
+        )
+        .into_serialized(),
     )
-    .into_serialized()
 }
 
 impl<T: LocalStore> Engine<T> {
@@ -101,7 +109,7 @@ impl<T: LocalStore> Engine<T> {
             Saved::Done(mtime) => {
                 self.activity.finish(act, Ok(()));
                 let obs = mtime.map(|m| Observation::new(md.len(), Some(m)));
-                let sig = fs::read(&abs).ok().map(|d| signature(&d));
+                let sig = fs::read(&abs).ok().and_then(|d| signature(&d));
                 let after = fs::metadata(&abs).ok().and_then(|md| md.modified().ok());
                 self.local.settled(path, after);
                 log::info!("uploaded {path} ({} bytes)", md.len());
@@ -158,7 +166,7 @@ impl<T: LocalStore> Engine<T> {
         }
         let sig = fs::read(self.local.backing(&copy))
             .ok()
-            .map(|d| signature(&d));
+            .and_then(|d| signature(&d));
         self.local.settled(&copy, after);
         log::info!("uploaded {copy} ({len} bytes)");
         Outcome::Diverted {
