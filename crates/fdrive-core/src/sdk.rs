@@ -214,57 +214,19 @@ impl Sdk {
     }
 
     pub async fn ls(&self, path: &str) -> Result<Vec<FileInfo>> {
-        #[derive(Deserialize, Default)]
-        #[serde(default)]
-        struct Meta {
-            can_read: Option<bool>,
-            can_upload: Option<bool>,
-            can_create_file: Option<bool>,
-            can_create_directory: Option<bool>,
-            can_rename: Option<bool>,
-            can_move: Option<bool>,
-            can_delete: Option<bool>,
-        }
-        #[derive(Deserialize)]
-        struct Entry {
-            name: String,
-            #[serde(default)]
-            size: i64,
-            #[serde(default)]
-            time: i64,
-            #[serde(rename = "type")]
-            kind: String,
-            #[serde(default)]
-            metadata: Meta,
-        }
         let resp = self
             .request(Method::GET, &["api", "files", "ls"], &[("path", path)])
             .await?;
         let entries: Vec<Entry> = unwrap_results(resp).await?;
-        Ok(entries
-            .into_iter()
-            .map(|e| {
-                let dir = e.kind == "directory";
-                FileInfo {
-                    name: e.name,
-                    kind: if dir { FileType::Directory } else { FileType::File },
-                    size: u64::try_from(e.size).ok(),
-                    mtime: (e.time > 0)
-                        .then(|| SystemTime::UNIX_EPOCH + Duration::from_millis(e.time as u64)),
-                    perms: Permissions {
-                        read: e.metadata.can_read.unwrap_or(true),
-                        write: match dir {
-                            true => e.metadata.can_create_file.or(e.metadata.can_create_directory),
-                            false => e.metadata.can_upload,
-                        }
-                        .unwrap_or(true),
-                        rename: e.metadata.can_rename.unwrap_or(true),
-                        reparent: e.metadata.can_move.unwrap_or(true),
-                        delete: e.metadata.can_delete.unwrap_or(true),
-                    },
-                }
-            })
-            .collect())
+        Ok(entries.into_iter().map(Entry::info).collect())
+    }
+
+    pub async fn search(&self, path: &str, query: &str) -> Result<Vec<(String, FileInfo)>> {
+        let resp = self
+            .request(Method::GET, &["api", "files", "search"], &[("path", path), ("q", query)])
+            .await?;
+        let entries: Vec<Entry> = unwrap_results(resp).await?;
+        Ok(entries.into_iter().map(|e| (e.path.clone(), e.info())).collect())
     }
 
     pub async fn stat(&self, path: &str) -> Result<FileInfo> {
@@ -533,6 +495,57 @@ async fn unwrap_results<T: serde::de::DeserializeOwned>(resp: Response) -> Resul
         return Err(Error::Api(format!("status: {}", body.status)));
     }
     serde_json::from_value(body.results).map_err(|e| Error::Api(format!("invalid results: {e}")))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Meta {
+    can_read: Option<bool>,
+    can_upload: Option<bool>,
+    can_create_file: Option<bool>,
+    can_create_directory: Option<bool>,
+    can_rename: Option<bool>,
+    can_move: Option<bool>,
+    can_delete: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct Entry {
+    name: String,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    size: i64,
+    #[serde(default)]
+    time: i64,
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    metadata: Meta,
+}
+
+impl Entry {
+    fn info(self) -> FileInfo {
+        let dir = self.kind == "directory";
+        FileInfo {
+            name: self.name,
+            kind: if dir { FileType::Directory } else { FileType::File },
+            size: u64::try_from(self.size).ok(),
+            mtime: (self.time > 0)
+                .then(|| SystemTime::UNIX_EPOCH + Duration::from_millis(self.time as u64)),
+            perms: Permissions {
+                read: self.metadata.can_read.unwrap_or(true),
+                write: match dir {
+                    true => self.metadata.can_create_file.or(self.metadata.can_create_directory),
+                    false => self.metadata.can_upload,
+                }
+                .unwrap_or(true),
+                rename: self.metadata.can_rename.unwrap_or(true),
+                reparent: self.metadata.can_move.unwrap_or(true),
+                delete: self.metadata.can_delete.unwrap_or(true),
+            },
+        }
+    }
 }
 
 pub fn assemble_token(cookies: &[(String, String)]) -> String {
