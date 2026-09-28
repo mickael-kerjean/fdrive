@@ -1,15 +1,15 @@
-# What is fdrive?
+# What is this?
 
-A cross platform drive client that does not try to own your storage, but rather connects to it wherever it already lives. From S3 and SFTP to FTP, NFS, SMB, IPFS, Azure, Google Cloud, and beyond, it is powered by <a href="https://github.com/mickael-kerjean/filestash">Filestash</a>
-
-<p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-windows.png?v=20260831" alt="windows screenshot" />
-    <em>Windows - <a href="https://downloads.filestash.app/latest/Filestash.exe">exe</a></em>
-</p>
+Dropbox democratised the idea of a folder that syncs across your devices. Fdrive not only matches that promise, but also extends it beyond humans to agents, without creating yet another data silo and by staying interoperable with the storage you already have, from S3 and SFTP to SMB, NFS, the [infamous FTP](https://github.com/mickael-kerjean/filestash#why) and virtually anything.
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-mac.png?v=20260831" alt="mac screenshot" />
-    <em>Mac - <a href="https://downloads.filestash.app/latest/Filestash.dmg">silicon</a></em>
+    <em>Mac</em>
+</p>
+
+<p align="center">
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-windows.png?v=20260831" alt="windows screenshot" />
+    <em>Windows</em>
 </p>
 
 <p align="center">
@@ -19,13 +19,21 @@ A cross platform drive client that does not try to own your storage, but rather 
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-android.png" alt="android screenshot" />
-    <em>Android - <a href="https://downloads.filestash.app/latest/Filestash.apk">apk</a></em>
+    <em>Android</em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-linux.png" alt="linux screenshot">
     <em>Linux</em>
 </p>
+
+## Release
+
+- Windows: <a href="https://downloads.filestash.app/latest/Filestash.exe">exe</a>
+- Mac: <a href="https://downloads.filestash.app/latest/Filestash.dmg">silicon</a>
+- Linux: <a href="https://downloads.filestash.app/latest/Filestash-x86.bin">amd64</a>
+- Iphone: apple store (coming soon)
+- Android: <a href="https://downloads.filestash.app/latest/Filestash.apk">apk</a>, play store (coming soon)
 
 ## Architecture
 
@@ -44,6 +52,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 
 - [X] Sane Architecture: one Rust core makes every decision and each platform only implements the lipstick, so sync behaves the same everywhere
 - [X] Delta sync: only ship the bytes that changed, not the whole file
+- [X] Performance: if another sync solution is faster on your workload, send us a reproducible case. We’ll treat it as a bug
 - [X] Lives in the tray: the tray icon shows the status, synced, syncing or in trouble at a glance
 - [X] No polling or periodic sweep shenanigans
 - [X] Files on demand: a file only downloads when you open it, with both content and listings cached so browsing stays snappy and the next open is instant
