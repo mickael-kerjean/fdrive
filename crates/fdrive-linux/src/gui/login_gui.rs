@@ -2,7 +2,7 @@ use gtk::prelude::*;
 
 use super::{normalize_server, Credentials};
 
-pub(super) fn show_login(prefill: Credentials) -> Option<Credentials> {
+pub(super) fn login_webkit(prefill: Credentials) -> Option<Credentials> {
     let dialog = gtk::Dialog::new();
     dialog.set_title("Filestash");
     dialog.set_default_size(320, -1);
@@ -47,12 +47,11 @@ pub(super) fn show_login(prefill: Credentials) -> Option<Credentials> {
             url,
             token,
             insecure: prefill.insecure,
-            ..Default::default()
         }),
         Ok(None) => None,
         Err(err) => {
             alert(&format!(
-                "{err}\n\nInstall webkit2gtk, or use --token / --user from the command line."
+                "{err}\n\nInstall webkit2gtk, or set FILESTASH_SERVER and FILESTASH_TOKEN."
             ));
             None
         }

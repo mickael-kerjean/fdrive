@@ -69,7 +69,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 },
                 Boot::Restored(creds) => connect(creds, &mount, &data, None).await.ok(),
-                Boot::Prompt | Boot::Idle => None,
+                Boot::Prompt | Boot::Idle => match gui::login_tty(&prefill).await {
+                    Some(creds) => Some(connect(&creds, &mount, &data, None).await?),
+                    None => None,
+                },
             };
             next_tty(&mut session).await;
             if let Some(session) = session {
@@ -105,12 +108,7 @@ async fn connect(
             }
         }
         std::fs::create_dir_all(mount)?;
-        let builder = Sdk::builder(&creds.url).insecure(creds.insecure);
-        let sdk = if creds.token.is_empty() {
-            builder.login(&creds.user, &creds.password, &creds.storage).await?
-        } else {
-            builder.token(creds.token.clone())?
-        };
+        let sdk = Sdk::builder(&creds.url).insecure(creds.insecure).token(creds.token.clone())?;
         store::remember(data, &creds.url, sdk.token().unwrap_or_default(), creds.insecure);
         let adapter = Arc::new(Adapter::new(tokio::runtime::Handle::current(), Arc::new(sdk), data)?);
         let mount_config = {

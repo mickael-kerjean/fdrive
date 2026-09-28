@@ -1,24 +1,17 @@
-use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use fdrive_linux::gui::{self, Boot, Credentials};
 
 #[derive(Parser)]
-#[command(name = "fdrive", about = "Filestash drive client")]
+#[command(
+    name = "fdrive",
+    about = "Filestash drive client",
+    after_help = "Environment:\n  FILESTASH_SERVER  server to sign in to\n  FILESTASH_TOKEN   session token, skips the sign in (needs FILESTASH_SERVER)"
+)]
 struct Args {
     #[arg(value_name = "MOUNT")]
     mount: PathBuf,
-    #[arg(long, value_name = "URL")]
-    server: Option<String>,
-    #[arg(long, env = "FILESTASH_TOKEN", hide_env_values = true)]
-    token: Option<String>,
-    #[arg(long)]
-    user: Option<String>,
-    #[arg(long, env = "FILESTASH_PASSWORD", hide_env_values = true)]
-    password: Option<String>,
-    #[arg(long)]
-    storage: Option<String>,
     #[arg(long)]
     data: Option<PathBuf>,
     #[arg(long)]
@@ -33,39 +26,26 @@ pub struct Setup {
 }
 
 pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
-    let mut args = Args::parse();
-    if args.user.is_some() && args.password.as_deref().unwrap_or("").is_empty() {
-        args.password = Some(prompt_password()?);
-    }
+    let args = Args::parse();
     let data = args.data.unwrap_or_else(gui::default_data);
     std::fs::create_dir_all(&data)?;
     crate::log::init(&data)?;
     instance_lock(&data)?;
 
-    if args.token.is_some() && args.user.is_some() {
-        return Err("--token and --user cannot be combined".into());
+    let env = |name| std::env::var(name).ok().filter(|v: &String| !v.trim().is_empty());
+    let (server, token) = (env("FILESTASH_SERVER"), env("FILESTASH_TOKEN"));
+    if server.is_none() && token.is_some() {
+        return Err("FILESTASH_TOKEN needs FILESTASH_SERVER".into());
     }
-    if args.server.is_none() && (args.token.is_some() || args.user.is_some()) {
-        return Err("--token and --user need --server".into());
-    }
-    let server = args.server.as_deref().map(gui::normalize_server);
-    let boot = match (&server, args.token, &args.user) {
-        (Some(url), Some(token), _) => Boot::Fresh(Credentials {
+    let server = server.as_deref().map(gui::normalize_server);
+    let boot = match (&server, token) {
+        (Some(url), Some(token)) => Boot::Fresh(Credentials {
             url: url.clone(),
             token,
             insecure: args.insecure,
-            ..Default::default()
         }),
-        (Some(url), None, Some(user)) => Boot::Fresh(Credentials {
-            url: url.clone(),
-            user: user.clone(),
-            password: args.password.unwrap_or_default(),
-            storage: args.storage.unwrap_or_default(),
-            insecure: args.insecure,
-            ..Default::default()
-        }),
-        (Some(_), None, None) => Boot::Prompt,
-        (None, ..) => {
+        (Some(_), None) => Boot::Prompt,
+        (None, _) => {
             let session = fdrive_core::config::load(&data);
             match session.ok() {
                 true => Boot::Restored(Credentials::from(session)),
@@ -103,27 +83,4 @@ fn instance_lock(data: &Path) -> Result<(), String> {
             data.display()
         )),
     }
-}
-
-fn prompt_password() -> std::io::Result<String> {
-    use std::os::fd::AsRawFd;
-    let mut tty = std::fs::OpenOptions::new().read(true).write(true).open("/dev/tty")?;
-    write!(tty, "Password: ")?;
-    tty.flush()?;
-    let fd = tty.as_raw_fd();
-    let mut term = unsafe { std::mem::zeroed::<libc::termios>() };
-    let echo_off = unsafe { libc::tcgetattr(fd, &mut term) } == 0;
-    let saved = term;
-    if echo_off {
-        term.c_lflag &= !libc::ECHO;
-        unsafe { libc::tcsetattr(fd, libc::TCSANOW, &term) };
-    }
-    let mut line = String::new();
-    let read = std::io::BufReader::new(&tty).read_line(&mut line);
-    if echo_off {
-        unsafe { libc::tcsetattr(fd, libc::TCSANOW, &saved) };
-        let _ = writeln!(tty);
-    }
-    read?;
-    Ok(line.trim_end_matches('\n').to_owned())
 }

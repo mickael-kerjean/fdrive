@@ -3,11 +3,13 @@ use std::path::PathBuf;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 mod dashboard;
-mod login;
+mod login_gui;
+mod login_tty;
 mod tray;
 mod webview;
 
 pub use fdrive_core::sdk::normalize_server;
+pub use login_tty::login_tty;
 pub use tray::Tray;
 
 pub async fn init(data: PathBuf, mount: PathBuf, boot: &Boot) -> std::io::Result<(Tray, UnboundedReceiver<TrayEvent>)> {
@@ -33,9 +35,6 @@ pub enum Boot {
 pub struct Credentials {
     pub url: String,
     pub token: String,
-    pub user: String,
-    pub password: String,
-    pub storage: String,
     pub insecure: bool,
 }
 
@@ -45,7 +44,6 @@ impl From<fdrive_core::config::Session> for Credentials {
             url: session.url,
             token: session.token,
             insecure: session.insecure,
-            ..Default::default()
         }
     }
 }

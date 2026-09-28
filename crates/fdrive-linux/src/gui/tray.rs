@@ -9,7 +9,7 @@ use libayatana_appindicator::{AppIndicator, AppIndicatorStatus};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::dashboard::show_stats;
-use super::login::show_login;
+use super::login_gui::login_webkit;
 use super::{Credentials, Status, TrayEvent};
 
 struct Ctx {
@@ -158,7 +158,7 @@ fn tray_thread(ready: std::sync::mpsc::Sender<Ready>, ctx: Ctx, icon_dir: PathBu
             gtk::glib::Continue(true)
         }
         TrayMsg::Login(prefill, reply) => {
-            let _ = reply.send(show_login(prefill));
+            let _ = reply.send(login_webkit(prefill));
             gtk::glib::Continue(true)
         }
         TrayMsg::Quit => {
