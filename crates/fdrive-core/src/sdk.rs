@@ -573,6 +573,13 @@ pub fn normalize_server(input: &str) -> String {
     url.trim_end_matches('/').to_owned()
 }
 
+pub fn login_url(base: &str) -> String {
+    let next = Url::parse(&format!("{base}/api/session/token"))
+        .map(|u| u.path().to_owned())
+        .unwrap_or_else(|_| "/api/session/token".to_owned());
+    format!("{base}/login?next={next}")
+}
+
 fn extract_token(headers: &HeaderMap) -> String {
     let cookies: Vec<(&str, &str)> = headers
         .get_all(SET_COOKIE)

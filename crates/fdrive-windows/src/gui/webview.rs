@@ -195,7 +195,7 @@ unsafe fn on_controller(state: &Rc<State>, hr: HRESULT, controller: *mut c_void)
     let webview_vt = vt::<WebViewVtbl>(webview);
     let _ = (webview_vt.add_source_changed)(webview, on_source, &mut token);
     com_release(on_source);
-    let url = wstr(format!("{}/login", state.base));
+    let url = wstr(fdrive_core::sdk::login_url(&state.base));
     let _ = (webview_vt.navigate)(webview, PCWSTR(url.as_ptr()));
 }
 
@@ -209,8 +209,8 @@ unsafe fn on_source_changed(state: &Rc<State>) {
         return;
     }
     let url = take_pwstr(source);
-    let on_files = url.starts_with(&format!("{}/files", state.base));
-    if !on_files || state.busy.replace(true) {
+    let on_token = url.starts_with(&format!("{}/api/session/token", state.base));
+    if !on_token || state.busy.replace(true) {
         return;
     }
     let mut webview2 = std::ptr::null_mut();

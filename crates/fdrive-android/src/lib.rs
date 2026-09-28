@@ -108,6 +108,11 @@ pub fn login(
     Ok(sdk.token().unwrap_or_default().to_string())
 }
 
+#[uniffi::export]
+pub fn login_url(base: String) -> String {
+    sdk::login_url(&base)
+}
+
 struct AndroidTree {
     cache_dir: PathBuf,
     ledger: PathBuf,

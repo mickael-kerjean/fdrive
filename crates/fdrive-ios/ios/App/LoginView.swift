@@ -37,7 +37,7 @@ struct LoginWebView: UIViewRepresentable {
         let host = URL(string: base)?.host
         var done = false
         context.coordinator.watch = web.observe(\.url) { web, _ in
-            guard !done, web.url?.absoluteString.hasPrefix(base + "/files") == true else { return }
+            guard !done, web.url?.absoluteString.hasPrefix(base + "/api/session/token") == true else { return }
             web.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
                 let token = assembleToken(cookies: cookies
                     .filter { host == nil || $0.domain.contains(host!) }
@@ -48,7 +48,7 @@ struct LoginWebView: UIViewRepresentable {
                 }
             }
         }
-        web.load(URLRequest(url: URL(string: "\(base)/login")!))
+        web.load(URLRequest(url: URL(string: loginUrl(base: base))!))
         return web
     }
 

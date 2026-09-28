@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import app.filestash.core.loginUrl
 import app.filestash.sync.Native
 
 @Composable
@@ -88,7 +89,7 @@ private fun LoginWebView(base: String, onToken: (String) -> Unit) {
                     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                         android.util.Log.i("fdrive", "login visited: $url")
                         if (done || url == null) return
-                        if (url.startsWith("$base/files")) {
+                        if (url.startsWith("$base/api/session/token")) {
                             val token = sessionToken(base)
                             android.util.Log.i(
                                 "fdrive",
@@ -101,7 +102,7 @@ private fun LoginWebView(base: String, onToken: (String) -> Unit) {
                         }
                     }
                 }
-                loadUrl("$base/login")
+                loadUrl(loginUrl(base))
             }
         },
         modifier = Modifier.fillMaxSize(),

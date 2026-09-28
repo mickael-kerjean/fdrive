@@ -18,6 +18,11 @@ pub fn normalize_server(input: String) -> String {
     sdk::normalize_server(&input)
 }
 
+#[uniffi::export]
+pub fn login_url(base: String) -> String {
+    sdk::login_url(&base)
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn probe(url: String, insecure: bool) -> Result<String, FsError> {
     Ok(Sdk::builder(&url).insecure(insecure).probe().await?)

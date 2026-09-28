@@ -43,7 +43,7 @@ pub fn login(base: &str, insecure: bool) -> Result<Option<String>, String> {
             Some(drop_state),
             0,
         );
-        let uri = CString::new(format!("{base}/login")).map_err(|e| e.to_string())?;
+        let uri = CString::new(fdrive_core::sdk::login_url(base)).map_err(|e| e.to_string())?;
         (wk.web_view_load_uri)(view, uri.as_ptr());
     }
     dialog.show_all();
@@ -77,8 +77,8 @@ unsafe extern "C" fn on_uri(_view: *mut c_void, _pspec: *mut c_void, data: *mut 
     let Ok(uri) = CStr::from_ptr(uri).to_str() else {
         return;
     };
-    let on_files = uri.starts_with(&format!("{}/files", state.base));
-    if !on_files || state.busy.replace(true) {
+    let on_token = uri.starts_with(&format!("{}/api/session/token", state.base));
+    if !on_token || state.busy.replace(true) {
         return;
     }
     let manager = (state.wk.web_context_get_cookie_manager)((state.wk.web_view_get_context)(state.view));
