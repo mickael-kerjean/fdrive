@@ -14,6 +14,7 @@ use crate::utils::wstr;
 mod alert;
 mod dashboard;
 mod login;
+mod search;
 mod tray;
 mod webview;
 
@@ -143,6 +144,7 @@ pub struct TrayState {
     pub rates: String,
     pub server_locked: bool,
     pub on_click: Option<Arc<dyn Fn() + Send + Sync>>,
+    pub on_search: Option<Arc<dyn Fn(&str) -> Vec<PathBuf> + Send + Sync>>,
 }
 
 struct Ctx {

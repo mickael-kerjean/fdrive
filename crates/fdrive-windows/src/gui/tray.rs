@@ -29,6 +29,7 @@ const CMD_BROWSE: usize = 1;
 const CMD_LOGIN: usize = 2;
 const CMD_LOGOUT: usize = 3;
 const CMD_QUIT: usize = 4;
+const CMD_SEARCH: usize = 5;
 
 #[derive(Clone)]
 pub struct Tray {
@@ -59,6 +60,10 @@ impl Tray {
         self.state.lock().unwrap().on_click = Some(Arc::new(handler));
     }
 
+    pub fn on_search(&self, handler: impl Fn(&str) -> Vec<PathBuf> + Send + Sync + 'static) {
+        self.state.lock().unwrap().on_search = Some(Arc::new(handler));
+    }
+
     pub fn set_rates(&self, snap: &fdrive_core::activity::Snapshot) {
         let (up, down) = fdrive_core::activity::mean_rate(snap);
         let rates = format!(
@@ -80,6 +85,7 @@ impl Tray {
         {
             let mut state = self.state.lock().unwrap();
             state.on_click = None;
+            state.on_search = None;
             state.rates.clear();
         }
         self.refresh();
@@ -280,10 +286,13 @@ unsafe extern "system" fn tray_wndproc(
 }
 
 unsafe fn show_menu(hwnd: HWND) {
-    let logged_in = state(|state| state.status != Status::LoggedOut);
+    let (logged_in, search) = state(|state| (state.status != Status::LoggedOut, state.on_search.is_some()));
     let Ok(menu) = CreatePopupMenu() else { return };
     if logged_in {
         let _ = AppendMenuW(menu, MF_STRING, CMD_BROWSE, w!("Browse"));
+        if search {
+            let _ = AppendMenuW(menu, MF_STRING, CMD_SEARCH, w!("Search"));
+        }
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, CMD_LOGOUT, w!("Logout"));
     } else {
@@ -307,6 +316,7 @@ unsafe fn show_menu(hwnd: HWND) {
 
     match picked.0 as usize {
         CMD_BROWSE => send(TrayEvent::Browse),
+        CMD_SEARCH => super::search::open(),
         CMD_LOGIN => prompt_login(),
         CMD_LOGOUT => send(TrayEvent::Logout),
         CMD_QUIT => send(TrayEvent::Quit),

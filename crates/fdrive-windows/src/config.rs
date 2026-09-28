@@ -17,6 +17,7 @@ pub struct AppConfig {
 pub struct Features {
     pub autostart: bool,
     pub server_locked: bool,
+    pub remote_search: bool,
 }
 
 #[derive(Debug, Deserialize)]

@@ -168,6 +168,13 @@ async fn login(
         Ok(session) => {
             let activity = session.adapter.status().activity();
             let root = root.to_path_buf();
+            if config.features.remote_search {
+                let (sdk, rt, root) = (session.sdk.clone(), tokio::runtime::Handle::current(), root.clone());
+                tray.on_search(move |query| {
+                    let hits = rt.block_on(sdk.search("/", query)).inspect_err(|err| log::warn!("search: {err}"));
+                    hits.unwrap_or_default().into_iter().map(|(path, _)| root.join(path.trim_matches('/').replace('/', "\\"))).collect()
+                });
+            }
             tray.on_click(move || gui::dashboard(activity.clone(), root.clone()));
             tray.set_status(Status::Offline);
             Some(session)
