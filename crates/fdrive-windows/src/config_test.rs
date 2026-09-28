@@ -4,7 +4,7 @@ use super::AppConfig;
 fn empty_toml_is_a_valid_config() {
     let config = toml::from_str::<AppConfig>("").unwrap();
     assert_eq!(config.windows.provider_name, "Filestash");
-    assert!(!config.features.autostart);
+    assert!(!config.windows.autostart);
     assert!(!config.features.server_locked);
 }
 
@@ -16,8 +16,8 @@ fn provider_name_can_be_set() {
 
 #[test]
 fn autostart_can_be_enabled() {
-    let config = toml::from_str::<AppConfig>("[features]\nautostart = true").unwrap();
-    assert!(config.features.autostart);
+    let config = toml::from_str::<AppConfig>("[windows]\nautostart = true").unwrap();
+    assert!(config.windows.autostart);
 }
 
 #[test]

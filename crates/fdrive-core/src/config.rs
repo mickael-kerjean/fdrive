@@ -113,6 +113,21 @@ pub fn ignore(data: &Path) -> Ignore {
         .unwrap_or_default()
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Features {
+    pub server_locked: bool,
+    pub remote_search: bool,
+}
+
+pub fn features(data: &Path) -> Features {
+    #[derive(Default, serde::Deserialize)]
+    struct File {
+        #[serde(default)]
+        features: Features,
+    }
+    read::<File>(&data.join(FILE)).unwrap_or_default().features
+}
 
 pub fn ledger_wal(data: &Path) -> bool {
     #[derive(Default, serde::Deserialize)]

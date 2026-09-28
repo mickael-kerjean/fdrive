@@ -6,11 +6,16 @@ struct DisconnectView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var serverURL = RuntimeSessionStore.load().url
     @State private var probing = false
+    private let locked = RuntimeSessionStore.features.serverLocked && !RuntimeSessionStore.load().url.isEmpty
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
-                TextField("Server", text: $serverURL)
+                if locked {
+                    Text(serverURL)
+                } else {
+                    TextField("Server", text: $serverURL)
+                }
 
                 if let error = state.connectionError {
                     Text(error)

@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    if let Err(err) = shell::set_autostart(config.features.autostart) {
+    if let Err(err) = shell::set_autostart(config.windows.autostart) {
         log::warn!("autostart: {err}");
     }
     std::fs::create_dir_all(&root)?;

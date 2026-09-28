@@ -2,6 +2,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use fdrive_core::config::Features;
 use serde::Deserialize;
 
 #[derive(Debug, Default, Deserialize)]
@@ -12,14 +13,6 @@ pub struct AppConfig {
     pub features: Features,
 }
 
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Features {
-    pub autostart: bool,
-    pub server_locked: bool,
-    pub remote_search: bool,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WindowsConfig {
@@ -27,6 +20,7 @@ pub struct WindowsConfig {
     pub allow_pinning: bool,
     pub refresh_secs: u64,
     pub icon: Option<String>,
+    pub autostart: bool,
 }
 
 impl Default for WindowsConfig {
@@ -36,6 +30,7 @@ impl Default for WindowsConfig {
             allow_pinning: true,
             refresh_secs: 10,
             icon: None,
+            autostart: false,
         }
     }
 }

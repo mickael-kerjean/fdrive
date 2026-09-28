@@ -19,4 +19,9 @@ enum RuntimeSessionStore {
         guard let dataDirectory else { return }
         sessionForget(dataDir: dataDirectory.path)
     }
+
+    static var features: Features {
+        guard let dataDirectory else { return Features(serverLocked: false, remoteSearch: false) }
+        return featuresRecall(dataDir: dataDirectory.path)
+    }
 }

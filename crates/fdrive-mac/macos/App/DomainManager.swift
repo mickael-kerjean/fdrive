@@ -13,6 +13,9 @@ enum DomainManager {
 
     static func add() async throws {
         try? await NSFileProviderManager.remove(domain)
+        if #available(macOS 26.0, *) {
+            domain.supportsStringSearchRequest = RuntimeSessionStore.features.remoteSearch
+        }
         try await NSFileProviderManager.add(domain)
     }
 

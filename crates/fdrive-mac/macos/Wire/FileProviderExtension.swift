@@ -392,3 +392,10 @@ func mapToProviderError(_ error: Error) -> Error {
         error
     }
 }
+
+@available(macOS 26.0, *)
+extension FileProviderExtension: NSFileProviderSearching {
+    func searchEnumerator(for request: NSFileProviderStringSearchRequest) -> NSFileProviderSearchEnumerator {
+        FileProviderSearchEnumerator(adapter: adapter, query: request.query)
+    }
+}

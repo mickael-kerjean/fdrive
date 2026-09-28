@@ -52,3 +52,15 @@ pub fn session_remember(data_dir: String, url: String, token: String, insecure: 
 pub fn session_forget(data_dir: String) {
     fdrive_core::config::forget(Path::new(&data_dir));
 }
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct Features {
+    pub server_locked: bool,
+    pub remote_search: bool,
+}
+
+#[uniffi::export]
+pub fn features_recall(data_dir: String) -> Features {
+    let features = fdrive_core::config::features(Path::new(&data_dir));
+    Features { server_locked: features.server_locked, remote_search: features.remote_search }
+}

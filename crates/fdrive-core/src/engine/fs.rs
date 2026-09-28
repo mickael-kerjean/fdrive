@@ -70,6 +70,10 @@ impl<'a, T: LocalStore> Fs<'a, T> {
         self.0.sdk.ls(&dir.as_dir()).await
     }
 
+    pub async fn search(&self, query: &str) -> Result<Vec<(String, FileInfo)>> {
+        self.0.sdk.search("/", query).await
+    }
+
     pub async fn mkdir(&self, dir: &RelPath) -> Result<()> {
         self.0.sdk.mkdir(&dir.as_dir()).await
     }

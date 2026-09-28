@@ -38,6 +38,12 @@ pub struct Entry {
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
+pub struct SearchHit {
+    pub path: String,
+    pub entry: Entry,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
 pub struct Download {
     pub local_path: String,
     pub entry: Entry,
@@ -184,6 +190,11 @@ impl Adapter {
             .into_iter()
             .map(|info| self.entry(&dir.join(&info.name), info))
             .collect())
+    }
+
+    pub async fn search(&self, query: String) -> Result<Vec<SearchHit>, FsError> {
+        let hits = self.engine.fs().search(&query).await?;
+        Ok(hits.into_iter().map(|(path, info)| SearchHit { path, entry: info.into() }).collect())
     }
 
     pub async fn stat(&self, path: String, viewer_request: bool) -> Result<Entry, FsError> {
