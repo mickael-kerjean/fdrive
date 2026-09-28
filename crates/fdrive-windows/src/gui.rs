@@ -24,11 +24,13 @@ pub use tray::Tray;
 pub fn init(
     data: &std::path::Path,
     boot: &Boot,
+    server_locked: bool,
 ) -> std::io::Result<(Tray, tokio::sync::mpsc::UnboundedReceiver<TrayEvent>)> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let tray = tray::spawn(
         Arc::new(Mutex::new(TrayState {
             url: boot.url(),
+            server_locked,
             ..Default::default()
         })),
         tx,
@@ -139,6 +141,7 @@ pub struct TrayState {
     pub user: String,
     pub storage: String,
     pub rates: String,
+    pub server_locked: bool,
     pub on_click: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 

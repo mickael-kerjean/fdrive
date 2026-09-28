@@ -74,7 +74,9 @@ pub fn init() -> Setup {
         fail("--user needs --password (or FILESTASH_PASSWORD)");
     }
     let stored = fdrive_core::config::load(&data);
-    let server = args.server.as_deref().map(normalize_server);
+    let server = args.server.as_deref().map(normalize_server).filter(|url| {
+        !config.features.server_locked || stored.url.is_empty() || *url == stored.url
+    });
     let boot = match (&server, args.token, &args.user) {
         (Some(url), Some(token), _) => Boot::Fresh(Credentials {
             url: url.clone(),

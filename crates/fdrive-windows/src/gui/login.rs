@@ -24,9 +24,13 @@ thread_local! {
 }
 
 pub(super) fn prompt_login() {
-    let prefill = state(|state| state.url.clone().unwrap_or_default());
-    let Some(raw) = server_dialog(&prefill) else {
-        return;
+    let (prefill, locked) = state(|state| (state.url.clone().unwrap_or_default(), state.server_locked));
+    let raw = match locked && !prefill.is_empty() {
+        true => prefill,
+        false => match server_dialog(&prefill) {
+            Some(raw) => raw,
+            None => return,
+        },
     };
     let url = fdrive_core::sdk::normalize_server(&raw);
     if let Err(err) = fdrive_core::sdk::Sdk::builder(&url)

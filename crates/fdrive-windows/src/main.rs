@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::warn!("autostart: {err}");
     }
     std::fs::create_dir_all(&root)?;
-    let (tray, mut events) = gui::init(&data, &boot)?;
+    let (tray, mut events) = gui::init(&data, &boot, config.features.server_locked)?;
 
     if let Boot::Fresh(_) = &boot {
         gui::open_folder(&root);

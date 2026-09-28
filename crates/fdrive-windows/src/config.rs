@@ -16,6 +16,7 @@ pub struct AppConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct Features {
     pub autostart: bool,
+    pub server_locked: bool,
 }
 
 #[derive(Debug, Deserialize)]
