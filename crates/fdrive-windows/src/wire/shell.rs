@@ -43,8 +43,9 @@ pub fn sync_root_id(provider: &str, account: &str, root: &Path) -> io::Result<St
     ))
 }
 
+const SYNC_ROOTS: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager";
+
 pub fn vacuum(provider: &str, keep_id: &str) {
-    const SYNC_ROOTS: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager";
     let Ok(key) = windows_registry::LOCAL_MACHINE.open(SYNC_ROOTS) else {
         return;
     };
@@ -90,6 +91,17 @@ pub fn register(root: &Path, reg: &Registration) -> io::Result<()> {
         StorageProviderSyncRootManager::Register(&info)
     })()
     .map_err(win_err)
+}
+
+pub fn namespace_path(abs: &Path) -> Option<String> {
+    let sid = current_user_sid().ok()?;
+    let roots = windows_registry::LOCAL_MACHINE.open(SYNC_ROOTS).ok()?;
+    roots.keys().ok()?.find_map(|id| {
+        let root = roots.open(format!(r"{id}\UserSyncRoots")).and_then(|key| key.get_string(&sid)).ok()?;
+        let rel = abs.strip_prefix(&root).ok()?;
+        let namespace = roots.open(&id).and_then(|key| key.get_string("NamespaceCLSID")).ok()?;
+        Some(format!(r"::{namespace}\{}", rel.display()))
+    })
 }
 
 pub fn unregister(id: &str) -> io::Result<()> {

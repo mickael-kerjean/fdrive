@@ -426,9 +426,7 @@ fn transfer_at(index: usize) -> Option<(fdrive_core::activity::Transfer, PathBuf
 fn reveal(index: usize) {
     let Some((transfer, root)) = transfer_at(index) else { return };
     let local = root.join(transfer.path.trim_start_matches('/').replace('/', "\\"));
-    let _ = std::process::Command::new("explorer.exe")
-        .arg(format!("/select,{}", local.display()))
-        .spawn();
+    super::reveal(&local);
 }
 
 unsafe fn copy_path(hwnd: HWND, index: usize) {

@@ -83,7 +83,7 @@ unsafe fn reveal(hwnd: HWND) {
     let Ok(list) = GetDlgItem(Some(hwnd), ID_HITS) else { return };
     let index = SendMessageW(list, LB_GETCURSEL, None, None).0;
     if let Some(path) = HITS.with_borrow(|hits| hits.get(index as usize).cloned()) {
-        let _ = std::process::Command::new("explorer.exe").arg(format!("/select,{}", path.display())).spawn();
+        super::reveal(&path);
     }
 }
 

@@ -171,6 +171,12 @@ fn send(event: TrayEvent) {
     });
 }
 
+pub(crate) fn reveal(path: &std::path::Path) {
+    use std::os::windows::process::CommandExt;
+    let target = crate::wire::shell::namespace_path(path).unwrap_or_else(|| path.display().to_string());
+    let _ = std::process::Command::new("explorer.exe").raw_arg(format!("/select,\"{target}\"")).spawn();
+}
+
 pub fn open_folder(path: &std::path::Path) {
     let wide = wstr(path);
     unsafe {
