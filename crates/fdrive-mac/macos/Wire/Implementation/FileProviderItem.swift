@@ -59,7 +59,7 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
 
 enum FileProviderPath {
     static func path(for identifier: NSFileProviderItemIdentifier) -> String {
-        identifier == .rootContainer ? "/" : identifier.rawValue
+        identifier == .rootContainer ? "/" : identifier.rawValue.hasPrefix("/") ? identifier.rawValue : "/" + identifier.rawValue
     }
 
     static func child(of parent: String, name: String, isDirectory: Bool) -> String {
