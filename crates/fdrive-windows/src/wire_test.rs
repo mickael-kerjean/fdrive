@@ -21,6 +21,12 @@ fn rel_path_from_callback_paths() {
             .as_str(),
         "a"
     );
+    assert_eq!(
+        rel_from_full(root, r"\\USERS\MICKA\FILESTASH\DOWNLOADS")
+            .unwrap()
+            .as_str(),
+        "DOWNLOADS"
+    );
     assert!(rel_from_full(root, r"\Users\micka\FilestashOther\x").is_none());
     assert!(rel_from_full(root, r"\Users\micka\Elsewhere").is_none());
 }

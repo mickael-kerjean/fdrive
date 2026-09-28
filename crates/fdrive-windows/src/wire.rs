@@ -39,6 +39,7 @@ use windows::Win32::Storage::CloudFilters::{
     CF_PLACEHOLDER_CREATE_INFO, CF_PLACEHOLDER_STATE, CF_PLACEHOLDER_STATE_IN_SYNC,
     CF_PLACEHOLDER_STATE_PARTIAL, CF_PLACEHOLDER_STATE_PARTIALLY_ON_DISK,
     CF_PLACEHOLDER_STATE_PLACEHOLDER, CF_SET_IN_SYNC_FLAG_NONE, CF_UPDATE_FLAG_DISABLE_ON_DEMAND_POPULATION,
+    CF_UPDATE_FLAG_ENABLE_ON_DEMAND_POPULATION,
 };
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FileAttributeTagInfo, GetFileInformationByHandleEx, FILE_ATTRIBUTE_DIRECTORY,
@@ -181,7 +182,11 @@ fn place(root: &Path, path: &RelPath, attrs: u32, size: u64, mtime: SystemTime) 
     .map_err(|err| io::Error::other(format!("CfCreatePlaceholders {path}: {err}")))
 }
 
-pub fn mark_populated(abs: &Path) -> io::Result<()> {
+pub fn mark_populated(abs: &Path, populated: bool) -> io::Result<()> {
+    let flag = match populated {
+        true => CF_UPDATE_FLAG_DISABLE_ON_DEMAND_POPULATION,
+        false => CF_UPDATE_FLAG_ENABLE_ON_DEMAND_POPULATION,
+    };
     with_oplock(abs, CF_OPEN_FILE_FLAG_WRITE_ACCESS, |handle| {
         unsafe {
             CfUpdatePlaceholder(
@@ -190,7 +195,7 @@ pub fn mark_populated(abs: &Path) -> io::Result<()> {
                 None,
                 0,
                 None,
-                CF_UPDATE_FLAG_DISABLE_ON_DEMAND_POPULATION,
+                flag,
                 None,
                 None,
             )
@@ -647,7 +652,8 @@ fn strip_volume(s: &str) -> &str {
 }
 
 fn rel_from_full(root_novol: &str, s: &str) -> Option<RelPath> {
-    let t = strip_volume(s);
+    let t = strip_volume(s).trim_start_matches('\\');
+    let root_novol = root_novol.trim_start_matches('\\');
     if t.len() < root_novol.len() || !t.is_char_boundary(root_novol.len()) {
         return None;
     }
@@ -681,7 +687,10 @@ pub fn abs_of(root: &Path, path: &RelPath) -> PathBuf {
     } else {
         let mut abs = root.to_path_buf();
         abs.extend(path.as_str().split('/'));
-        abs
+        match abs.as_os_str().len() < 248 {
+            true => abs,
+            false => PathBuf::from(format!(r"\\?\{}", abs.display())),
+        }
     }
 }
 
