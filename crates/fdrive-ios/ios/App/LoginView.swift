@@ -37,7 +37,7 @@ struct LoginWebView: UIViewRepresentable {
         let host = URL(string: base)?.host
         var done = false
         context.coordinator.watch = web.observe(\.url) { web, _ in
-            guard !done, web.url?.path.hasPrefix("/files") == true else { return }
+            guard !done, web.url?.absoluteString.hasPrefix(base + "/files") == true else { return }
             web.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
                 let token = assembleToken(cookies: cookies
                     .filter { host == nil || $0.domain.contains(host!) }

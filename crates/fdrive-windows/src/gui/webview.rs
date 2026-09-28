@@ -209,7 +209,7 @@ unsafe fn on_source_changed(state: &Rc<State>) {
         return;
     }
     let url = take_pwstr(source);
-    let on_files = url::Url::parse(&url).is_ok_and(|u| u.path().starts_with("/files"));
+    let on_files = url.starts_with(&format!("{}/files", state.base));
     if !on_files || state.busy.replace(true) {
         return;
     }

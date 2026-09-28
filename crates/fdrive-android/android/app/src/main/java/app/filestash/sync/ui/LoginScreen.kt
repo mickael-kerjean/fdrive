@@ -1,6 +1,5 @@
 package app.filestash.sync.ui
 
-import android.net.Uri
 import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -89,8 +88,7 @@ private fun LoginWebView(base: String, onToken: (String) -> Unit) {
                     override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                         android.util.Log.i("fdrive", "login visited: $url")
                         if (done || url == null) return
-                        val path = Uri.parse(url).path ?: return
-                        if (path.startsWith("/files")) {
+                        if (url.startsWith("$base/files")) {
                             val token = sessionToken(base)
                             android.util.Log.i(
                                 "fdrive",

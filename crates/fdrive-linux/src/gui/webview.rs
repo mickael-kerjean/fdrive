@@ -77,7 +77,7 @@ unsafe extern "C" fn on_uri(_view: *mut c_void, _pspec: *mut c_void, data: *mut 
     let Ok(uri) = CStr::from_ptr(uri).to_str() else {
         return;
     };
-    let on_files = url::Url::parse(uri).is_ok_and(|u| u.path().starts_with("/files"));
+    let on_files = uri.starts_with(&format!("{}/files", state.base));
     if !on_files || state.busy.replace(true) {
         return;
     }
