@@ -274,15 +274,18 @@ async fn disconnect(session: Session, root: &Path, data: &Path, tray: &Tray, for
         task.abort();
     }
     session.adapter.system().flush(Duration::from_secs(30)).await;
-    if let Err(err) = session.adapter.system().vacuum() {
+    let emptied = session.adapter.system().vacuum().unwrap_or_else(|err| {
         log::warn!("vacuum: {err}");
-    }
+        false
+    });
     drop(session.connection);
-    if let Err(err) = shell::unregister(&session.sync_root_id) {
-        log::warn!("unregister sync root: {err}");
-    }
-    if let Err(err) = wire::unregister(root) {
-        log::warn!("unregister Cloud Files root: {err}");
+    if emptied || forget {
+        if let Err(err) = shell::unregister(&session.sync_root_id) {
+            log::warn!("unregister sync root: {err}");
+            if let Err(err) = wire::unregister(root) {
+                log::warn!("unregister Cloud Files root: {err}");
+            }
+        }
     }
     if forget {
         store::forget(data);

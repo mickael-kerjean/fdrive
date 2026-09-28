@@ -23,15 +23,40 @@ pub(super) fn walk(adapter: &Arc<Adapter>, dir: &RelPath) {
     }
     let (root, (missing, queue)) = (adapter.abs(dir), mpsc::channel());
     let queue = Mutex::new(queue);
+    let _ = wire::pin::pending(&root);
+    wire::pin::notify(&root);
     std::thread::scope(|scope| {
         for _ in 0..CONCURRENCY {
-            scope.spawn(|| hydrate(&root, &queue));
+            scope.spawn(|| hydrate(Some(&root), &queue));
         }
         descend(adapter, dir, &root, &missing);
         drop(missing);
     });
-    wire::pin::notify(&root);
+    let busy = |p: &RelPath| adapter.pinning.lock().unwrap().iter().any(|w| w != dir && (w == p || w.is_descendant_of(p)));
+    let mut up = dir.clone();
+    while !up.is_root() && pinned(&adapter.abs(&up)) && !busy(&up) {
+        let abs = adapter.abs(&up);
+        if wire::placeholder_state(&abs).is_ok_and(|s| !s.in_sync) {
+            let _ = wire::mark_in_sync(&abs, &up);
+            wire::pin::notify(&abs);
+        }
+        up = up.parent_or_root();
+    }
     adapter.pinning.lock().unwrap().remove(dir);
+}
+
+pub(super) fn fetch(missing: Vec<(PathBuf, RelPath, FileState)>) {
+    let (tx, queue) = mpsc::channel();
+    for item in missing {
+        let _ = tx.send(item);
+    }
+    drop(tx);
+    let queue = Mutex::new(queue);
+    std::thread::scope(|scope| {
+        for _ in 0..CONCURRENCY {
+            scope.spawn(|| hydrate(None, &queue));
+        }
+    });
 }
 
 pub(super) fn enforce(abs: &Path, path: &RelPath, state: FileState) {
@@ -94,7 +119,9 @@ fn descend(adapter: &Arc<Adapter>, dir: &RelPath, root: &Path, missing: &mpsc::S
             }
         }
         if md.is_dir() {
-            descend(adapter, &child, root, missing);
+            if !adapter.pinning.lock().unwrap().contains(&child) {
+                descend(adapter, &child, root, missing);
+            }
         } else if pinned(root) && pinned(&abs) {
             if let Ok(state) = adapter.reconcile().classify(&abs, &child) {
                 let _ = missing.send((abs, child, state));
@@ -103,10 +130,10 @@ fn descend(adapter: &Arc<Adapter>, dir: &RelPath, root: &Path, missing: &mpsc::S
     }
 }
 
-fn hydrate(root: &Path, queue: &Mutex<mpsc::Receiver<(PathBuf, RelPath, FileState)>>) {
+fn hydrate(root: Option<&Path>, queue: &Mutex<mpsc::Receiver<(PathBuf, RelPath, FileState)>>) {
     loop {
         let Ok((abs, path, state)) = queue.lock().unwrap().recv() else { break };
-        if pinned(root) {
+        if root.is_none_or(pinned) && pinned(&abs) {
             enforce(&abs, &path, state);
         }
     }
@@ -122,7 +149,7 @@ fn relist(adapter: &Arc<Adapter>, dir: &RelPath, abs: &Path) {
         .block_on(adapter.engine.fs().ls(dir))
         .map_err(io::Error::from)
         .and_then(|listing| adapter.reconcile().dir(dir, abs, listing))
-        .and_then(|()| wire::mark_populated(abs));
+        .and_then(|()| wire::mark_populated(abs, true));
     if let Err(err) = listed {
         log::warn!("pin list {dir}: {err}");
     }

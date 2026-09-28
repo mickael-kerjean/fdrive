@@ -56,6 +56,9 @@ impl Fs<'_> {
         let Ok(md) = fs::symlink_metadata(&abs) else {
             return;
         };
+        if !fs::canonicalize(&abs).is_ok_and(|real| real.file_name() == abs.file_name()) {
+            return;
+        }
         if md.is_dir() {
             let Ok(state) = wire::placeholder_state(&abs) else {
                 return;
