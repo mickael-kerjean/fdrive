@@ -3,8 +3,9 @@ use std::io;
 use std::path::Path;
 
 use windows::Win32::Storage::CloudFilters::{
-    CfDehydratePlaceholder, CfHydratePlaceholder, CfSetPinState, CF_DEHYDRATE_FLAG_NONE,
-    CF_HYDRATE_FLAG_NONE, CF_OPEN_FILE_FLAG_WRITE_ACCESS, CF_PIN_STATE_PINNED,
+    CfDehydratePlaceholder, CfHydratePlaceholder, CfSetInSyncState, CfSetPinState,
+    CF_DEHYDRATE_FLAG_NONE, CF_HYDRATE_FLAG_NONE, CF_IN_SYNC_STATE_NOT_IN_SYNC,
+    CF_OPEN_FILE_FLAG_WRITE_ACCESS, CF_PIN_STATE_PINNED, CF_SET_IN_SYNC_FLAG_NONE,
     CF_SET_PIN_FLAG_NONE,
 };
 use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_PINNED, FILE_ATTRIBUTE_UNPINNED};
@@ -49,6 +50,13 @@ pub fn dehydrate(abs: &Path) -> io::Result<()> {
     with_oplock(abs, CF_OPEN_FILE_FLAG_WRITE_ACCESS, |handle| {
         unsafe { CfDehydratePlaceholder(handle, 0, -1, CF_DEHYDRATE_FLAG_NONE, None) }
             .map_err(|err| io::Error::other(format!("CfDehydratePlaceholder: {err}")))
+    })
+}
+
+pub fn pending(abs: &Path) -> io::Result<()> {
+    with_oplock(abs, CF_OPEN_FILE_FLAG_WRITE_ACCESS, |handle| {
+        unsafe { CfSetInSyncState(handle, CF_IN_SYNC_STATE_NOT_IN_SYNC, CF_SET_IN_SYNC_FLAG_NONE, None) }
+            .map_err(|err| io::Error::other(format!("CfSetInSyncState: {err}")))
     })
 }
 

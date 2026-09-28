@@ -12,7 +12,7 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-    DestroyMenu, DispatchMessageW, GetCursorPos, GetMessageW, LoadIconW, PostQuitMessage,
+    DestroyMenu, DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, LoadIconW, PostQuitMessage,
     PostThreadMessageW, RegisterClassW, SetForegroundWindow, TrackPopupMenu, TranslateMessage,
     HICON, IDI_APPLICATION, IMAGE_FLAGS, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_KEYDOWN, WM_LBUTTONUP,
     WM_QUIT, WM_RBUTTONUP, WNDCLASSW,
@@ -100,6 +100,10 @@ impl Tray {
         unsafe {
             let _ = PostThreadMessageW(self.thread, WM_TRAY_REFRESH, WPARAM(0), LPARAM(0));
         }
+    }
+
+    pub fn running() -> bool {
+        unsafe { FindWindowW(w!("fdrive_tray"), w!("Filestash")) }.is_ok_and(|hwnd| !hwnd.is_invalid())
     }
 
     pub fn prompt_login(&self) {

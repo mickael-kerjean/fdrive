@@ -49,7 +49,7 @@ impl System<'_> {
         Ok(())
     }
 
-    pub fn vacuum(self) -> io::Result<()> {
+    pub fn vacuum(self) -> io::Result<bool> {
         let root = RelPath::root();
         let emptied = self
             .0
@@ -59,6 +59,6 @@ impl System<'_> {
         if !emptied {
             log::warn!("vacuum: {} not emptied", self.0.root.display());
         }
-        Ok(())
+        Ok(emptied)
     }
 }

@@ -112,13 +112,23 @@ fn fail(message: &str) -> ! {
 
 fn instance_lock(data: &Path, root: &Path) -> Result<(), String> {
     use std::os::windows::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .share_mode(0)
-        .open(data.join("instance.lock"))
-        .map(std::mem::forget)
+    let open = || {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .share_mode(0)
+            .open(data.join("instance.lock"))
+    };
+    let mut lock = open();
+    for _ in 0..120 {
+        if lock.is_ok() || gui::Tray::running() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        lock = open();
+    }
+    lock.map(std::mem::forget)
         .map_err(|_| {
             format!(
                 "another instance is already running on {} — quit it first",

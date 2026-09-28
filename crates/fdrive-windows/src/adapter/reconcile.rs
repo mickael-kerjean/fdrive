@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use fdrive_core::engine::Observation;
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
-use fdrive_core::sdk::{FileInfo, FileType};
+use fdrive_core::sdk::{Error as SdkError, FileInfo, FileType};
 
 use crate::wire;
 
@@ -88,6 +88,10 @@ impl Reconcile<'_> {
             log::warn!("skipping hostile name from the server in {dir}");
             return;
         }
+        if entry.name.ends_with(['.', ' ']) {
+            log::debug!("skipping {child}: Windows cannot open a name ending in a dot or a space");
+            return;
+        }
         let mtime = entry.mtime.unwrap_or_else(SystemTime::now);
         let result = match entry.kind {
             FileType::Directory => wire::create_dir_placeholder(&self.0.root, &child, mtime),
@@ -162,6 +166,13 @@ impl Reconcile<'_> {
             None => Observation::of_local(md) == remote_rec,
         };
         if unchanged {
+            return;
+        }
+        let Ok(fresh) = self.0.engine.block_on(self.0.engine.fs().stat(path)) else {
+            return;
+        };
+        let (remote, remote_rec) = (&fresh, Observation::of(&fresh));
+        if self.0.engine.view().seen(path) == Some(remote_rec) {
             return;
         }
         let abs = self.0.abs(path);
@@ -239,6 +250,13 @@ impl Reconcile<'_> {
             }
             return;
         }
+        let gone = match is_dir {
+            true => self.0.engine.block_on(self.0.engine.fs().ls(path)).err(),
+            false => self.0.engine.block_on(self.0.engine.fs().stat(path)).err(),
+        };
+        if !matches!(gone, Some(SdkError::NotFound)) {
+            return;
+        }
         let removed = self.0.engine.local().suppress(path, || {
             if is_dir {
                 fs::remove_dir_all(&abs)
@@ -300,6 +318,7 @@ impl Reconcile<'_> {
 
     pub(super) fn sweep(self) -> Vec<RelPath> {
         let mut armed = Vec::new();
+        let mut missing = Vec::new();
         let mut pending = vec![(RelPath::root(), false)];
         while let Some((dir, inherited)) = pending.pop() {
             let Ok(read) = fs::read_dir(self.0.abs(&dir)) else {
@@ -339,11 +358,17 @@ impl Reconcile<'_> {
                         armed.push(child);
                     }
                     Ok(FileState::Foreign) => self.adopt(&child, &abs, &md),
+                    Ok(state @ FileState::Dehydrated(Pin::Pinned)) => {
+                        if !self.0.pinning.lock().unwrap().iter().any(|p| child.is_descendant_of(p)) {
+                            missing.push((abs, child, state));
+                        }
+                    }
                     Ok(state) => pin::enforce(&abs, &child, state),
                     Err(_) => {}
                 }
             }
         }
+        pin::fetch(missing);
         armed
     }
 
@@ -379,6 +404,7 @@ impl Reconcile<'_> {
                         emptied = false;
                     }
                 } else {
+                    let _ = wire::mark_populated(&abs, false);
                     emptied = false;
                 }
             } else if self.clean(&abs, &child) {
