@@ -99,28 +99,16 @@ pub fn unregister(id: &str) -> io::Result<()> {
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const RUN_VALUE: &str = "Filestash";
 
-pub fn autostart_enabled() -> bool {
-    windows_registry::CURRENT_USER
-        .open(RUN_KEY)
-        .and_then(|key| key.get_string(RUN_VALUE))
-        .is_ok()
-}
-
-pub fn ensure_autostart(opt_out: &Path) {
-    if !opt_out.exists() {
-        if let Err(err) = set_autostart(true) {
-            log::warn!("autostart: {err}");
-        }
-    }
-}
-
 pub fn set_autostart(enabled: bool) -> io::Result<()> {
+    if !enabled && !autostart_enabled() {
+        return Ok(());
+    }
     let key = windows_registry::CURRENT_USER.create(RUN_KEY).map_err(win_err)?;
     if enabled {
         let exe = std::env::current_exe()?;
         key.set_string(RUN_VALUE, format!("\"{}\"", exe.display()))
             .map_err(win_err)?;
-    } else if autostart_enabled() {
+    } else {
         key.remove_value(RUN_VALUE).map_err(win_err)?;
     }
     Ok(())
@@ -129,6 +117,13 @@ pub fn set_autostart(enabled: bool) -> io::Result<()> {
 pub fn default_icon() -> String {
     let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
     format!("{system_root}\\system32\\imageres.dll,-3")
+}
+
+fn autostart_enabled() -> bool {
+    windows_registry::CURRENT_USER
+        .open(RUN_KEY)
+        .and_then(|key| key.get_string(RUN_VALUE))
+        .is_ok()
 }
 
 fn current_user_sid() -> io::Result<String> {

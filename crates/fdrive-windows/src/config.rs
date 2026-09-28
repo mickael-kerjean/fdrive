@@ -8,6 +8,14 @@ use serde::Deserialize;
 pub struct AppConfig {
     #[serde(default)]
     pub windows: WindowsConfig,
+    #[serde(default)]
+    pub features: Features,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Features {
+    pub autostart: bool,
 }
 
 #[derive(Debug, Deserialize)]

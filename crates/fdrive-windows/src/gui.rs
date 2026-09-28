@@ -96,7 +96,6 @@ impl From<fdrive_core::config::Session> for Credentials {
 #[derive(Debug)]
 pub enum TrayEvent {
     Browse,
-    Autostart,
     Login(Credentials),
     Logout,
     Quit,
@@ -140,7 +139,6 @@ pub struct TrayState {
     pub user: String,
     pub storage: String,
     pub rates: String,
-    pub autostart: bool,
     pub on_click: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 

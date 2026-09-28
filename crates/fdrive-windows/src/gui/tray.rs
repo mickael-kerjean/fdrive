@@ -14,7 +14,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
     DestroyMenu, DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, LoadIconW, PostQuitMessage,
     PostThreadMessageW, RegisterClassW, SetForegroundWindow, TrackPopupMenu, TranslateMessage,
-    HICON, IDI_APPLICATION, IMAGE_FLAGS, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_KEYDOWN, WM_LBUTTONUP,
+    HICON, IDI_APPLICATION, IMAGE_FLAGS, MF_SEPARATOR, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_KEYDOWN, WM_LBUTTONUP,
     WM_QUIT, WM_RBUTTONUP, WNDCLASSW,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::VK_ESCAPE;
@@ -29,7 +29,6 @@ const CMD_BROWSE: usize = 1;
 const CMD_LOGIN: usize = 2;
 const CMD_LOGOUT: usize = 3;
 const CMD_QUIT: usize = 4;
-const CMD_AUTOSTART: usize = 5;
 
 #[derive(Clone)]
 pub struct Tray {
@@ -58,10 +57,6 @@ impl Tray {
 
     pub fn on_click(&self, handler: impl Fn() + Send + Sync + 'static) {
         self.state.lock().unwrap().on_click = Some(Arc::new(handler));
-    }
-
-    pub fn set_autostart(&self, enabled: bool) {
-        self.state.lock().unwrap().autostart = enabled;
     }
 
     pub fn set_rates(&self, snap: &fdrive_core::activity::Snapshot) {
@@ -285,22 +280,14 @@ unsafe extern "system" fn tray_wndproc(
 }
 
 unsafe fn show_menu(hwnd: HWND) {
-    let (logged_in, autostart_on) =
-        state(|state| (state.status != Status::LoggedOut, state.autostart));
+    let logged_in = state(|state| state.status != Status::LoggedOut);
     let Ok(menu) = CreatePopupMenu() else { return };
-    let autostart = if autostart_on {
-        MF_STRING | MF_CHECKED
-    } else {
-        MF_STRING
-    };
     if logged_in {
         let _ = AppendMenuW(menu, MF_STRING, CMD_BROWSE, w!("Browse"));
-        let _ = AppendMenuW(menu, autostart, CMD_AUTOSTART, w!("Autostart"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, CMD_LOGOUT, w!("Logout"));
     } else {
         let _ = AppendMenuW(menu, MF_STRING, CMD_LOGIN, w!("Login"));
-        let _ = AppendMenuW(menu, autostart, CMD_AUTOSTART, w!("Autostart"));
     }
     let _ = AppendMenuW(menu, MF_STRING, CMD_QUIT, w!("Quit"));
 
@@ -322,7 +309,6 @@ unsafe fn show_menu(hwnd: HWND) {
         CMD_BROWSE => send(TrayEvent::Browse),
         CMD_LOGIN => prompt_login(),
         CMD_LOGOUT => send(TrayEvent::Logout),
-        CMD_AUTOSTART => send(TrayEvent::Autostart),
         CMD_QUIT => send(TrayEvent::Quit),
         _ => {}
     }

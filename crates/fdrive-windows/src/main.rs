@@ -44,10 +44,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    shell::ensure_autostart(&data.join("autostart.off"));
+    if let Err(err) = shell::set_autostart(config.features.autostart) {
+        log::warn!("autostart: {err}");
+    }
     std::fs::create_dir_all(&root)?;
     let (tray, mut events) = gui::init(&data, &boot)?;
-    tray.set_autostart(shell::autostart_enabled());
 
     if let Boot::Fresh(_) = &boot {
         gui::open_folder(&root);
@@ -60,7 +61,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match event {
             TrayEvent::Quit => break,
             TrayEvent::Browse => gui::open_folder(&root),
-            TrayEvent::Autostart => toggle_autostart(&data, &tray),
             TrayEvent::Login(creds) => {
                 if let Some(old) = session.take() {
                     disconnect(old, &root, &data, &tray, true).await;
@@ -293,18 +293,4 @@ async fn disconnect(session: Session, root: &Path, data: &Path, tray: &Tray, for
         store::forget(data);
         let _ = session.sdk.logout().await;
     }
-}
-
-fn toggle_autostart(data: &Path, tray: &Tray) {
-    let opt_out = data.join("autostart.off");
-    let result = if shell::autostart_enabled() {
-        std::fs::write(&opt_out, []).and_then(|()| shell::set_autostart(false))
-    } else {
-        let _ = std::fs::remove_file(&opt_out);
-        shell::set_autostart(true)
-    };
-    if let Err(err) = result {
-        log::error!("autostart: {err}");
-    }
-    tray.set_autostart(shell::autostart_enabled());
 }
