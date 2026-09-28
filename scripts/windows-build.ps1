@@ -101,3 +101,10 @@ if ($sign) {
 
 Write-Host "release artifact: $Artifact"
 Write-Host "sha256: $((Get-FileHash $Artifact -Algorithm SHA256).Hash.ToLower())"
+
+$Version = ((Get-Content crates\fdrive-windows\Cargo.toml) -match '^version')[0].Split('"')[1]
+$Icon = (Get-ChildItem "target\$Target\release\build\fdrive-windows-*\out\app.ico")[-1].FullName
+candle.exe -nologo -arch x64 "-dVersion=$Version" "-dExe=$Artifact" "-dIcon=$Icon" -out "$Out\installer.wixobj" crates\fdrive-windows\installer.wxs
+light.exe -nologo -sice:ICE91 -out ($Artifact -replace '\.exe$', '.msi') "$Out\installer.wixobj"
+if ($LASTEXITCODE -ne 0) { throw "msi build failed" }
+Write-Host "release msi: $($Artifact -replace '\.exe$', '.msi')"

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Build: wixl -a x64 -D Version=0.1.0 -D Exe=path\to\fdrive-windows.exe -D Icon=path\to\app.ico -o fdrive-windows.msi installer.wxs -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Filestash" Language="1033" Version="$(var.Version)" Manufacturer="Filestash" UpgradeCode="AE0621BE-6484-42B3-A3FF-FE263E312E7E">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" InstallPrivileges="limited" Description="Filestash drive client" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Filestash is already installed." />
+    <Media Id="1" Cabinet="fdrive.cab" EmbedCab="yes" />
+    <Icon Id="fdrive.ico" SourceFile="$(var.Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="fdrive.ico" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="SystemFolder" />
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="ProgramsDir" Name="Programs">
+          <Directory Id="INSTALLDIR" Name="Filestash">
+            <Component Id="App" Guid="7E11CD9B-4C9F-4039-BBAB-F278ADC132C0">
+              <File Id="AppExe" Name="fdrive-windows.exe" Source="$(var.Exe)" />
+              <RegistryValue Root="HKCU" Key="Software\Filestash\Installer" Name="app" Type="integer" Value="1" KeyPath="yes" />
+              <RemoveFolder Id="RemoveInstallDir" On="uninstall" />
+              <RemoveFolder Id="RemoveProgramsDir" Directory="ProgramsDir" On="uninstall" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Component Id="Shortcut" Guid="39AEA109-1B9A-44D3-AC3F-DB8498B834EE">
+          <Shortcut Id="StartMenu" Name="Filestash" Target="[INSTALLDIR]fdrive-windows.exe" WorkingDirectory="INSTALLDIR" />
+          <RegistryValue Root="HKCU" Key="Software\Filestash\Installer" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </Directory>
+
+    <Feature Id="Main" Level="1">
+      <ComponentRef Id="App" />
+      <ComponentRef Id="Shortcut" />
+    </Feature>
+
+    <CustomAction Id="StopClient" Directory="SystemFolder" ExeCommand="&quot;[SystemFolder]taskkill.exe&quot; /F /IM fdrive-windows.exe" Execute="immediate" Return="ignore" />
+    <CustomAction Id="Unregister" FileKey="AppExe" ExeCommand="--unregister" Execute="deferred" Impersonate="yes" Return="ignore" />
+    <CustomAction Id="Launch" FileKey="AppExe" ExeCommand="" Execute="immediate" Return="asyncNoWait" />
+    <InstallExecuteSequence>
+      <Custom Action="StopClient" Before="InstallValidate" />
+      <Custom Action="Unregister" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="Launch" After="InstallFinalize">NOT REMOVE</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>

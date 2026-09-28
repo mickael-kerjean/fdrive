@@ -37,8 +37,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             log::warn!("unregister: {err}");
         }
         store::forget(&data);
+        if let Err(err) = shell::set_autostart(false) {
+            log::warn!("autostart: {err}");
+        }
         log::info!("unregistered {}", root.display());
-        gui::info(&format!("Unregistered {}", root.display()));
         return Ok(());
     }
 
