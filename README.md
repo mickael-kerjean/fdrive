@@ -21,6 +21,11 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
 </p>
 
 <p align="center">
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-linux.png?v=20260929" alt="linux screenshot">
+    <em>Linux</em>
+</p>
+
+<p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-iphone.png" alt="mac screenshot" />
     <em>Iphone</em>
 </p>
@@ -28,11 +33,6 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-android.png" alt="android screenshot" />
     <em>Android</em>
-</p>
-
-<p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-linux.png" alt="linux screenshot">
-    <em>Linux</em>
 </p>
 
 ## Release
