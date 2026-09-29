@@ -1,6 +1,14 @@
-# What is this?
+## What is this?
 
 Dropbox democratised the idea of a folder that syncs across your devices. Fdrive not only matches that promise, but also extends it beyond humans to agents, without creating yet another data silo and by staying interoperable with the storage you already have, from S3 and SFTP to SMB, NFS, the [infamous FTP](https://github.com/mickael-kerjean/filestash#why) and virtually anything.
+
+## Who is it for? Why?
+
+1. Humans: you want the Dropbox experience while staying in control of your data and you want something that does not create its own island but is interoperable
+
+2. Agents: as the CEO of Nvidia say: « when you deployed an agent ... the first thing you do is you take away all of its rights ... then you provision, you give it access to files ...». Fdrive is that provisioning tool that will make sure your agent only have access to what it needs, you set clear permission boundaries, with audit trail showing what the agent tried to do, what was allowed, and what was blocked
+
+## What it looks like?
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-mac.png?v=20260831" alt="mac screenshot" />
