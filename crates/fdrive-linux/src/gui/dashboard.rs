@@ -73,9 +73,12 @@ pub(super) fn show_stats(activity: Arc<Activity>, near: Option<(i32, i32)>) {
 
     let popup = menu.clone();
     window.connect_focus_out_event(move |window, _| {
-        if !popup.is_visible() {
-            window.close();
-        }
+        let (window, popup) = (window.downgrade(), popup.clone());
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(300), move || {
+            if let Some(window) = window.upgrade().filter(|w| !w.is_active() && !popup.is_visible()) {
+                window.close();
+            }
+        });
         gtk::Inhibit(false)
     });
 
