@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ = tokio::signal::ctrl_c() => {},
         _ = term.recv() => {}
     }
+    let _ = std::fs::remove_file(SOCKET);
     tokio::task::spawn_blocking(move || driver.shutdown()).await?;
     Ok(())
 }
