@@ -6,7 +6,7 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
 
 1. Humans: you want the Dropbox experience while staying in control of your data and you want something that does not create its own island but is interoperable
 
-2. Agents: as the CEO of Nvidia say: « when you deployed an agent ... the first thing you do is you take away all of its rights ... then you provision, you give it access to files ...». Fdrive is that provisioning tool that will make sure your agent only have access to what it needs, you set clear permission boundaries, with audit trail showing what the agent tried to do, what was allowed, and what was blocked
+2. Agents: as the CEO of Nvidia say: « when you deployed an agent ... the first thing you do is you take away all of its rights ... then you provision, you give it access to files ...». Fdrive along with [Filestash](https://github.com/mickael-kerjean/filestash) is that provisioning tool that will make sure your agent only have access to what it needs, you set clear permission boundaries, with audit trail showing what the agent tried to do, what was allowed, and what was blocked
 
 ## What it looks like?
 
@@ -39,7 +39,7 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
 docker plugin install machines/fdrive --alias fdrive
 export FILESTASH_SERVER=https://demo.filestash.app
 export FILESTASH_TOKEN=uKzArshpw49Pta2tJZmg1mywkHcmimpW4lCjtVDNTbUFpmN0W2PXajSRR_fA5VrRr4Ks1S5SHwn9YffL74qRrVr1jssRUCXp4_uZdItrYUhQegWAGh5xT45-DgHowJb5aFtO-nODOMpFa6Y84Sit7za3GyM1miEpYm0wWgVucCs4tA==
-docker compose -f - up << 'EOF'
+docker compose -f - up <<EOF
 services:
   agent:
     image: alpine
@@ -76,6 +76,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 | `fdrive-mac` | FileProvider, Swift |
 | `fdrive-ios` | FileProvider, Swift |
 | `fdrive-android` | Storage Access Framework, Kotlin |
+| `fdrive-docker` | Docker volume plugin API, FUSE |
 
 ## Features
 
@@ -110,6 +111,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 - [X] MacOS FileProvider: ~~we are using fuse-t temporarly until we have actual apple hardware~~
 - [ ] Testing: test on all possible devices / configuration
 - [X] Support for delta download: same as the existing upload but for download. Awaiting for server support
+- [X] Docker Volume Driver: give any container, AI agent included, a plain folder backed by your S3, SFTP, FTP, IPFS, AzureBlob, Sharepoint, etc...
 - [ ] MDM integration: preconfigure the client and roll it out across a fleet
 - [ ] full POSIX compliance
 - [ ] finetune performance
