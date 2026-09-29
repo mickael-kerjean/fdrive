@@ -960,6 +960,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "fdrive-docker"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "fdrive-core",
+ "fdrive-linux",
+ "fuser",
+ "libc",
+ "log",
+ "serde",
+ "serde_json",
+ "tiny_http",
+ "tokio",
+]
+
+[[package]]
 name = "fdrive-ios"
 version = "0.1.0"
 dependencies = [

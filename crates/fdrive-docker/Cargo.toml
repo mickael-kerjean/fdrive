@@ -1,0 +1,20 @@
+[package]
+name = "fdrive-docker"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "fdrive-docker"
+path = "src/main.rs"
+
+[dependencies]
+fdrive-core = { path = "../fdrive-core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiny_http = "0.12"
+log = "0.4"
+env_logger = "0.11"
+fdrive-linux = { path = "../fdrive-linux", default-features = false }
+fuser = { version = "0.17", default-features = false }
+libc = "0.2"

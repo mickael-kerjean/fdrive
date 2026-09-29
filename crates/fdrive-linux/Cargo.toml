@@ -6,6 +6,11 @@ edition = "2021"
 [[bin]]
 name = "fdrive"
 path = "src/main.rs"
+required-features = ["gui"]
+
+[features]
+default = ["gui"]
+gui = ["dep:gtk", "dep:libayatana-appindicator", "dep:glib"]
 
 [[bench]]
 name = "sqlite"
@@ -26,9 +31,9 @@ env_logger = "0.11"
 [target.'cfg(target_os = "linux")'.dependencies]
 fuser = { version = "0.17", default-features = false }
 libc = "0.2"
-gtk = "0.15"
-libayatana-appindicator = "0.2"
-glib = { version = "0.15", features = ["v2_50"] }
+gtk = { version = "0.15", optional = true }
+libayatana-appindicator = { version = "0.2", optional = true }
+glib = { version = "0.15", features = ["v2_50"], optional = true }
 
 [dev-dependencies]
 httpmock = "0.7"

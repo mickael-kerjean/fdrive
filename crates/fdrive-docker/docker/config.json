@@ -1,0 +1,8 @@
+{
+  "description": "Filestash volume driver",
+  "entrypoint": ["/usr/bin/fdrive-docker"],
+  "interface": { "types": ["docker.volumedriver/1.0"], "socket": "fdrive.sock" },
+  "network": { "type": "host" },
+  "propagatedMount": "/mnt/volumes",
+  "linux": { "capabilities": ["CAP_SYS_ADMIN"], "devices": [{ "path": "/dev/fuse" }] }
+}
