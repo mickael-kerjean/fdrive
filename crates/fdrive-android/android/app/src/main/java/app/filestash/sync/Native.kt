@@ -5,6 +5,7 @@ import android.provider.DocumentsContract
 import android.webkit.CookieManager
 import app.filestash.core.Adapter
 import app.filestash.core.FsException
+import app.filestash.core.RemoteObserver
 import app.filestash.core.login as coreLogin
 import java.io.File
 
@@ -22,7 +23,7 @@ object Native {
         val store = store ?: CredentialStore(context.applicationContext).also { store = it }
         if (client == null) {
             store.load()?.let { creds ->
-                client = Adapter(creds.url, creds.insecure, creds.token, dataDir(context))
+                client = connect(context, creds.url, creds.insecure, creds.token)
             }
         }
         return store
@@ -37,7 +38,7 @@ object Native {
         )
         store.save(credentials.copy(token = token))
         client?.close()
-        client = Adapter(credentials.url, credentials.insecure, token, dataDir(context))
+        client = connect(context, credentials.url, credentials.insecure, token)
         notifyRootsChanged(context)
     }
 
@@ -46,7 +47,7 @@ object Native {
         val store = init(context)
         store.save(Credentials(url, false, "", "", "", token))
         client?.close()
-        client = Adapter(url, false, token, dataDir(context))
+        client = connect(context, url, false, token)
         notifyRootsChanged(context)
     }
 
@@ -91,7 +92,20 @@ object Native {
         val token = coreLogin(creds.url, creds.insecure, creds.user, creds.password, creds.storage)
         store?.saveToken(token)
         client?.close()
-        client = Adapter(creds.url, creds.insecure, token, dataDir(context))
+        client = connect(context, creds.url, creds.insecure, token)
+    }
+
+    private fun connect(context: Context, url: String, insecure: Boolean, token: String): Adapter {
+        val resolver = context.applicationContext.contentResolver
+        return Adapter(url, insecure, token, dataDir(context)).also {
+            it.startWatch(object : RemoteObserver {
+                override fun changed(directories: List<String>) {
+                    for (dir in directories) {
+                        resolver.notifyChange(DocumentsContract.buildChildDocumentsUri(AUTHORITY, dir), null)
+                    }
+                }
+            })
+        }
     }
 
     private fun dataDir(context: Context): String =

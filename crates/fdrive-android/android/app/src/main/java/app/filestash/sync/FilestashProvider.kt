@@ -76,6 +76,7 @@ class FilestashProvider : DocumentsProvider() {
         projection: Array<out String>?,
         sortOrder: String?,
     ): Cursor {
+        WatchService.keepAlive(context!!)
         val cursor = MatrixCursor(projection ?: DOCUMENT_PROJECTION)
         cursor.setNotificationUri(
             context!!.contentResolver,

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use fdrive_core::engine::{Engine, Observation};
+use fdrive_core::engine::{Engine, Observation, Watch};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
 use fdrive_core::sdk::{self, Sdk};
@@ -151,10 +151,16 @@ fn rel(document_id: &str) -> RelPath {
     RelPath::new(document_id)
 }
 
+#[uniffi::export(callback_interface)]
+pub trait RemoteObserver: Send + Sync {
+    fn changed(&self, directories: Vec<String>);
+}
+
 #[derive(uniffi::Object)]
 pub struct Adapter {
     rt: Runtime,
     engine: Arc<Engine<AndroidTree>>,
+    watcher: Mutex<Option<Watch>>,
 }
 
 #[uniffi::export]
@@ -179,7 +185,19 @@ impl Adapter {
         let engine = Engine::start(rt.handle().clone(), Arc::new(sdk), tree);
         engine.cache().evict(&cache_dir)?;
         engine.system().recover();
-        Ok(Arc::new(Self { rt, engine }))
+        Ok(Arc::new(Self {
+            rt,
+            engine,
+            watcher: Mutex::new(None),
+        }))
+    }
+
+    pub fn start_watch(&self, observer: Box<dyn RemoteObserver>) {
+        let engine = self.engine.clone();
+        *self.watcher.lock().unwrap() = Some(self.engine.watch(move |changes| {
+            engine.local().meta.lock().unwrap().retain(|dir, _| !changes.affects(dir));
+            observer.changed(changes.directories().map(RelPath::as_dir).collect());
+        }));
     }
 
     pub fn ls(&self, path: String) -> Result<Vec<Entry>, FsError> {
