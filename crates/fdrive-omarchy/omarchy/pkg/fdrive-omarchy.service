@@ -1,0 +1,10 @@
+[Unit]
+Description=Filestash drive for Omarchy
+
+[Service]
+ExecStart=/usr/bin/fdrive-omarchy daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

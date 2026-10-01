@@ -6,6 +6,7 @@ members = [
     "crates/fdrive-ios",
     "crates/fdrive-linux",
     "crates/fdrive-mac",
+    "crates/fdrive-omarchy",
     "crates/fdrive-windows",
 ]
 default-members = [

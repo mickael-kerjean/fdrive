@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::path::Path;
 
-pub use ::log::{error, info, warn};
+pub use ::log::{error, info};
 
 pub fn init(data: &Path) -> std::io::Result<()> {
     let path = data.join("fdrive.log");

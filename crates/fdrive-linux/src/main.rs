@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 mod app;
@@ -7,11 +6,8 @@ mod log;
 
 use fdrive_core::config as store;
 use fdrive_core::engine::UploadStatus;
-use fdrive_core::sdk::Sdk;
-use fdrive_linux::adapter::Adapter;
 use fdrive_linux::gui::{self, Boot, Credentials, Status, Tray, TrayEvent};
-use fdrive_linux::wire::MountFs;
-use fuser::{Config, MountOption};
+use fdrive_linux::session;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 #[tokio::main]
@@ -84,9 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 struct Session {
-    remote_watch: fdrive_core::engine::Watch,
-    adapter: Arc<Adapter>,
-    fuse: fuser::BackgroundSession,
+    inner: session::Session,
     upload_status: tokio::sync::watch::Receiver<UploadStatus>,
     fuse_watch: tokio::time::Interval,
 }
@@ -100,40 +94,22 @@ async fn connect(
     if let Some(tray) = tray {
         tray.set(Status::Syncing, true).await;
     }
-    let login = async {
-        if let Err(err) = std::fs::symlink_metadata(mount) {
-            if err.raw_os_error() == Some(libc::ENOTCONN) {
-                log::warn!("stale mount at {}, detaching", mount.display());
-                let _ = std::process::Command::new("fusermount3").arg("-uz").arg(mount).status();
-            }
-        }
-        std::fs::create_dir_all(mount)?;
-        let sdk = Sdk::builder(&creds.url).insecure(creds.insecure).token(creds.token.clone())?;
-        store::remember(data, &creds.url, sdk.token().unwrap_or_default(), creds.insecure);
-        let adapter = Arc::new(Adapter::new(tokio::runtime::Handle::current(), Arc::new(sdk), data)?);
-        let mount_config = {
-            let mut c = Config::default();
-            c.mount_options = vec![MountOption::FSName("filestash".to_string()), MountOption::DefaultPermissions];
-            c
-        };
-        let filesystem = MountFs::new(adapter.clone(), tokio::runtime::Handle::current());
-        let fuse = fuser::spawn_mount2(filesystem.clone(), mount, &mount_config)?;
-        Ok(Session {
-            remote_watch: filesystem.watch(fuse.notifier()),
-            upload_status: adapter.status().watch(),
-            adapter,
-            fuse,
-            fuse_watch: tokio::time::interval(Duration::from_secs(2)),
-        })
-    }.await;
-    match login {
-        Ok(session) => {
-            log::info!("mounted {}", mount.display());
+    let creds = store::Session {
+        url: creds.url.clone(),
+        token: creds.token.clone(),
+        insecure: creds.insecure,
+    };
+    match session::connect(&creds, mount, data).await {
+        Ok(inner) => {
             if let Some(tray) = tray {
-                tray.attach(session.adapter.status().activity()).await;
+                tray.attach(inner.adapter.status().activity()).await;
                 tray.set(Status::Ok, true).await;
             }
-            Ok(session)
+            Ok(Session {
+                upload_status: inner.adapter.status().watch(),
+                fuse_watch: tokio::time::interval(Duration::from_secs(2)),
+                inner,
+            })
         }
         Err(err) => {
             log::error!("connect: {err}");
@@ -146,30 +122,10 @@ async fn connect(
 }
 
 async fn disconnect(session: Session, data: &Path, forget: bool, tray: Option<&Tray>) {
-    log::info!("unmounting");
     if let Some(tray) = tray {
         tray.set(Status::Syncing, true).await;
     }
-    let Session {
-        adapter,
-        fuse,
-        remote_watch,
-        ..
-    } = session;
-    drop(remote_watch);
-    if fuse.guard.is_finished() {
-        let _ = fuse.join();
-    } else if let Err(err) = fuse.umount_and_join() {
-        log::warn!("unmount: {err}");
-    }
-    adapter.system().flush(Duration::from_secs(30)).await;
-    if forget {
-        if let Err(err) = adapter.system().vacuum() {
-            log::warn!("vacuum on logout: {err}");
-        }
-        store::forget(data);
-        adapter.system().logout().await;
-    }
+    session::disconnect(session.inner, data, forget).await;
 }
 
 async fn next_gui(
@@ -196,7 +152,7 @@ async fn next_gui(
             }
             _ = tokio::signal::ctrl_c() => return None,
             _ = session.fuse_watch.tick() => {
-                if session.fuse.guard.is_finished() {
+                if session.inner.fuse.guard.is_finished() {
                     log::info!("unmounted");
                     return None;
                 }
@@ -217,7 +173,7 @@ async fn next_tty(session: &mut Option<Session>) {
                 return
             },
             _ = session.fuse_watch.tick() => {
-                if session.fuse.guard.is_finished() {
+                if session.inner.fuse.guard.is_finished() {
                     log::info!("unmounted");
                     return;
                 }

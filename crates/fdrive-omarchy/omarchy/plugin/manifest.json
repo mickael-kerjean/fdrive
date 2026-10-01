@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "filestash.fdrive",
+  "name": "FDrive",
+  "version": "0.1.0",
+  "author": "Mickael Kerjean",
+  "license": "AGPL-3.0",
+  "description": "A sync client that gives you the Dropbox experience on your existing storage",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Filestash Drive",
+    "category": "Files",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

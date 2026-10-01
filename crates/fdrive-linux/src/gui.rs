@@ -8,6 +8,7 @@ mod login_tty;
 mod tray;
 mod webview;
 
+pub use crate::session::default_data;
 pub use fdrive_core::sdk::normalize_server;
 pub use login_tty::login_tty;
 pub use tray::Tray;
@@ -82,14 +83,6 @@ impl Status {
             Self::Error => "icon-error",
         }
     }
-}
-
-pub fn default_data() -> PathBuf {
-    std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("filestash")
 }
 
 #[cfg(test)]

@@ -1,0 +1,46 @@
+# Maintainer: Mickael Kerjean <mickael.kerjean@gmail.com>
+pkgname=fdrive-omarchy-git
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Filestash drive for Omarchy"
+arch=('x86_64' 'aarch64')
+url="https://github.com/mickael-kerjean/fdrive"
+license=('AGPL-3.0-only')
+depends=('fuse3' 'gcc-libs' 'glibc')
+makedepends=('cargo' 'git')
+options=('!lto')
+provides=('fdrive-omarchy')
+conflicts=('fdrive-omarchy')
+source=("fdrive::git+https://github.com/mickael-kerjean/fdrive.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd fdrive
+  printf "0.1.0.r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd fdrive
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd fdrive
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p fdrive-omarchy
+}
+
+check() {
+  cd fdrive
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen -p fdrive-omarchy
+}
+
+package() {
+  cd fdrive
+  install -Dm755 target/release/fdrive-omarchy "$pkgdir/usr/bin/fdrive-omarchy"
+  install -Dm644 crates/fdrive-omarchy/omarchy/pkg/fdrive-omarchy.service "$pkgdir/usr/lib/systemd/user/fdrive-omarchy.service"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

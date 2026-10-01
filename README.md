@@ -77,6 +77,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 | `fdrive-ios` | FileProvider, Swift |
 | `fdrive-android` | Storage Access Framework, Kotlin |
 | `fdrive-docker` | Docker volume plugin API, FUSE |
+| `fdrive-omarchy` | QML, FUSE |
 
 ## Features
 

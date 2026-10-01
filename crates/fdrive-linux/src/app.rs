@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::Parser;
 use fdrive_linux::gui::{self, Boot, Credentials};
@@ -30,7 +30,7 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
     let data = args.data.unwrap_or_else(gui::default_data);
     std::fs::create_dir_all(&data)?;
     crate::log::init(&data)?;
-    instance_lock(&data)?;
+    fdrive_linux::session::instance_lock(&data)?;
 
     let env = |name| std::env::var(name).ok().filter(|v: &String| !v.trim().is_empty());
     let (server, token) = (env("FILESTASH_SERVER"), env("FILESTASH_TOKEN"));
@@ -63,24 +63,4 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
         data,
         boot,
     })
-}
-
-fn instance_lock(data: &Path) -> Result<(), String> {
-    use std::os::fd::AsRawFd;
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(data.join("fdrive.lock"))
-        .map_err(|err| format!("fdrive.lock: {err}"))?;
-    match unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } {
-        0 => {
-            std::mem::forget(file);
-            Ok(())
-        }
-        _ => Err(format!(
-            "another instance is already running on {} — quit it first",
-            data.display()
-        )),
-    }
 }
