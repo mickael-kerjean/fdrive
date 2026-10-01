@@ -3,15 +3,16 @@ members = [
     "crates/fdrive-android",
     "crates/fdrive-core",
     "crates/fdrive-docker",
+    "crates/fdrive-gtk",
     "crates/fdrive-ios",
     "crates/fdrive-linux",
     "crates/fdrive-mac",
-    "crates/fdrive-omarchy",
     "crates/fdrive-windows",
 ]
 default-members = [
     "crates/fdrive-android",
     "crates/fdrive-core",
+    "crates/fdrive-gtk",
     "crates/fdrive-ios",
     "crates/fdrive-linux",
     "crates/fdrive-mac",

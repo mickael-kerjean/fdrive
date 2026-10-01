@@ -1,0 +1,23 @@
+[package]
+name = "fdrive-gtk"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "fdrive-gtk"
+path = "src/main.rs"
+
+[dependencies]
+fdrive-core = { path = "../fdrive-core" }
+fdrive-linux = { path = "../fdrive-linux" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "sync"] }
+clap = { version = "4", features = ["derive", "env"] }
+regex = "1"
+log = "0.4"
+env_logger = "0.11"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+gtk = "0.15"
+libayatana-appindicator = "0.2"
+glib = { version = "0.15", features = ["v2_50"] }

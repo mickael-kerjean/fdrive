@@ -21,7 +21,7 @@ pub fn socket_path() -> std::io::Result<PathBuf> {
     let dir = std::env::var_os("XDG_RUNTIME_DIR")
         .filter(|dir| !dir.is_empty())
         .ok_or_else(|| std::io::Error::other("XDG_RUNTIME_DIR is not set"))?;
-    Ok(PathBuf::from(dir).join("fdrive-omarchy.sock"))
+    Ok(PathBuf::from(dir).join("fdrive.sock"))
 }
 
 pub async fn call(socket: &Path, request: &Request) -> std::io::Result<Value> {

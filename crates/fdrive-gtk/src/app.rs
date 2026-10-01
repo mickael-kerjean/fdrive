@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use fdrive_linux::gui::{self, Boot, Credentials};
+use fdrive_gtk::gui::{self, Boot, Credentials};
 
 #[derive(Parser)]
 #[command(

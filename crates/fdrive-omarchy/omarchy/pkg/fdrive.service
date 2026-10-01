@@ -2,7 +2,7 @@
 Description=Filestash drive for Omarchy
 
 [Service]
-ExecStart=/usr/bin/fdrive-omarchy daemon
+ExecStart=/usr/bin/fdrive daemon
 Restart=on-failure
 RestartSec=5
 

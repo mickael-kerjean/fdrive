@@ -29,18 +29,12 @@ build() {
   cd fdrive
   export RUSTUP_TOOLCHAIN=stable
   export CARGO_TARGET_DIR=target
-  cargo build --frozen --release -p fdrive-omarchy
-}
-
-check() {
-  cd fdrive
-  export RUSTUP_TOOLCHAIN=stable
-  cargo test --frozen -p fdrive-omarchy
+  cargo build --frozen --release -p fdrive-linux
 }
 
 package() {
   cd fdrive
-  install -Dm755 target/release/fdrive-omarchy "$pkgdir/usr/bin/fdrive-omarchy"
-  install -Dm644 crates/fdrive-omarchy/omarchy/pkg/fdrive-omarchy.service "$pkgdir/usr/lib/systemd/user/fdrive-omarchy.service"
+  install -Dm755 target/release/fdrive "$pkgdir/usr/bin/fdrive"
+  install -Dm644 crates/fdrive-omarchy/omarchy/pkg/fdrive.service "$pkgdir/usr/lib/systemd/user/fdrive.service"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

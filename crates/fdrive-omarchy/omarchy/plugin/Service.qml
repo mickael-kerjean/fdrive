@@ -28,7 +28,7 @@ Item {
 
   function openLogin(host) {
     root.actionStatus = "Checking " + host.trim() + "…"
-    run(["fdrive-omarchy", "login-url", host.trim()], "", function(ok, out, err) {
+    run(["fdrive", "login-url", host.trim()], "", function(ok, out, err) {
       if (!ok) {
         root.actionStatus = err || "Not a Filestash server"
         return
@@ -41,27 +41,27 @@ Item {
 
   function login(host, token) {
     root.actionStatus = "Signing in…"
-    run(["fdrive-omarchy", "login", host.trim()], token.trim() + "\n", function(ok, out, err) {
+    run(["fdrive", "login", host.trim()], token.trim() + "\n", function(ok, out, err) {
       flash(ok ? "Signed in" : err || "Sign in failed")
     })
   }
 
   function logout() {
     root.actionStatus = "Signing out…"
-    run(["fdrive-omarchy", "logout"], "", function(ok, out, err) {
+    run(["fdrive", "logout"], "", function(ok, out, err) {
       flash(ok ? "Signed out" : err || "Sign out failed")
     })
   }
 
   function clear() {
-    run(["fdrive-omarchy", "clear"], "", function(ok, out, err) {
+    run(["fdrive", "clear"], "", function(ok, out, err) {
       if (ok) refresh()
       else flash(err || "Could not clear the list")
     })
   }
 
   function setActive(on) {
-    run(["systemctl", "--user", on ? "start" : "stop", "fdrive-omarchy"], "", function(ok, out, err) {
+    run(["systemctl", "--user", on ? "start" : "stop", "fdrive"], "", function(ok, out, err) {
       if (ok) refresh()
       else flash(err || "Could not " + (on ? "start" : "stop") + " fdrive")
     })
@@ -104,7 +104,7 @@ Item {
 
   Process {
     id: statusProcess
-    command: ["fdrive-omarchy", "status"]
+    command: ["fdrive", "status"]
     stdout: StdioCollector { id: statusOut; waitForEnd: true }
     onExited: {
       var status = Model.parseStatus(statusOut.text)
@@ -130,7 +130,7 @@ Item {
       input = ""
     }
     onExited: function(exitCode) {
-      var err = actionErr.text.trim().split("\n")[0].replace(/^fdrive-omarchy: /, "")
+      var err = actionErr.text.trim().split("\n")[0].replace(/^fdrive: /, "")
       done(exitCode === 0, actionOut.text, err)
     }
   }

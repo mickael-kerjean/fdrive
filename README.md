@@ -71,7 +71,8 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 | crate | technology |
 |---|---|
 | `fdrive-core` | `model` (the sync vocabulary: `Operation`, `Plan`, `Fate`), `engine` (the journal and its state, plan replay, conflict rules, cache policy), the `LocalStore` port, the Filestash HTTP sdk |
-| `fdrive-linux` | FUSE, GTK |
+| `fdrive-linux` | FUSE, daemon + CLI |
+| `fdrive-gtk` | GTK, FUSE |
 | `fdrive-windows` | CfAPI, Win32 |
 | `fdrive-mac` | FileProvider, Swift |
 | `fdrive-ios` | FileProvider, Swift |
