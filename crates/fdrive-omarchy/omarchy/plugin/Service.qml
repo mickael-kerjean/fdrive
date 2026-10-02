@@ -15,8 +15,9 @@ Item {
   property string sparkline: ""
   property string rate: ""
   property string actionStatus: ""
+  property bool active: true
 
-  readonly property bool running: phase !== "stopped"
+  readonly property bool running: daemonProcess.running
   readonly property bool signedIn: Model.signedIn(phase)
   readonly property bool busy: action.running
 
@@ -61,10 +62,8 @@ Item {
   }
 
   function setActive(on) {
-    run(["systemctl", "--user", on ? "start" : "stop", "fdrive"], "", function(ok, out, err) {
-      if (ok) refresh()
-      else flash(err || "Could not " + (on ? "start" : "stop") + " fdrive")
-    })
+    root.active = on
+    root.refresh()
   }
 
   function openFolder() {
@@ -100,6 +99,19 @@ Item {
     id: clearStatus
     interval: 3500
     onTriggered: root.actionStatus = ""
+  }
+
+  Process {
+    id: daemonProcess
+    command: ["fdrive", "daemon"]
+    running: root.active
+    stderr: StdioCollector { id: daemonError; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (root.active) {
+        root.active = false
+        root.lastError = daemonError.text.trim().split("\n")[0].replace(/^fdrive: /, "") || "Fdrive stopped"
+      }
+    }
   }
 
   Process {

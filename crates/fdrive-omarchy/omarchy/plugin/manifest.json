@@ -1,21 +1,21 @@
 {
-  "schemaVersion": 1,
-  "id": "filestash.fdrive",
-  "name": "FDrive",
-  "version": "0.1.0",
-  "author": "Mickael Kerjean",
-  "license": "AGPL-3.0",
-  "description": "A sync client that gives you the Dropbox experience on your existing storage",
-  "kinds": [
-    "bar-widget"
-  ],
-  "entryPoints": {
-    "barWidget": "BarWidget.qml"
-  },
-  "barWidget": {
-    "displayName": "Filestash Drive",
-    "category": "Files",
-    "allowMultiple": false,
-    "defaultSection": "right"
-  }
+    "schemaVersion": 1,
+    "id": "filestash.fdrive",
+    "name": "FDrive",
+    "version": "0.1.0",
+    "author": "Mickael Kerjean",
+    "license": "AGPL-3.0",
+    "description": "A sync client that gives you the Dropbox experience on your Omarchy desktop, letting you sync files from virtually any storage or file transfer technology you already have: S3, SFTP, FTP, WebDAV, IPFS, SMB, NFS... We support pretty much everything (even sharepoint!)",
+    "kinds": [
+        "bar-widget"
+    ],
+    "entryPoints": {
+        "barWidget": "BarWidget.qml"
+    },
+    "barWidget": {
+        "displayName": "Filestash Drive",
+        "category": "Files",
+        "allowMultiple": false,
+        "defaultSection": "right"
+    }
 }

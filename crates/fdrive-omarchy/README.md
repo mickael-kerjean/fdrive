@@ -5,11 +5,18 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
     <em>Screenshot</em>
 </p>
 
+To install, run:
+```
+omarchy plugin add https://github.com/mickael-kerjean/fdrive-omarchy.git --enable
+```
+
+*Note:* For testing, you can use [https://demo.filestash.app](https://demo.filestash.app) and our read-only WebDAV instance at `https://webdav.filestash.app`.
+
 ## Why?
 
 Omarchy needs better sync options that let you stay in control of your data, fetch files on demand through a virtual filesystem, work offline, and sync changes in the background.
 
-Like Dropbox, but with your own storage. As BrandonM famously said years ago:
+Like Dropbox, but with your own storage. It tooks almost 20 years to happen since BrandonM famously said:
 
 <img src="https://raw.githubusercontent.com/mickael-kerjean/filestash_images/master/.assets/hn.png" />
 
