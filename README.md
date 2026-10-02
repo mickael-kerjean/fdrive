@@ -12,37 +12,37 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-mac.png?v=20260831" alt="mac screenshot" />
-    <em>Mac</em>
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-mac">Mac</a></em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-windows.png?v=20260831" alt="windows screenshot" />
-    <em>Windows</em>
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-windows">Windows</a></em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-linux.png?v=20260929" alt="linux screenshot">
-    <em>Linux GTK</em>
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-gtk">Linux GTK</a></em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-omarchy.png" alt="linux screenshot">
-    <em>Linux Omarchy</em>
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-omarchy">Linux Omarchy</a></em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-kde.png" alt="linux screenshot">
-    <em>Linux KDE</em>
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-kde">Linux KDE</a></em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-iphone.png" alt="mac screenshot" />
-    <em>Iphone</em>
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-ios">Iphone</a></em>
 </p>
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-android.png" alt="android screenshot" />
-    <em>Android</em>
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-android">Android</a></em>
 </p>
 
 ```

@@ -12,32 +12,34 @@ node {
                 cd target/omarchy-plugin
                 git rm -r --ignore-unmatch .
                 cp -R ../../crates/fdrive-omarchy/omarchy/plugin/. .
-                cp ../../LICENSE .
-                echo 'This release is automatically generated from the [fdrive omarchy crate](https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-omarchy).' > README.md
+                cp ../../LICENSE ../../crates/fdrive-omarchy/README.md .
+                printf '> **Heads up:** This repository is generated automatically by CI. Development happens in the [Filestash Drive repository](https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-omarchy).\n\n' | cat - README.md > README.md.tmp
+                mv README.md.tmp README.md
                 curl -fSL https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-omarchy.png -o preview.png
                 git -C ../.. rev-parse HEAD > revision
 
-                cat > fdrive <<'EOF'
-                #!/bin/sh
-                set -eu
-                plugin="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-                binary="${XDG_CACHE_HOME:-$HOME/.cache}/fdrive/$(cat "$plugin/revision")/fdrive"
-                if [ ! -x "$binary" ]; then
-                    mkdir -p "$(dirname -- "$binary")"
-                    (
-                        flock 9
-                        [ ! -x "$binary" ] || exit 0
-                        temporary=$(mktemp "$binary.XXXXXX")
-                        trap 'rm -f "$temporary"' EXIT
-                        curl -fsSL --connect-timeout 15 --max-time 120 https://downloads.filestash.app/latest/fdrive-linux-x86_64.bin -o "$temporary"
-                        chmod +x "$temporary"
-                        mv "$temporary" "$binary"
-                    ) 9>"$binary.lock"
-                fi
-                exec "$binary" "$@"
-                EOF
-                chmod +x fdrive
                 '''.stripIndent().trim()
+
+            def launcher = [
+                '#!/bin/sh',
+                'set -eu',
+                'plugin="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"',
+                'binary="${XDG_CACHE_HOME:-$HOME/.cache}/fdrive/$(cat "$plugin/revision")/fdrive"',
+                'if [ ! -x "$binary" ]; then',
+                '    mkdir -p "$(dirname -- "$binary")"',
+                '    (',
+                '        flock 9',
+                '        [ ! -x "$binary" ] || exit 0',
+                '        temporary=$(mktemp "$binary.XXXXXX")',
+                '        curl -fsSL --connect-timeout 15 --max-time 120 https://downloads.filestash.app/latest/fdrive-linux-x86_64.bin -o "$temporary" || { rm -f "$temporary"; exit 1; }',
+                '        chmod +x "$temporary"',
+                '        mv "$temporary" "$binary"',
+                '    ) 9>"$binary.lock"',
+                'fi',
+                'exec "$binary" "$@"'
+            ].join('\n') + '\n'
+            writeFile file: "target/omarchy-plugin/fdrive", text: launcher
+            sh 'chmod +x target/omarchy-plugin/fdrive'
 
             def path = "target/omarchy-plugin/Service.qml"
             def executable = 'decodeURIComponent(Qt.resolvedUrl("fdrive").toString().substring(7))'
