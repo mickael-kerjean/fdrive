@@ -42,7 +42,7 @@ async fn main() {
             Cmd::Status => {
                 let state = match ipc::call(&socket, &Request::Status).await {
                     Ok(state) => state,
-                    Err(_) => json!({ "phase": "stopped" }),
+                    Err(_) => json!({ "phase": "stopped", "phaseText": "Off" }),
                 };
                 println!("{state}");
                 Ok(())

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use fdrive_core::activity::{rate_line, sparkline, Direction, Outcome};
+use fdrive_core::activity::{fmt_bytes, rate_line, sparkline, Direction, Outcome};
 use fdrive_core::config as store;
 use fdrive_core::engine::UploadStatus;
 use fdrive_core::sdk::{normalize_server, Sdk};
@@ -30,7 +30,9 @@ struct Inner {
 #[serde(rename_all = "camelCase")]
 pub struct State {
     pub phase: Phase,
+    pub phase_text: &'static str,
     pub server: String,
+    pub host: String,
     pub mount: PathBuf,
     pub last_error: String,
     pub sparkline: String,
@@ -48,9 +50,24 @@ pub enum Phase {
     LoggedOut,
 }
 
+impl Phase {
+    pub fn text(self) -> &'static str {
+        match self {
+            Phase::Ok => "Up to date",
+            Phase::Syncing => "Syncing",
+            Phase::Connecting => "Connecting",
+            Phase::Error => "Sync trouble",
+            Phase::LoggedOut => "Not signed in",
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct Transfer {
     pub path: String,
+    pub name: String,
+    pub detail: String,
+    pub uri: String,
     pub direction: &'static str,
     pub size: u64,
     pub progress: u64,
@@ -94,12 +111,16 @@ impl Drive {
         let snap = inner.session.as_ref().map(|s| s.adapter.status().activity().snapshot());
         State {
             phase,
+            phase_text: phase.text(),
+            host: host_of(&saved.url),
             server: saved.url,
             mount: self.mount.clone(),
             last_error: inner.last_error.clone(),
             sparkline: snap.as_ref().map(|s| sparkline(s, 24)).unwrap_or_default(),
             rate: snap.as_ref().map(rate_line).unwrap_or_default(),
-            transfers: snap.map(|s| s.transfers.iter().map(transfer).collect()).unwrap_or_default(),
+            transfers: snap
+                .map(|s| s.transfers.iter().map(|t| transfer(&self.mount, t)).collect())
+                .unwrap_or_default(),
         }
     }
 
@@ -187,14 +208,35 @@ impl Drive {
     }
 }
 
-fn transfer(t: &fdrive_core::activity::Transfer) -> Transfer {
+fn host_of(server: &str) -> String {
+    let rest = server.split_once("://").map_or(server, |(_, rest)| rest);
+    rest.split('/').next().unwrap_or_default().to_owned()
+}
+
+fn transfer(mount: &std::path::Path, t: &fdrive_core::activity::Transfer) -> Transfer {
     let (outcome, error) = match &t.outcome {
         Outcome::Running => ("running", String::new()),
         Outcome::Done => ("done", String::new()),
         Outcome::Failed(err) => ("failed", err.clone()),
     };
+    let (folder, name) = t.path.rsplit_once('/').unwrap_or(("", &t.path));
+    let folder = if folder.is_empty() { "/" } else { folder };
+    let detail = match &t.outcome {
+        Outcome::Failed(err) => format!("Failed · {}", if err.is_empty() { folder } else { err }),
+        Outcome::Running => {
+            let percent = if t.size > 0 { 100 * t.progress / t.size } else { 0 };
+            format!("{percent}% of {} · {folder}", fmt_bytes(t.size))
+        }
+        Outcome::Done => format!("{} · {folder}", fmt_bytes(t.size)),
+    };
+    let uri = url::Url::from_file_path(mount.join(t.path.trim_start_matches('/')))
+        .map(String::from)
+        .unwrap_or_default();
     Transfer {
         path: t.path.clone(),
+        name: name.to_owned(),
+        detail,
+        uri,
         direction: match t.direction {
             Direction::Up => "up",
             Direction::Down => "down",

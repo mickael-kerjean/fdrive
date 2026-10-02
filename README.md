@@ -66,6 +66,7 @@ EOF
 - Windows: <a href="https://downloads.filestash.app/latest/fdrive-windows-x86_64.exe">exe</a>
 - Mac: <a href="https://downloads.filestash.app/latest/Filestash.dmg">silicon</a>
 - Linux GTK: <a href="https://downloads.filestash.app/latest/fdrive-linux-gtk-x86_64.bin">amd64</a>
+- Linux CLI: <a href="https://downloads.filestash.app/latest/fdrive-linux-x86_64.bin">amd64</a>
 - Iphone: apple store (coming soon)
 - Android: <a href="https://downloads.filestash.app/latest/fdrive-android.apk">apk</a>, play store (coming soon)
 

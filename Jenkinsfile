@@ -19,6 +19,7 @@ pipeline {
                     docker.image("rust:1-trixie").inside("--user=root") {
                         sh "apt-get update && apt-get install -y libgtk-3-dev libayatana-appindicator3-dev"
                         sh "cargo build --release -p fdrive-gtk"
+                        sh "cargo build --release -p fdrive-linux"
                     }
                     docker.image("rust:1-trixie").inside("--user=root") {
                         sh "apt-get update && apt-get install -y gcc-mingw-w64-x86-64"
@@ -43,6 +44,7 @@ pipeline {
                         withCredentials([sshUserPrivateKey(credentialsId: "app-filestash-hal", keyFileVariable: "SSH_KEY", usernameVariable: "SSH_USER")]) {
                             sh "apk add openssh-client"
                             sh 'scp -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no target/release/fdrive-gtk "$SSH_USER@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/latest/fdrive-linux-gtk-x86_64.bin"'
+                            sh 'scp -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no target/release/fdrive "$SSH_USER@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/latest/fdrive-linux-x86_64.bin"'
                             sh 'scp -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no target/x86_64-pc-windows-gnu/release/fdrive-windows.exe "$SSH_USER@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/latest/fdrive-windows-x86_64.exe"'
                             sh 'scp -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no crates/fdrive-android/android/app/build/outputs/apk/debug/app-debug.apk "$SSH_USER@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/latest/fdrive-android.apk"'
                         }
