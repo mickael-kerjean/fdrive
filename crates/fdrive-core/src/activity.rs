@@ -214,7 +214,7 @@ pub fn rate_line(snap: &Snapshot) -> String {
     format!("↓{}/s ↑{}/s", fmt_compact(down), fmt_compact(up))
 }
 
-fn fmt_bytes(n: u64) -> String {
+pub fn fmt_bytes(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut value = n as f64;
     let mut unit = 0;
