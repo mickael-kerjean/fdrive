@@ -31,6 +31,11 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
 </p>
 
 <p align="center">
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-kde.png" alt="linux screenshot">
+    <em>Linux KDE</em>
+</p>
+
+<p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-iphone.png" alt="mac screenshot" />
     <em>Iphone</em>
 </p>
@@ -112,7 +117,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 - [X] Linux GTK
 - [X] Linux Omarchy
 - [ ] Linux Gnome
-- [ ] Linux KDE Plasma
+- [X] Linux KDE Plasma
 - [ ] handles millions of files
 - [ ] add support for more conflict strategies
 - [ ] Profiles: connect to several servers / accounts in the same time

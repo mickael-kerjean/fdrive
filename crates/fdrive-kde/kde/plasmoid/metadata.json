@@ -1,0 +1,19 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "mickael.kerjean@gmail.com",
+                "Name": "Mickael Kerjean"
+            }
+        ],
+        "Category": "File System",
+        "Icon": "folder-cloud",
+        "Id": "app.filestash.fdrive",
+        "License": "AGPL-3.0",
+        "Name": "Filestash Drive",
+        "Version": "0.1.0",
+        "Website": "https://github.com/mickael-kerjean/fdrive"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPackageStructure": "Plasma/Applet"
+}
