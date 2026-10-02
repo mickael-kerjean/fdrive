@@ -1,0 +1,66 @@
+node {
+    properties([disableConcurrentBuilds()])
+    try {
+        checkout scm
+        dir("target/omarchy-plugin") { deleteDir() }
+        withCredentials([sshUserPrivateKey(credentialsId: "github-com-fdrive-omarchy", keyFileVariable: "SSH_KEY")]) {
+            sh '''
+                #!/bin/sh
+                set -eu
+                export GIT_SSH_COMMAND='ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes'
+                git clone git@github.com:mickael-kerjean/fdrive-omarchy.git target/omarchy-plugin
+                cd target/omarchy-plugin
+                git rm -r --ignore-unmatch .
+                cp -R ../../crates/fdrive-omarchy/omarchy/plugin/. .
+                cp ../../LICENSE .
+                echo 'This release is automatically generated from the [fdrive omarchy crate](https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-omarchy).' > README.md
+                git -C ../.. rev-parse HEAD > revision
+
+                cat > fdrive <<'EOF'
+                #!/bin/sh
+                set -eu
+                [ "${1:-}" != stop ] || exec systemctl --user stop fdrive.service
+                plugin="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+                binary="${XDG_CACHE_HOME:-$HOME/.cache}/fdrive/$(cat "$plugin/revision")/fdrive"
+                if [ ! -x "$binary" ]; then
+                    mkdir -p "$(dirname -- "$binary")"
+                    (
+                        flock 9
+                        [ ! -x "$binary" ] || exit 0
+                        temporary=$(mktemp "$binary.XXXXXX")
+                        trap 'rm -f "$temporary"' EXIT
+                        curl -fsSL --connect-timeout 15 --max-time 120 https://downloads.filestash.app/latest/fdrive-linux-x86_64.bin -o "$temporary"
+                        chmod +x "$temporary"
+                        mv "$temporary" "$binary"
+                    ) 9>"$binary.lock"
+                fi
+                case "${1:-}" in
+                    start) systemctl --user start fdrive.service 2>/dev/null ||
+                        exec systemd-run --user --unit=fdrive --collect --property=Restart=on-failure --property=RestartSec=5 -- "$binary" daemon ;;
+                    *) exec "$binary" "$@" ;;
+                esac
+                EOF
+                chmod +x fdrive
+                '''.stripIndent().trim()
+
+            def path = "target/omarchy-plugin/Service.qml"
+            def executable = 'decodeURIComponent(Qt.resolvedUrl("fdrive").toString().substring(7))'
+            writeFile file: path, text: readFile(path)
+                .replace('["fdrive",', "[${executable},")
+                .replace('["systemctl", "--user", on ? "start" : "stop", "fdrive"]', "[${executable}, on ? \"start\" : \"stop\"]")
+            sh '''
+                #!/bin/sh
+                set -eu
+                export GIT_SSH_COMMAND='ssh -i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes'
+                revision=$(git rev-parse HEAD)
+                cd target/omarchy-plugin
+                git add --all
+                git diff --cached --quiet && exit 0
+                git -c user.name="Filestash CI" -c user.email="ci@filestash.app" commit -m "Publish fdrive $revision"
+                git push origin master
+                '''.stripIndent().trim()
+        }
+    } finally {
+        cleanWs(disableDeferredWipeout: true, deleteDirs: true)
+    }
+}
