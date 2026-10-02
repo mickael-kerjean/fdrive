@@ -63,11 +63,11 @@ EOF
 
 ## Release
 
-- Windows: <a href="https://downloads.filestash.app/latest/Filestash.exe">exe</a>
+- Windows: <a href="https://downloads.filestash.app/latest/fdrive-windows-x86_64.exe">exe</a>
 - Mac: <a href="https://downloads.filestash.app/latest/Filestash.dmg">silicon</a>
-- Linux: <a href="https://downloads.filestash.app/latest/Filestash-x86.bin">amd64</a>
+- Linux GTK: <a href="https://downloads.filestash.app/latest/fdrive-linux-gtk-x86_64.bin">amd64</a>
 - Iphone: apple store (coming soon)
-- Android: <a href="https://downloads.filestash.app/latest/Filestash.apk">apk</a>, play store (coming soon)
+- Android: <a href="https://downloads.filestash.app/latest/fdrive-android.apk">apk</a>, play store (coming soon)
 
 ## Architecture
 
@@ -75,7 +75,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 
 | crate | technology |
 |---|---|
-| `fdrive-core` | `model` (the sync vocabulary: `Operation`, `Plan`, `Fate`), `engine` (the journal and its state, plan replay, conflict rules, cache policy), the `LocalStore` port, the Filestash HTTP sdk |
+| `fdrive-core` | the core engine used everywhere |
 | `fdrive-linux` | FUSE, daemon + CLI |
 | `fdrive-gtk` | GTK, FUSE |
 | `fdrive-windows` | CfAPI, Win32 |
