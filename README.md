@@ -6,7 +6,7 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
 
 1. Humans: you want the Dropbox experience while staying in control of your data and you want something that does not create its own island but is interoperable
 
-2. Agents: as the CEO of Nvidia say: « when you deployed an agent ... the first thing you do is you take away all of its rights ... then you provision, you give it access to files ...». Fdrive along with [Filestash](https://github.com/mickael-kerjean/filestash) is that provisioning tool that will make sure your agent only have access to what it needs, you set clear permission boundaries, with audit trail showing what the agent tried to do, what was allowed, and what was blocked
+2. [Agents](https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-docker): as the CEO of Nvidia say: « when you deployed an agent ... the first thing you do is you take away all of its rights ... then you provision, you give it access to files ...». Fdrive along with [Filestash](https://github.com/mickael-kerjean/filestash) is that provisioning tool that will make sure your agent only have access to what it needs, you set clear permission boundaries, with audit trail showing what the agent tried to do, what was allowed, and what was blocked
 
 ## What it looks like?
 
@@ -21,8 +21,13 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
 </p>
 
 <p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-linux.png?v=20260929" alt="linux screenshot">
-    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-gtk">Linux GTK</a></em>
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-kde.png" alt="linux screenshot">
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-kde">Linux KDE</a></em>
+</p>
+
+<p align="center">
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-gnome.png" alt="linux screenshot">
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-gnome">Linux Gnome</a></em>
 </p>
 
 <p align="center">
@@ -31,8 +36,8 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
 </p>
 
 <p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-kde.png" alt="linux screenshot">
-    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-kde">Linux KDE</a></em>
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-linux.png?v=20260929" alt="linux screenshot">
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-gtk">Linux GTK</a></em>
 </p>
 
 <p align="center">
@@ -116,8 +121,10 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 - [X] handle hundreds of thousands of files
 - [X] Linux GTK
 - [X] Linux Omarchy
-- [ ] Linux Gnome
+- [X] Linux Gnome
 - [X] Linux KDE Plasma
+- [ ] Linux Popos
+- [ ] Linux Sway
 - [ ] handles millions of files
 - [ ] add support for more conflict strategies
 - [ ] Profiles: connect to several servers / accounts in the same time

@@ -1,0 +1,6 @@
+{
+    "name": "Filestash Drive",
+    "description": "A sync client that gives you the Dropbox experience on your existing storage",
+    "uuid": "gnome@filestash.app",
+    "shell-version": ["48", "49", "50"]
+}
