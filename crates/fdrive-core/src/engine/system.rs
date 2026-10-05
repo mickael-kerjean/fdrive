@@ -17,6 +17,10 @@ impl<'a, T: LocalStore> System<'a, T> {
         self.0.pin_sweep();
     }
 
+    pub fn reset(&self) {
+        self.0.state().reset();
+    }
+
     pub async fn logout(&self) -> Result<()> {
         self.0.sdk.logout().await
     }

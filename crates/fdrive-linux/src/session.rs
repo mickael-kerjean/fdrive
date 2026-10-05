@@ -54,13 +54,14 @@ pub async fn disconnect(session: Session, data: &Path, forget: bool) {
     } else if let Err(err) = fuse.umount_and_join() {
         log::warn!("unmount: {err}");
     }
-    adapter.system().flush(Duration::from_secs(30)).await;
     if forget {
         if let Err(err) = adapter.system().vacuum() {
             log::warn!("vacuum on logout: {err}");
         }
         store::forget(data);
         adapter.system().logout().await;
+    } else {
+        adapter.system().flush(Duration::from_secs(30)).await;
     }
 }
 

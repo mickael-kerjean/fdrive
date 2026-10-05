@@ -19,6 +19,7 @@ export class Indicator {
         this.systemIndicator = new SystemIndicator();
         this._icon = this.systemIndicator._addIndicator();
         this._toggle = new QuickMenuToggle({title: "FDrive", toggleMode: true});
+        this._off = new PopupMenu.PopupMenuItem("Turn on FDrive to sync your files", {reactive: false, can_focus: false});
         this._error = new PopupMenu.PopupImageMenuItem("", "dialog-warning-symbolic", {reactive: false});
         this._login = new PopupMenu.PopupMenuSection();
         this._server = new St.Entry({hint_text: "Server, then Enter to sign in", x_expand: true, style: "background-color: rgba(0, 0, 0, 0.25)"});
@@ -41,7 +42,7 @@ export class Indicator {
         this._transfers.addMenuItem(transfersHeader);
         transfersScroll.set_child(this._transferList.actor);
         this._transfers.actor.add_child(transfersScroll);
-        for (const item of [this._error, this._login, this._account, this._transfers]) {
+        for (const item of [this._off, this._error, this._login, this._account, this._transfers]) {
             this._toggle.menu.addMenuItem(item);
         }
 
@@ -82,6 +83,7 @@ export class Indicator {
         this._toggle.set({gicon: icon, subtitle: status.phaseText, checked: status.phase !== "stopped"});
         this._toggle.menu.setHeader(icon, "Filestash Drive", subtitle);
         this._error.label.text = status.lastError;
+        this._off.visible = status.phase === "stopped";
         this._error.visible = status.lastError !== "";
         this._login.actor.visible = status.phase === "loggedOut";
         this._account.actor.visible = signedIn;

@@ -19,6 +19,7 @@ pub(super) struct State {
     pub(super) ledger: Ledger,
 }
 
+#[derive(Default)]
 pub(super) struct Journal {
     window: Vec<(Instant, Operation)>,
     marks: BTreeSet<RelPath>,
@@ -98,6 +99,11 @@ impl State {
         };
         journal.admit(plans);
         Self { journal, ledger }
+    }
+
+    pub(super) fn reset(&mut self) {
+        self.ledger.reset();
+        self.journal.reset();
     }
 
     pub(super) fn record(&mut self, op: Operation) {
@@ -543,6 +549,10 @@ impl State {
 }
 
 impl Journal {
+    fn reset(&mut self) {
+        *self = Journal::default();
+    }
+
     fn fold(&mut self, drained: &[Operation]) -> Vec<(i64, Plan)> {
         let mut seeds: Vec<(i64, Plan)> = Vec::new();
         loop {

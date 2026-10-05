@@ -83,6 +83,25 @@ impl Ledger {
         load().map_err(|err| log::error!("{} is unreadable: {err}", file.display()))
     }
 
+    pub(super) fn reset(&mut self) {
+        if let Some(db) = &self.db {
+            if let Err(err) = db.execute_batch("
+                 DELETE FROM observations;
+                 DELETE FROM journal;
+                 DELETE FROM pins;
+                 DELETE FROM signatures;
+                 VACUUM;
+                 PRAGMA wal_checkpoint(TRUNCATE);
+            ") {
+                log::error!("ledger: {err}");
+            }
+        }
+        *self = Ledger {
+            db: self.db.take(),
+            ..Ledger::default()
+        };
+    }
+
     fn exec(&self, sql: &str, params: impl rusqlite::Params) {
         if let Some(db) = &self.db {
             match db
