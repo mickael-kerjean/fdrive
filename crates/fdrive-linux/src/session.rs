@@ -49,18 +49,19 @@ pub async fn disconnect(session: Session, data: &Path, forget: bool) {
         remote_watch,
     } = session;
     drop(remote_watch);
-    if fuse.guard.is_finished() {
-        let _ = fuse.join();
-    } else if let Err(err) = fuse.umount_and_join() {
-        log::warn!("unmount: {err}");
-    }
     if forget {
         if let Err(err) = adapter.system().vacuum() {
             log::warn!("vacuum on logout: {err}");
         }
         store::forget(data);
         adapter.system().logout().await;
-    } else {
+    }
+    if fuse.guard.is_finished() {
+        let _ = fuse.join();
+    } else if let Err(err) = fuse.umount_and_join() {
+        log::warn!("unmount: {err}");
+    }
+    if !forget {
         adapter.system().flush(Duration::from_secs(30)).await;
     }
 }

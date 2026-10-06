@@ -144,6 +144,10 @@ impl Drive {
             session::disconnect(session, &self.data, true).await;
         } else {
             store::forget(&self.data);
+            let _ = std::fs::remove_dir_all(self.data.join("cache"));
+            for name in ["fdrive.db", "fdrive.db-wal", "fdrive.db-shm", "xattr.json", "rmdir.json"] {
+                let _ = std::fs::remove_file(self.data.join(name));
+            }
         }
         self.inner.lock().await.last_error.clear();
     }
