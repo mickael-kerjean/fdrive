@@ -104,8 +104,9 @@ impl LocalStore for PlaceholderTree {
         let abs = self.abs(target);
         let what = target.clone();
         self.rt.spawn_blocking(move || {
-            if let Err(err) = wire::mark_in_sync_if_unmodified(&abs, &what, mtime) {
-                log::debug!("mark in sync {what}: {err}");
+            match wire::mark_in_sync_if_unmodified(&abs, &what, mtime) {
+                Ok(()) => wire::pin::notify(&abs),
+                Err(err) => log::debug!("mark in sync {what}: {err}"),
             }
         });
     }
