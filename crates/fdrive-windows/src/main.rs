@@ -50,13 +50,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&root)?;
     let (tray, mut events) = gui::init(&data, &boot, config.features.server_locked)?;
 
-    if let Boot::Fresh(_) = &boot {
-        gui::open_folder(&root);
-    }
     let mut session = match &boot {
         Boot::Fresh(creds) | Boot::Restored(creds) => login(creds, &root, &data, &config, &tray).await,
         Boot::Prompt(_) | Boot::Idle(_) => None,
     };
+    if let (Boot::Fresh(_), Some(_)) = (&boot, &session) {
+        gui::open_folder(&root);
+    }
     while let Some(event) = next(&mut session, &tray, &mut events).await {
         match event {
             TrayEvent::Quit => break,
@@ -65,8 +65,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(old) = session.take() {
                     disconnect(old, &root, &data, &tray, true).await;
                 }
-                gui::open_folder(&root);
                 session = login(&creds, &root, &data, &config, &tray).await;
+                if session.is_some() {
+                    gui::open_folder(&root);
+                }
             }
             TrayEvent::Logout => {
                 if let Some(session) = session.take() {

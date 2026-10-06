@@ -178,7 +178,8 @@ pub(crate) fn reveal(path: &std::path::Path) {
 }
 
 pub fn open_folder(path: &std::path::Path) {
-    let wide = wstr(path);
+    let target = crate::wire::shell::namespace_path(path).map(|ns| format!("shell:{}", ns.trim_end_matches('\\'))).unwrap_or_else(|| path.display().to_string());
+    let wide = wstr(&target);
     unsafe {
         ShellExecuteW(
             None,
