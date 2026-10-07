@@ -49,6 +49,10 @@ impl System<'_> {
         Ok(())
     }
 
+    pub fn reset(self) {
+        self.0.engine.system().reset();
+    }
+
     pub fn vacuum(self) -> io::Result<bool> {
         let root = RelPath::root();
         let emptied = self

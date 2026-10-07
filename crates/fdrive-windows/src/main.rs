@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } = app::init();
     log::info!("fdrive-windows {} starting", env!("CARGO_PKG_VERSION"));
 
+    wire::search::unregister();
     if unregister {
         shell::vacuum(&config.windows.provider_name, "");
         if let Err(err) = wire::unregister(&root) {
@@ -40,7 +41,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Err(err) = shell::set_autostart(false) {
             log::warn!("autostart: {err}");
         }
-        wire::search::unregister();
         log::info!("unregistered {}", root.display());
         return Ok(());
     }
@@ -284,14 +284,20 @@ async fn disconnect(session: Session, root: &Path, data: &Path, tray: &Tray, for
     if let Some(task) = session.sweep_task {
         task.abort();
     }
-    session.adapter.system().flush(Duration::from_secs(30)).await;
-    let emptied = session.adapter.system().vacuum().unwrap_or_else(|err| {
-        log::warn!("vacuum: {err}");
-        false
-    });
+    if !forget {
+        session.adapter.system().flush(Duration::from_secs(30)).await;
+    }
+    let emptied = !forget
+        && session.adapter.system().vacuum().unwrap_or_else(|err| {
+            log::warn!("vacuum: {err}");
+            false
+        });
+    if forget {
+        session.adapter.system().reset();
+    }
     drop(session.connection);
     drop(session.search);
-    if emptied || forget {
+    if emptied {
         if let Err(err) = shell::unregister(&session.sync_root_id) {
             log::warn!("unregister sync root: {err}");
             if let Err(err) = wire::unregister(root) {
@@ -301,6 +307,13 @@ async fn disconnect(session: Session, root: &Path, data: &Path, tray: &Tray, for
     }
     if forget {
         store::forget(data);
+        let wipe = |entry: std::fs::DirEntry| match entry.file_type()?.is_dir() {
+            true => std::fs::remove_dir_all(entry.path()),
+            false => std::fs::remove_file(entry.path()),
+        };
+        if let Err(err) = std::fs::read_dir(root).and_then(|entries| entries.flatten().try_for_each(wipe)) {
+            log::warn!("wipe {}: {err}", root.display());
+        }
         let _ = session.sdk.logout().await;
     }
 }

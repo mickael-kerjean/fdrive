@@ -23,11 +23,10 @@ pub fn register(root: &Path, sdk: Arc<Sdk>) -> io::Result<Registration> {
     let inside = format!("System.ItemPathDisplay:~<\"{}\"", root.display());
     let open_search = format!("explorer.exe \"search-ms:query=&crumb=location:{}\"", connector.display());
     std::fs::write(&connector, CONNECTOR)?;
-    set(&format!(r"{CLASS_KEY}\LocalServer32"), "", &format!("\"{}\"", std::env::current_exe()?.display()))?;
     set(SEARCH_KEY, "MUIVerb", "Search in Filestash")?;
     set(SEARCH_KEY, "AppliesTo", &inside)?;
     set(&format!(r"{SEARCH_KEY}\command"), "", &open_search)?;
-    set(REVEAL_KEY, "MUIVerb", "Show in Filestash folder")?;
+    set(REVEAL_KEY, "MUIVerb", "Show in folder")?;
     set(REVEAL_KEY, "AppliesTo", &inside)?;
     set(&format!(r"{REVEAL_KEY}\command"), "", r#"explorer.exe /select,"%1""#)?;
 
