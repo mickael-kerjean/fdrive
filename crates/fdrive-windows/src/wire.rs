@@ -1,4 +1,5 @@
 pub mod pin;
+pub mod search;
 pub mod shell;
 pub mod viewer;
 pub mod watcher;

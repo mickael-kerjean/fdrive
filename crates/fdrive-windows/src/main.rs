@@ -40,6 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Err(err) = shell::set_autostart(false) {
             log::warn!("autostart: {err}");
         }
+        wire::search::unregister();
         log::info!("unregistered {}", root.display());
         return Ok(());
     }
@@ -155,6 +156,7 @@ struct Session {
     remote_watch: fdrive_windows::adapter::RemoteWatch,
     online: tokio::sync::watch::Receiver<bool>,
     connection_monitor: tokio::task::JoinHandle<()>,
+    search: Option<wire::search::Registration>,
 }
 
 async fn login(
@@ -170,13 +172,6 @@ async fn login(
         Ok(session) => {
             let activity = session.adapter.status().activity();
             let root = root.to_path_buf();
-            if config.features.remote_search {
-                let (sdk, rt, root) = (session.sdk.clone(), tokio::runtime::Handle::current(), root.clone());
-                tray.on_search(move |query| {
-                    let hits = rt.block_on(sdk.search("/", query)).inspect_err(|err| log::warn!("search: {err}"));
-                    hits.unwrap_or_default().into_iter().map(|(path, _)| root.join(path.trim_matches('/').replace('/', "\\"))).collect()
-                });
-            }
             tray.on_click(move || gui::dashboard(activity.clone(), root.clone()));
             tray.set_status(Status::Offline);
             Some(session)
@@ -231,6 +226,10 @@ async fn connect(
             provider_id: wire::PROVIDER_ID,
         },
     )?;
+    let search = match config.features.remote_search {
+        true => wire::search::register(root, sdk.clone()).inspect_err(|err| log::warn!("search: {err}")).ok(),
+        false => None,
+    };
     let connection = adapter.system().connect(root)?;
     log::info!("sync root {} connected", root.display());
 
@@ -272,6 +271,7 @@ async fn connect(
         remote_watch,
         online,
         connection_monitor,
+        search,
     })
 }
 
@@ -290,6 +290,7 @@ async fn disconnect(session: Session, root: &Path, data: &Path, tray: &Tray, for
         false
     });
     drop(session.connection);
+    drop(session.search);
     if emptied || forget {
         if let Err(err) = shell::unregister(&session.sync_root_id) {
             log::warn!("unregister sync root: {err}");
