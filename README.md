@@ -6,7 +6,7 @@ Dropbox democratised the idea of a folder that syncs across your devices. Fdrive
 
 1. Humans: you want the Dropbox experience while staying in control of your data and you want something that does not create its own island but is interoperable
 
-2. [Agents](https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-docker): as the CEO of Nvidia say: « when you deployed an agent ... the first thing you do is you take away all of its rights ... then you provision, you give it access to files ...». Fdrive along with [Filestash](https://github.com/mickael-kerjean/filestash) is that provisioning tool that will make sure your agent only have access to what it needs, you set clear permission boundaries, with audit trail showing what the agent tried to do, what was allowed, and what was blocked
+2. [Agents](https://www.filestash.app/docs/guide/agents.html): as the CEO of Nvidia say: « when you deployed an agent ... the first thing you do is you take away all of its rights ... then you provision, you give it access to files ...». Fdrive along with [Filestash](https://github.com/mickael-kerjean/filestash) is that provisioning tool that will make sure your agent only have access to what it needs, you set clear permission boundaries, with audit trail showing what the agent tried to do, what was allowed, and what was blocked
 
 ## What it looks like?
 
