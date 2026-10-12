@@ -10,7 +10,7 @@ use fuser::{
     Request, TimeOrNow, WriteFlags,
 };
 
-use crate::adapter::Adapter;
+use crate::adapter::{Adapter, THUMBNAIL_FH};
 use fdrive_core::path::RelPath;
 
 const TTL: Duration = Duration::from_secs(5);
@@ -200,10 +200,22 @@ impl Filesystem for MountFs {
         });
     }
 
-    fn open(&self, _req: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
+    fn open(&self, req: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
         let Some(path) = self.wire.path(ino.0) else {
             return reply.error(Errno::ENOENT);
         };
+        let is_thumbnailer = std::fs::read_link(format!("/proc/{}/exe", req.pid())).is_ok_and(|exe| {
+            let exe = exe.file_name().and_then(|exe| exe.to_str()).unwrap_or_default();
+            exe.ends_with("thumbnailer") || ["tumblerd"].contains(&exe)
+        });
+        if is_thumbnailer {
+            let name = path.name().to_ascii_lowercase();
+            if ![".jpg", ".jpeg", ".png"].iter().any(|ext| name.ends_with(ext)) {
+                log::debug!("open path={path} refused: thumbnailer");
+                return reply.error(Errno::EACCES);
+            }
+            return reply.opened(FileHandle(THUMBNAIL_FH), FopenFlags::FOPEN_DIRECT_IO);
+        }
         self.go(move |wire| {
             log::debug!("open path={path} flags={flags:x}");
             let writable = flags.0 & libc::O_ACCMODE != libc::O_RDONLY;

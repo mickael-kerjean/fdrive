@@ -107,6 +107,10 @@ impl<'a> Fs<'a> {
     }
 
     pub fn read(self, fh: u64, path: &RelPath, offset: u64, size: u32) -> io::Result<Vec<u8>> {
+        if fh == super::THUMBNAIL_FH {
+            let thumbnail = self.0.engine.block_on(self.0.engine.fs().thumbnail(path))?;
+            return Ok(thumbnail.into_iter().skip(offset as usize).take(size as usize).collect());
+        }
         if let Some(download) = self.0.engine.cache().reader(path) {
             return self.0.engine.block_on(download.read(offset, size));
         }

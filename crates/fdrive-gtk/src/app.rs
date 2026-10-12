@@ -11,7 +11,7 @@ use fdrive_gtk::gui::{self, Boot, Credentials};
 )]
 struct Args {
     #[arg(value_name = "MOUNT")]
-    mount: PathBuf,
+    mount: Option<PathBuf>,
     #[arg(long)]
     data: Option<PathBuf>,
     #[arg(long)]
@@ -54,7 +54,9 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
         }
     };
     Ok(Setup {
-        mount: args.mount,
+        mount: args
+            .mount
+            .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Filestash")),
         prefill: Credentials {
             url: server.unwrap_or_default(),
             insecure: args.insecure,

@@ -24,6 +24,7 @@ pub use system::System;
 pub use xattr::Xattr;
 
 const META_TTL: Duration = Duration::from_secs(5);
+pub const THUMBNAIL_FH: u64 = 0;
 
 pub struct Adapter {
     engine: Arc<Engine<CacheTree>>,
