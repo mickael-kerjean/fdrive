@@ -8,6 +8,8 @@ pub enum Error {
     NotFound,
     #[error("precondition failed")]
     PreconditionFailed,
+    #[error("not supported by this server")]
+    Unsupported,
     #[error("not a Filestash server")]
     NotFilestash,
     #[error("api error: {0}")]

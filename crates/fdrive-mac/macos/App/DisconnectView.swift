@@ -21,6 +21,7 @@ struct DisconnectView: View {
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal)
@@ -53,9 +54,26 @@ struct DisconnectView: View {
         let base = normalizeServer(input: serverURL)
         Task {
             defer { probing = false }
-            guard let dataDirectory = RuntimeSessionStore.dataDirectory,
-                  (try? await probe(dataDir: dataDirectory.path, url: base)) != nil else {
-                state.connectionError = "\(base) does not look like a Filestash server"
+            guard let dataDirectory = RuntimeSessionStore.dataDirectory else {
+                state.connectionError = "Data directory unavailable"
+                return
+            }
+            do {
+                _ = try await probe(dataDir: dataDirectory.path, url: base)
+            } catch let error as FsError {
+                state.connectionError = switch error {
+                case .NotAuthenticated: "Not authenticated"
+                case .PermissionDenied: "Permission denied"
+                case .NotFound: "Not found"
+                case .Network(let msg), .Other(let msg): msg
+                }
+                return
+            } catch {
+                state.connectionError = error.localizedDescription
+                return
+            }
+            if base.hasPrefix("sftp://") {
+                await state.connect(serverURL: base, token: "n/a")
                 return
             }
             state.server = base
