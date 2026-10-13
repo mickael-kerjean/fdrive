@@ -17,12 +17,17 @@ getrandom = "0.4"
 httpdate = "1"
 bytes = "1"
 log = "0.4"
-tokio = { version = "1", features = ["rt", "sync", "time", "macros", "fs"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros", "fs", "io-util"] }
 tokio-util = { version = "0.7", default-features = false, features = ["io"] }
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 fast_rsync = "0.2.0"
 sha2 = "0.11.0"
+russh = { version = "0.63.3", default-features = false, features = ["ring", "rsa"] }
+russh-sftp = "3.0.1"
 tiny_http = { version = "0.12", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [features]
 testkit = ["dep:tiny_http"]

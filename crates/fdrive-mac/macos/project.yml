@@ -62,6 +62,8 @@ targets:
         com.apple.security.application-groups:
           - 3736F8X9F9.group.app.filestash.sync
         com.apple.security.network.client: true
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /.ssh/
   FilestashFileProvider:
     type: app-extension
     platform: macOS
@@ -99,3 +101,5 @@ targets:
         com.apple.security.application-groups:
           - 3736F8X9F9.group.app.filestash.sync
         com.apple.security.network.client: true
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /.ssh/

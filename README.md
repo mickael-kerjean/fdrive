@@ -136,6 +136,7 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 - [ ] Testing: test on all possible devices / configuration
 - [X] Support for delta download: same as the existing upload but for download. Awaiting for server support
 - [X] Docker Volume Driver: give any container, AI agent included, a plain folder backed by your S3, SFTP, FTP, IPFS, AzureBlob, Sharepoint, etc...
+- [X] Multi Backends: support the Filestash API and a degraded direct SFTP access (no delta sync, thumbnails, search, and live view)
 - [ ] MDM integration: preconfigure the client and roll it out across a fleet
 - [ ] full POSIX compliance
 - [ ] finetune performance
