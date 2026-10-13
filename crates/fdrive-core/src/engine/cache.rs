@@ -55,8 +55,8 @@ impl<T: LocalStore> Engine<T> {
                     continue;
                 }
                 match entry.kind {
-                    crate::sdk::FileType::Directory => dirs.push(child),
-                    crate::sdk::FileType::File => {
+                    crate::remote::FileType::Directory => dirs.push(child),
+                    crate::remote::FileType::File => {
                         files += 1;
                         let hint = Observation::of(&entry);
                         if !self.view().current(&child, hint) {

@@ -4,7 +4,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use crate::path::RelPath;
 use crate::port::LocalStore;
-use crate::sdk::FileInfo;
+use crate::remote::FileInfo;
 
 use super::Engine;
 use crate::model::{Fate, Observation};
@@ -29,7 +29,7 @@ impl<'a, T: LocalStore> View<'a, T> {
         let fates = self.0.fates();
         let mut ledger = self.0.ledger();
         for e in entries {
-            if e.kind != crate::sdk::FileType::File {
+            if e.kind != crate::remote::FileType::File {
                 continue;
             }
             let path = dir.join(&e.name);
@@ -73,7 +73,7 @@ impl<'a, T: LocalStore> View<'a, T> {
             };
             listing.push(FileInfo {
                 name: name.to_string(),
-                kind: crate::sdk::FileType::File,
+                kind: crate::remote::FileType::File,
                 size: Some(size),
                 mtime,
                 perms: Default::default(),
@@ -94,7 +94,7 @@ impl<'a, T: LocalStore> View<'a, T> {
                 if let Ok(md) = fs::metadata(self.0.local.backing(&path)) {
                     listing.push(FileInfo {
                         name: name.to_string(),
-                        kind: crate::sdk::FileType::File,
+                        kind: crate::remote::FileType::File,
                         size: Some(md.len()),
                         mtime: md.modified().ok(),
                         perms: Default::default(),
@@ -113,7 +113,7 @@ impl<'a, T: LocalStore> View<'a, T> {
             if path.parent_or_root() == *dir {
                 listing.push(FileInfo {
                     name: path.name().to_string(),
-                    kind: crate::sdk::FileType::File,
+                    kind: crate::remote::FileType::File,
                     size: Some(obs.size),
                     mtime: Some(UNIX_EPOCH + Duration::from_secs(obs.time)),
                     perms: Default::default(),
@@ -131,7 +131,7 @@ impl<'a, T: LocalStore> View<'a, T> {
         for name in dirs {
             listing.push(FileInfo {
                 name,
-                kind: crate::sdk::FileType::Directory,
+                kind: crate::remote::FileType::Directory,
                 size: Some(0),
                 mtime: None,
                 perms: Default::default(),

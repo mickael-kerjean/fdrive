@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use fdrive_core::sdk::{normalize_server, Sdk};
+use fdrive_core::remote::{normalize_server, Remote};
 use fdrive_linux::adapter::Adapter;
 use fdrive_linux::wire::MountFs;
 use fuser::{Config, MountOption, SessionACL};
@@ -113,7 +113,7 @@ impl Driver {
         }
         std::fs::create_dir_all(&target)?;
         std::fs::create_dir_all(&data)?;
-        let sdk = Sdk::builder(&data).url(volume.server.clone()).token(volume.token.clone()).build()?;
+        let sdk = Remote::builder(&data).url(volume.server.clone()).token(volume.token.clone()).build()?;
         let adapter = Arc::new(Adapter::new(self.rt.clone(), Arc::new(sdk), &data)?);
         let mut config = Config::default();
         config.mount_options = vec![MountOption::FSName("filestash".into()), MountOption::DefaultPermissions];

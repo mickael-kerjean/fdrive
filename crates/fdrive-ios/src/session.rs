@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use fdrive_core::sdk::{self, Sdk};
+use fdrive_core::remote::{self, Remote};
 
 use crate::{runtime, FsError};
 
@@ -14,30 +14,30 @@ pub struct Session {
 
 #[uniffi::export]
 pub fn normalize_server(input: String) -> String {
-    sdk::normalize_server(&input)
+    remote::normalize_server(&input)
 }
 
 #[uniffi::export]
 pub fn login_url(base: String) -> String {
-    sdk::login_url(&base)
+    remote::login_url(&base)
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn probe(data_dir: String, url: String) -> Result<String, FsError> {
-    Ok(Sdk::builder(Path::new(&data_dir)).url(url).build()?.probe().await?)
+    Ok(Remote::builder(Path::new(&data_dir)).url(url).build()?.probe().await?)
 }
 
 #[uniffi::export]
 pub fn logout(data_dir: String, url: String, token: String) -> Result<(), FsError> {
     let runtime = runtime()?;
-    let sdk = Sdk::builder(Path::new(&data_dir)).url(url).token(token).build()?;
+    let sdk = Remote::builder(Path::new(&data_dir)).url(url).token(token).build()?;
     Ok(runtime.block_on(sdk.logout())?)
 }
 
 #[uniffi::export]
 pub fn ping(data_dir: String, url: String, token: String) -> bool {
     let Ok(runtime) = runtime() else { return false };
-    let Ok(sdk) = Sdk::builder(Path::new(&data_dir)).url(url).token(token).build() else {
+    let Ok(sdk) = Remote::builder(Path::new(&data_dir)).url(url).token(token).build() else {
         return false;
     };
     runtime.block_on(sdk.ls("/")).is_ok()
@@ -46,7 +46,7 @@ pub fn ping(data_dir: String, url: String, token: String) -> bool {
 #[uniffi::export]
 pub fn assemble_token(cookies: HashMap<String, String>) -> String {
     let cookies: Vec<(String, String)> = cookies.into_iter().collect();
-    sdk::assemble_token(&cookies)
+    remote::assemble_token(&cookies)
 }
 
 #[uniffi::export]

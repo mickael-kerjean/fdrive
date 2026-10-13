@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::path::RelPath;
 use crate::port::LocalStore;
-use crate::sdk::Error as SdkError;
+use crate::remote::Error as RemoteError;
 
 use super::{Engine, Outcome};
 use crate::model::Observation;
@@ -210,7 +210,7 @@ impl<T: LocalStore> Engine<T> {
                 log::info!("delta {target} ({sent} bytes for {size})");
                 Some(Saved::Done(mtime))
             }
-            Err(SdkError::PreconditionFailed) => Some(Saved::Conflict),
+            Err(RemoteError::PreconditionFailed) => Some(Saved::Conflict),
             Err(err) => {
                 log::debug!("delta {target}: {err}");
                 None
@@ -231,8 +231,8 @@ impl<T: LocalStore> Engine<T> {
             .wire(act, fs::metadata(source).map(|md| md.len()).unwrap_or(0));
         match self.sdk.save(&target.as_file(), stream, since).await {
             Ok(mtime) => Ok(Saved::Done(mtime)),
-            Err(SdkError::PreconditionFailed) => Ok(Saved::Conflict),
-            Err(SdkError::NotFound | SdkError::PermissionDenied) => {
+            Err(RemoteError::PreconditionFailed) => Ok(Saved::Conflict),
+            Err(RemoteError::NotFound | RemoteError::PermissionDenied) => {
                 let mut ancestors = vec![];
                 let mut cur = target.parent_or_root();
                 while !cur.is_root() {
@@ -247,7 +247,7 @@ impl<T: LocalStore> Engine<T> {
                 let stream = crate::file_stream(source).await?;
                 match self.sdk.save(&target.as_file(), stream, since).await {
                     Ok(mtime) => Ok(Saved::Done(mtime)),
-                    Err(SdkError::PreconditionFailed) => Ok(Saved::Conflict),
+                    Err(RemoteError::PreconditionFailed) => Ok(Saved::Conflict),
                     Err(err) => Err(err.into()),
                 }
             }

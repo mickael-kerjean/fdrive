@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use fdrive_core::engine::{Engine, Observation};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
-use fdrive_core::sdk::{self, Sdk};
+use fdrive_core::remote::{self, Remote};
 use tokio::runtime::Runtime;
 
 use crate::{runtime, FsError};
@@ -34,13 +34,13 @@ pub struct Entry {
     pub can_delete: bool,
 }
 
-impl From<sdk::FileInfo> for Entry {
-    fn from(info: sdk::FileInfo) -> Self {
+impl From<remote::FileInfo> for Entry {
+    fn from(info: remote::FileInfo) -> Self {
         Self {
             name: info.name,
             kind: match info.kind {
-                sdk::FileType::File => EntryKind::File,
-                sdk::FileType::Directory => EntryKind::Directory,
+                remote::FileType::File => EntryKind::File,
+                remote::FileType::Directory => EntryKind::Directory,
             },
             size: info.size,
             mtime_ms: info
@@ -59,7 +59,7 @@ impl From<sdk::FileInfo> for Entry {
 pub(crate) struct CacheTree {
     cache_dir: PathBuf,
     ledger: PathBuf,
-    meta: Mutex<HashMap<RelPath, (Instant, Vec<sdk::FileInfo>)>>,
+    meta: Mutex<HashMap<RelPath, (Instant, Vec<remote::FileInfo>)>>,
 }
 
 impl CacheTree {
@@ -100,7 +100,7 @@ pub struct Adapter {
 impl Adapter {
     #[uniffi::constructor]
     pub fn new(data_dir: String, url: String, token: String) -> Result<Arc<Self>, FsError> {
-        let sdk = Sdk::builder(Path::new(&data_dir)).url(url).token(token).build()?;
+        let sdk = Remote::builder(Path::new(&data_dir)).url(url).token(token).build()?;
         let runtime = runtime()?;
         let data_dir = PathBuf::from(data_dir);
         let cache_dir = data_dir.join("cache");
@@ -124,12 +124,12 @@ impl Adapter {
     pub async fn stat(&self, path: String) -> Result<Entry, FsError> {
         let path = RelPath::new(&path);
         if let Some(metadata) = self.engine.view().pending_metadata(&path) {
-            return Ok(Entry::from(sdk::FileInfo {
+            return Ok(Entry::from(remote::FileInfo {
                 name: path.name().to_string(),
-                kind: sdk::FileType::File,
+                kind: remote::FileType::File,
                 size: Some(metadata.len()),
                 mtime: metadata.modified().ok(),
-                perms: sdk::Permissions::default(),
+                perms: remote::Permissions::default(),
             }));
         }
         self.listing(&path.parent_or_root())
@@ -233,7 +233,7 @@ impl Adapter {
 }
 
 impl Adapter {
-    async fn listing(&self, directory: &RelPath) -> Result<Vec<sdk::FileInfo>, FsError> {
+    async fn listing(&self, directory: &RelPath) -> Result<Vec<remote::FileInfo>, FsError> {
         let cached = {
             let meta = self.engine.local().meta.lock().unwrap();
             meta.get(directory)
@@ -253,7 +253,7 @@ impl Adapter {
                         .insert(directory.clone(), (Instant::now(), fetched.clone()));
                     fetched
                 }
-                Err(err @ (sdk::Error::NotFound | sdk::Error::PermissionDenied)) => {
+                Err(err @ (remote::Error::NotFound | remote::Error::PermissionDenied)) => {
                     return Err(err.into())
                 }
                 Err(err) => {

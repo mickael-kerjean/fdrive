@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use fdrive_core::sdk::Sdk;
+use fdrive_core::remote::Remote;
 use fdrive_linux::adapter::Adapter;
 use fdrive_linux::wire::MountFs;
 use fuser::{Config, MountOption};
@@ -93,7 +93,7 @@ impl Rig {
 }
 
 fn mount(server: &FakeServer, rt: &tokio::runtime::Runtime, mnt: &Path, data: &Path) -> (Arc<Adapter>, fuser::BackgroundSession) {
-    let sdk = Sdk::builder(data).url(server.url().into()).token("TOKEN".into()).build().unwrap();
+    let sdk = Remote::builder(data).url(server.url().into()).token("TOKEN".into()).build().unwrap();
     let adapter = Arc::new(Adapter::new(rt.handle().clone(), Arc::new(sdk), data).unwrap());
     let mut config = Config::default();
     config.mount_options = vec![MountOption::FSName("fdrive-e2e".to_string()), MountOption::DefaultPermissions];

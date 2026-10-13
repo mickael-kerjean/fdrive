@@ -1,6 +1,6 @@
 use std::io::{BufRead, Write};
 
-use fdrive_core::sdk::Sdk;
+use fdrive_core::remote::Remote;
 use super::{default_data, normalize_server, Credentials};
 
 pub async fn login_tty(prefill: &Credentials) -> Option<Credentials> {
@@ -23,7 +23,7 @@ pub async fn login_tty(prefill: &Credentials) -> Option<Credentials> {
                 _ => return None,
             };
         }
-        let probe = match Sdk::builder(&default_data()).url(url.clone()).build() {
+        let probe = match Remote::builder(&default_data()).url(url.clone()).build() {
             Ok(sdk) => sdk.probe().await,
             Err(err) => Err(err),
         };
@@ -38,7 +38,7 @@ pub async fn login_tty(prefill: &Credentials) -> Option<Credentials> {
     let _ = say(&format!(
         " {} Filestash {version} at {url}\n\n Open this link in a browser, sign in and copy the token shown:\n\n   {}\n\n",
         paint("32", "✓"),
-        paint("36", &fdrive_core::sdk::login_url(&url)),
+        paint("36", &fdrive_core::remote::login_url(&url)),
     ));
 
     let token = loop {
@@ -46,7 +46,7 @@ pub async fn login_tty(prefill: &Credentials) -> Option<Credentials> {
             Ok(token) if !token.is_empty() => token,
             _ => return None,
         };
-        let sdk = Sdk::builder(&default_data()).url(url.clone()).token(token.clone()).build().ok()?;
+        let sdk = Remote::builder(&default_data()).url(url.clone()).token(token.clone()).build().ok()?;
         match sdk.ls("/").await {
             Ok(_) => break token,
             Err(err) => {

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 use fdrive_core::engine::{Engine, RemoteChanges, Watch};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
-use fdrive_core::sdk::{FileInfo, Sdk};
+use fdrive_core::remote::{FileInfo, Remote};
 
 use crate::xattr::XattrDb;
 
@@ -139,7 +139,7 @@ impl CacheTree {
 }
 
 impl Adapter {
-    pub fn new(rt: tokio::runtime::Handle, sdk: Arc<Sdk>, data_dir: &Path) -> io::Result<Self> {
+    pub fn new(rt: tokio::runtime::Handle, sdk: Arc<Remote>, data_dir: &Path) -> io::Result<Self> {
         let cache_dir = data_dir.join("cache");
         std::fs::create_dir_all(&cache_dir)?;
         let tree = CacheTree {

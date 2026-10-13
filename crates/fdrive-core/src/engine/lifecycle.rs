@@ -4,14 +4,14 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::model::Operation;
 use crate::port::LocalStore;
-use crate::sdk::Sdk;
+use crate::remote::Remote;
 
 use super::gates::Transfers;
 use super::state::State;
 use super::{scheduler, Engine};
 
 impl<T: LocalStore> Engine<T> {
-    pub(super) fn spin_up(rt: tokio::runtime::Handle, sdk: Arc<Sdk>, local: T) -> Arc<Self> {
+    pub(super) fn spin_up(rt: tokio::runtime::Handle, sdk: Arc<Remote>, local: T) -> Arc<Self> {
         let ledger_file = local.ledger();
         let ignore = crate::config::ignore(ledger_file.parent().unwrap_or(Path::new("")));
         let state = State::open(&ledger_file);

@@ -1,6 +1,6 @@
 use std::io;
 
-use fdrive_core::sdk;
+use fdrive_core::remote;
 use tokio::runtime::Runtime;
 
 pub mod activity;
@@ -24,13 +24,13 @@ pub enum FsError {
     Other { msg: String },
 }
 
-impl From<sdk::Error> for FsError {
-    fn from(error: sdk::Error) -> Self {
+impl From<remote::Error> for FsError {
+    fn from(error: remote::Error) -> Self {
         match error {
-            sdk::Error::NotAuthenticated => Self::NotAuthenticated,
-            sdk::Error::PermissionDenied => Self::PermissionDenied,
-            sdk::Error::NotFound => Self::NotFound,
-            sdk::Error::Http(error) => Self::Network { msg: error.to_string() },
+            remote::Error::NotAuthenticated => Self::NotAuthenticated,
+            remote::Error::PermissionDenied => Self::PermissionDenied,
+            remote::Error::NotFound => Self::NotFound,
+            remote::Error::Http(error) => Self::Network { msg: error.to_string() },
             error => Self::Other { msg: error.to_string() },
         }
     }

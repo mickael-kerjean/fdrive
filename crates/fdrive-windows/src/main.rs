@@ -11,7 +11,7 @@ use std::time::Duration;
 use fdrive_core::config as store;
 use fdrive_core::engine::UploadStatus;
 use fdrive_core::path::RelPath;
-use fdrive_core::sdk::Sdk;
+use fdrive_core::remote::Remote;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::Instant;
 
@@ -142,7 +142,7 @@ async fn next(
 }
 
 struct Session {
-    sdk: Arc<Sdk>,
+    sdk: Arc<Remote>,
     adapter: Arc<Adapter>,
     connection: wire::Connection,
     sync_root_id: String,
@@ -190,7 +190,7 @@ async fn connect(
     data: &Path,
     config: &AppConfig,
 ) -> Result<Session, Box<dyn std::error::Error>> {
-    let sdk = Sdk::builder(data).url(creds.url.clone()).token(creds.token.clone()).build()?;
+    let sdk = Remote::builder(data).url(creds.url.clone()).token(creds.token.clone()).build()?;
     store::remember(data, &creds.url, &creds.token);
     let sdk = Arc::new(sdk);
     let adapter = Adapter::new(

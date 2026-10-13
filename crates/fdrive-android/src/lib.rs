@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use fdrive_core::engine::{Engine, Observation, Watch};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
-use fdrive_core::sdk::{self, Sdk};
+use fdrive_core::remote::{self, Remote};
 use tokio::runtime::Runtime;
 
 const META_TTL: Duration = Duration::from_secs(2);
@@ -29,13 +29,13 @@ pub enum FsError {
     Other { msg: String },
 }
 
-impl From<sdk::Error> for FsError {
-    fn from(err: sdk::Error) -> Self {
+impl From<remote::Error> for FsError {
+    fn from(err: remote::Error) -> Self {
         match err {
-            sdk::Error::NotAuthenticated => Self::NotAuthenticated,
-            sdk::Error::PermissionDenied => Self::PermissionDenied,
-            sdk::Error::NotFound => Self::NotFound,
-            sdk::Error::Http(err) => Self::Network {
+            remote::Error::NotAuthenticated => Self::NotAuthenticated,
+            remote::Error::PermissionDenied => Self::PermissionDenied,
+            remote::Error::NotFound => Self::NotFound,
+            remote::Error::Http(err) => Self::Network {
                 msg: err.to_string(),
             },
             err => Self::Other {
@@ -71,13 +71,13 @@ pub struct Entry {
     pub mtime_ms: Option<i64>,
 }
 
-impl From<sdk::FileInfo> for Entry {
-    fn from(info: sdk::FileInfo) -> Self {
+impl From<remote::FileInfo> for Entry {
+    fn from(info: remote::FileInfo) -> Self {
         Self {
             name: info.name,
             kind: match info.kind {
-                sdk::FileType::File => EntryKind::File,
-                sdk::FileType::Directory => EntryKind::Directory,
+                remote::FileType::File => EntryKind::File,
+                remote::FileType::Directory => EntryKind::Directory,
             },
             size: info.size,
             mtime_ms: info
@@ -90,13 +90,13 @@ impl From<sdk::FileInfo> for Entry {
 
 #[uniffi::export]
 pub fn login_url(base: String) -> String {
-    sdk::login_url(&base)
+    remote::login_url(&base)
 }
 
 struct AndroidTree {
     cache_dir: PathBuf,
     ledger: PathBuf,
-    meta: Mutex<HashMap<RelPath, (Instant, Vec<sdk::FileInfo>)>>,
+    meta: Mutex<HashMap<RelPath, (Instant, Vec<remote::FileInfo>)>>,
 }
 
 impl AndroidTree {
@@ -147,7 +147,7 @@ pub struct Adapter {
 impl Adapter {
     #[uniffi::constructor]
     pub fn new(data_dir: String, url: String, token: String) -> Result<Arc<Self>, FsError> {
-        let sdk = Sdk::builder(Path::new(&data_dir)).url(url).token(token).build()?;
+        let sdk = Remote::builder(Path::new(&data_dir)).url(url).token(token).build()?;
         let rt = runtime()?;
         let data = PathBuf::from(data_dir);
         let cache_dir = data.join("cache");
@@ -288,7 +288,7 @@ impl Adapter {
 }
 
 impl Adapter {
-    fn listing(&self, dir: &RelPath) -> Result<Vec<sdk::FileInfo>, FsError> {
+    fn listing(&self, dir: &RelPath) -> Result<Vec<remote::FileInfo>, FsError> {
         let cached = {
             let meta = self.engine.local().meta.lock().unwrap();
             meta.get(dir)

@@ -132,8 +132,8 @@ impl Filesystem for MountFs {
             ];
             for entry in listing {
                 let kind = match entry.kind {
-                    fdrive_core::sdk::FileType::Directory => FileType::Directory,
-                    fdrive_core::sdk::FileType::File => FileType::RegularFile,
+                    fdrive_core::remote::FileType::Directory => FileType::Directory,
+                    fdrive_core::remote::FileType::File => FileType::RegularFile,
                 };
                 let child = dir.join(&entry.name);
                 if child.parent_or_root() != dir {

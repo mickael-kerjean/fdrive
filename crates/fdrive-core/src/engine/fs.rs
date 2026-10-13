@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::model::Operation;
 use crate::path::RelPath;
 use crate::port::LocalStore;
-use crate::sdk::{Error as SdkError, FileInfo, Result};
+use crate::remote::{Error as RemoteError, FileInfo, Result};
 use crate::ByteStream;
 
 use super::Engine;
@@ -40,7 +40,7 @@ impl<'a, T: LocalStore> Fs<'a, T> {
             self.0.wait_uploads(from, true).await;
             self.0.wait_uploads(to, false).await;
             match self.0.sdk.mv(&from.as_dir(), &to.as_dir()).await {
-                Ok(()) | Err(SdkError::NotFound) => {}
+                Ok(()) | Err(RemoteError::NotFound) => {}
                 Err(err) => return Err(err.into()),
             }
             self.0.ledger().remap(from, to);

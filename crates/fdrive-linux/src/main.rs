@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use fdrive_core::sdk::{login_url, normalize_server, Sdk};
+use fdrive_core::remote::{login_url, normalize_server, Remote};
 use serde_json::json;
 
 mod daemon;
@@ -49,7 +49,7 @@ async fn main() {
             }
             Cmd::LoginUrl { server } => {
                 let url = normalize_server(&server);
-                Sdk::builder(&fdrive_linux::session::default_data())
+                Remote::builder(&fdrive_linux::session::default_data())
                     .url(url.clone())
                     .build()?
                     .probe()

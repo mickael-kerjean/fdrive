@@ -5,7 +5,7 @@ use std::time::Duration;
 use fdrive_core::activity::{fmt_bytes, rate_line, sparkline, Direction, Outcome};
 use fdrive_core::config as store;
 use fdrive_core::engine::UploadStatus;
-use fdrive_core::sdk::{normalize_server, Sdk};
+use fdrive_core::remote::{normalize_server, Remote};
 use serde::Serialize;
 use tokio::sync::Mutex;
 
@@ -126,7 +126,7 @@ impl Drive {
 
     pub async fn login(&self, server: &str, token: String) -> Result<(), String> {
         let url = normalize_server(server);
-        let sdk = Sdk::builder(&self.data)
+        let sdk = Remote::builder(&self.data)
             .url(url.clone())
             .token(token.clone())
             .build()

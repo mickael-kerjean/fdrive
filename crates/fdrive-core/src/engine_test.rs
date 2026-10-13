@@ -5,7 +5,7 @@ use httpmock::{Method, MockServer};
 use super::testkit::*;
 use crate::engine::{Engine, Observation};
 use crate::path::RelPath;
-use crate::sdk::Sdk;
+use crate::remote::Remote;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -479,7 +479,7 @@ async fn rename_of_an_unuploaded_file_stays_local() {
 
 #[tokio::test]
 async fn an_offline_dir_rename_is_refused_before_touching_anything() {
-    let sdk = Sdk::builder(&std::env::temp_dir())
+    let sdk = Remote::builder(&std::env::temp_dir())
         .url("http://127.0.0.1:9".into())
         .build()
         .unwrap();

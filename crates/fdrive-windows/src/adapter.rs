@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use fdrive_core::engine::Engine;
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
-use fdrive_core::sdk::Sdk;
+use fdrive_core::remote::Remote;
 
 use crate::wire;
 
@@ -128,7 +128,7 @@ pub struct Adapter {
 
 impl Adapter {
     pub fn new(
-        sdk: Arc<Sdk>,
+        sdk: Arc<Remote>,
         rt: tokio::runtime::Handle,
         root: PathBuf,
         data: &Path,

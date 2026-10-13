@@ -35,7 +35,7 @@ pub fn login_webkit(prefill: Credentials) -> Option<Credentials> {
         return None;
     }
     let url = normalize_server(&raw);
-    let probe = fdrive_core::sdk::Sdk::builder(&super::default_data())
+    let probe = fdrive_core::remote::Remote::builder(&super::default_data())
         .url(url.clone())
         .build()
         .map_err(|err| err.to_string())

@@ -9,7 +9,7 @@ mod tray;
 mod webview;
 
 pub use fdrive_linux::session::default_data;
-pub use fdrive_core::sdk::normalize_server;
+pub use fdrive_core::remote::normalize_server;
 pub use login_tty::login_tty;
 pub use tray::Tray;
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fdrive_core::config as store;
-use fdrive_core::sdk::Sdk;
+use fdrive_core::remote::Remote;
 use fuser::{Config, MountOption};
 
 use crate::adapter::Adapter;
@@ -23,7 +23,7 @@ pub async fn connect(creds: &store::Session, mount: &Path, data: &Path) -> Resul
         }
     }
     std::fs::create_dir_all(mount)?;
-    let sdk = Sdk::builder(data).url(creds.url.clone()).token(creds.token.clone()).build()?;
+    let sdk = Remote::builder(data).url(creds.url.clone()).token(creds.token.clone()).build()?;
     store::remember(data, &creds.url, &creds.token);
     let adapter = Arc::new(Adapter::new(tokio::runtime::Handle::current(), Arc::new(sdk), data)?);
     let mount_config = {
