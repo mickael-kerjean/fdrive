@@ -47,7 +47,11 @@ export class Indicator {
         }
 
         this._toggle.connect("clicked", () => _do(Fdrive.setActive(this._toggle.checked), this._refresh));
-        this._server.clutter_text.connect("activate", () => _do(Fdrive.loginUrl(this._server.text.trim()).then(url => Gio.AppInfo.launch_default_for_uri(url, null)), this._refresh));
+        this._server.clutter_text.connect("activate", () => {
+            const host = this._server.text.trim();
+            if (host.startsWith("sftp://")) return _do(Fdrive.login(host, "n/a"), this._refresh);
+            _do(Fdrive.loginUrl(host).then(url => Gio.AppInfo.launch_default_for_uri(url, null)), this._refresh);
+        });
         this._token.clutter_text.connect("activate", () => _do(Fdrive.login(this._server.text.trim(), this._token.text.trim()), this._refresh));
         this._host.connect("activate", () => _do(Fdrive.logout(), this._refresh));
         this._folder.connect("activate", () => Gio.AppInfo.launch_default_for_uri(`file://${this._mount}`, null));
