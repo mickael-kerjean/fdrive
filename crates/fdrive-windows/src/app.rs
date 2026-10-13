@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use fdrive_core::sdk::normalize_server;
+use fdrive_core::remote::normalize_server;
 
 use fdrive_windows::config::AppConfig;
 use fdrive_windows::gui::{self, Boot, Credentials};

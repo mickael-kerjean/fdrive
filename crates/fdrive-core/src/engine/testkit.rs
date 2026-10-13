@@ -9,7 +9,7 @@ use httpmock::{Method, Mock, MockServer};
 use crate::engine::{Engine, Observation};
 use crate::path::RelPath;
 use crate::port::LocalStore;
-use crate::sdk::Sdk;
+use crate::remote::Remote;
 
 pub(super) struct TempTree {
     pub(super) dir: PathBuf,
@@ -91,7 +91,7 @@ pub(super) fn engine(server: &MockServer) -> Arc<Engine<TempTree>> {
 }
 
 pub(super) fn engine_with(server: &MockServer, tree: TempTree) -> Arc<Engine<TempTree>> {
-    let sdk = Sdk::builder(&std::env::temp_dir())
+    let sdk = Remote::builder(&std::env::temp_dir())
         .url(server.base_url())
         .token("TOKEN".into())
         .build()

@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use fdrive_core::engine::{Engine, UploadStatus};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
-use fdrive_core::sdk::Sdk;
+use fdrive_core::remote::Remote;
 use fdrive_core::testkit::FakeServer;
 
 struct Platform {
@@ -64,7 +64,7 @@ impl LocalStore for Platform {
 }
 
 fn connect(server: &FakeServer, platform: Platform) -> Arc<Engine<Platform>> {
-    let sdk = Sdk::builder(&std::env::temp_dir())
+    let sdk = Remote::builder(&std::env::temp_dir())
         .url(server.url().into())
         .token("TOKEN".into())
         .build()

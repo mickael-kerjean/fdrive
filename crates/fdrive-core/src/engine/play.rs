@@ -2,7 +2,7 @@ use std::io;
 
 use crate::path::RelPath;
 use crate::port::LocalStore;
-use crate::sdk::Error as SdkError;
+use crate::remote::Error as RemoteError;
 
 use super::Engine;
 use crate::model::{Observation, Plan};
@@ -51,12 +51,12 @@ impl<T: LocalStore> Engine<T> {
             Ok(info) if Observation::of(&info) == moves => {
                 match self.sdk.mv(&from.as_file(), &to.as_file()).await {
                     Ok(()) => Outcome::Moved,
-                    Err(SdkError::NotFound) => self.move_lost(to, None),
+                    Err(RemoteError::NotFound) => self.move_lost(to, None),
                     Err(err) => Outcome::Failed(err.into()),
                 }
             }
             Ok(info) => self.move_lost(to, Some(Observation::of(&info))),
-            Err(SdkError::NotFound) => self.move_lost(to, None),
+            Err(RemoteError::NotFound) => self.move_lost(to, None),
             Err(err) => Outcome::Failed(err.into()),
         }
     }
@@ -77,7 +77,7 @@ impl<T: LocalStore> Engine<T> {
         }
         let target = if dir { path.as_dir() } else { path.as_file() };
         match self.sdk.rm(&target).await {
-            Ok(()) | Err(SdkError::NotFound) => Outcome::Removed,
+            Ok(()) | Err(RemoteError::NotFound) => Outcome::Removed,
             // some backends answer rm of a missing target with a generic
             // error instead of 404; already-gone is still success
             Err(err) => {
@@ -93,11 +93,11 @@ impl<T: LocalStore> Engine<T> {
 
     async fn gone(&self, path: &RelPath, dir: bool) -> bool {
         if dir {
-            matches!(self.sdk.ls(&path.as_dir()).await, Err(SdkError::NotFound))
+            matches!(self.sdk.ls(&path.as_dir()).await, Err(RemoteError::NotFound))
         } else {
             matches!(
                 self.sdk.stat(&path.as_file()).await,
-                Err(SdkError::NotFound)
+                Err(RemoteError::NotFound)
             )
         }
     }

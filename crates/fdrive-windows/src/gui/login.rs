@@ -32,9 +32,9 @@ pub(super) fn prompt_login() {
             None => return,
         },
     };
-    let url = fdrive_core::sdk::normalize_server(&raw);
+    let url = fdrive_core::remote::normalize_server(&raw);
     let data = ctx(|ctx| ctx.data.clone());
-    let probe = fdrive_core::sdk::Sdk::builder(&data)
+    let probe = fdrive_core::remote::Remote::builder(&data)
         .url(url.clone())
         .build()
         .map_err(|err| err.to_string())

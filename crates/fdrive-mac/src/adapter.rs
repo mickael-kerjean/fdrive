@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use fdrive_core::engine::{Engine, Observation, Watch};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
-use fdrive_core::sdk::{self, Sdk};
+use fdrive_core::remote::{self, Remote};
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -49,13 +49,13 @@ pub struct Download {
     pub entry: Entry,
 }
 
-impl From<sdk::FileInfo> for Entry {
-    fn from(info: sdk::FileInfo) -> Self {
+impl From<remote::FileInfo> for Entry {
+    fn from(info: remote::FileInfo) -> Self {
         Self {
             name: info.name,
             kind: match info.kind {
-                sdk::FileType::File => EntryKind::File,
-                sdk::FileType::Directory => EntryKind::Directory,
+                remote::FileType::File => EntryKind::File,
+                remote::FileType::Directory => EntryKind::Directory,
             },
             size: info.size,
             time_local: None,
@@ -81,7 +81,7 @@ pub(crate) struct CacheTree {
 #[derive(Default)]
 struct MetadataEntry {
     generation: u64,
-    listing: Option<(Instant, Vec<sdk::FileInfo>)>,
+    listing: Option<(Instant, Vec<remote::FileInfo>)>,
 }
 
 impl MetadataEntry {
@@ -141,7 +141,7 @@ impl Adapter {
     pub fn new(data_dir: String, url: String, token: String) -> Result<Arc<Self>, FsError> {
         let runtime = runtime()?;
         let data_dir = PathBuf::from(data_dir);
-        let sdk = Sdk::builder(&data_dir).url(url).token(token).build()?;
+        let sdk = Remote::builder(&data_dir).url(url).token(token).build()?;
         let cache_dir = data_dir.join("cache");
         fs::create_dir_all(&cache_dir)?;
         crate::log::init();
@@ -200,12 +200,12 @@ impl Adapter {
     pub async fn stat(&self, path: String, viewer_request: bool) -> Result<Entry, FsError> {
         let path = RelPath::new(&path);
         if let Some(metadata) = self.engine.view().pending_metadata(&path) {
-            let mut entry = Entry::from(sdk::FileInfo {
+            let mut entry = Entry::from(remote::FileInfo {
                 name: path.name().to_string(),
-                kind: sdk::FileType::File,
+                kind: remote::FileType::File,
                 size: Some(metadata.len()),
                 mtime: metadata.modified().ok(),
-                perms: sdk::Permissions::default(),
+                perms: remote::Permissions::default(),
             });
             entry.time_local = entry.time_remote.take();
             return Ok(entry);
@@ -225,7 +225,7 @@ impl Adapter {
     pub async fn fetch(&self, path: String, base: Option<String>, viewer_request: bool) -> Result<Download, FsError> {
         let path = RelPath::new(&path);
         let mut current = None;
-        let mut permissions = sdk::Permissions::default();
+        let mut permissions = remote::Permissions::default();
         if let Ok(listing) = self.listing(&path.parent_or_root(), viewer_request).await {
             if let Some(entry) = listing.iter().find(|entry| entry.name == path.name()) {
                 current = Some(Observation::of(entry));
@@ -236,9 +236,9 @@ impl Adapter {
             .cache()
             .hydrate_observed(&path, current, base.map(PathBuf::from))
             .await?;
-        let entry = Entry::from(sdk::FileInfo {
+        let entry = Entry::from(remote::FileInfo {
             name: path.name().to_owned(),
-            kind: sdk::FileType::File,
+            kind: remote::FileType::File,
             size: Some(observation.size),
             mtime: (observation.time != 0).then(|| UNIX_EPOCH + Duration::from_secs(observation.time)),
             perms: permissions,
@@ -323,8 +323,8 @@ impl Adapter {
 }
 
 impl Adapter {
-    fn entry(&self, path: &RelPath, info: sdk::FileInfo) -> Entry {
-        if info.kind != sdk::FileType::File {
+    fn entry(&self, path: &RelPath, info: remote::FileInfo) -> Entry {
+        if info.kind != remote::FileType::File {
             return Entry::from(info);
         }
         if !self.engine.view().current(path, Observation::of(&info)) {
@@ -348,7 +348,7 @@ impl Adapter {
         gates.entry(directory.clone()).or_default().clone()
     }
 
-    async fn listing(&self, directory: &RelPath, viewer_request: bool) -> Result<Vec<sdk::FileInfo>, FsError> {
+    async fn listing(&self, directory: &RelPath, viewer_request: bool) -> Result<Vec<remote::FileInfo>, FsError> {
         let ttl = if viewer_request { VIEWER_META_TTL } else { BACKGROUND_META_TTL };
         let gate = self.listing_gate(directory);
         let _guard = gate.lock().await;

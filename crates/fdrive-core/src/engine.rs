@@ -22,7 +22,7 @@ use tokio::time::Instant;
 
 use crate::path::RelPath;
 use crate::port::LocalStore;
-use crate::sdk::{Sdk, WatchMessage};
+use crate::remote::{Remote, WatchMessage};
 use self::{ledger::Ledger, play::Outcome};
 pub use self::{
     cache::Cache, download::Reader, fs::Fs, scheduler::UploadStatus, state::LedgerGuard,
@@ -32,7 +32,7 @@ pub use crate::model::Observation;
 
 pub struct Engine<T: crate::port::LocalStore> {
     local: T,
-    sdk: Arc<crate::sdk::Sdk>,
+    sdk: Arc<crate::remote::Remote>,
     ignore: crate::config::Ignore,
     state: Mutex<state::State>,
     transfers: gates::Transfers,
@@ -43,7 +43,7 @@ pub struct Engine<T: crate::port::LocalStore> {
 }
 
 impl<T: crate::port::LocalStore> Engine<T> {
-    pub fn start(rt: tokio::runtime::Handle, sdk: Arc<crate::sdk::Sdk>, local: T) -> Arc<Self> {
+    pub fn start(rt: tokio::runtime::Handle, sdk: Arc<crate::remote::Remote>, local: T) -> Arc<Self> {
         Self::spin_up(rt, sdk, local)
     }
 
@@ -130,7 +130,7 @@ impl<T: LocalStore> Engine<T> {
     }
 }
 
-async fn watch(sdk: Arc<Sdk>, notify: impl Fn(RemoteChanges)) {
+async fn watch(sdk: Arc<Remote>, notify: impl Fn(RemoteChanges)) {
     let mut cursor: Option<String> = None;
     let mut backoff = Duration::from_secs(1);
     loop {

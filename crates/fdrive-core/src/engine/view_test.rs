@@ -21,16 +21,16 @@ async fn overlay_masks_the_pending_world() {
     let listing = engine.view().merge(
         &RelPath::new(""),
         vec![
-            crate::sdk::FileInfo {
+            crate::remote::FileInfo {
                 name: "a".into(),
-                kind: crate::sdk::FileType::File,
+                kind: crate::remote::FileType::File,
                 size: Some(5),
                 mtime: None,
                 perms: Default::default(),
             },
-            crate::sdk::FileInfo {
+            crate::remote::FileInfo {
                 name: "doomed".into(),
-                kind: crate::sdk::FileType::File,
+                kind: crate::remote::FileType::File,
                 size: Some(3),
                 mtime: None,
                 perms: Default::default(),
@@ -66,9 +66,9 @@ async fn listed_observes_only_what_the_replica_mirrors() {
     let engine = engine(&server);
     let dir = RelPath::new("");
     let mtime = httpdate::parse_http_date(MTIME).unwrap();
-    let entry = |name: &str, size: u64| crate::sdk::FileInfo {
+    let entry = |name: &str, size: u64| crate::remote::FileInfo {
         name: name.into(),
-        kind: crate::sdk::FileType::File,
+        kind: crate::remote::FileType::File,
         size: Some(size),
         mtime: Some(mtime),
         perms: Default::default(),

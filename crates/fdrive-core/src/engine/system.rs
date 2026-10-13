@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::port::LocalStore;
-use crate::sdk::Result;
+use crate::remote::Result;
 
 use super::Engine;
 

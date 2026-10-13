@@ -112,12 +112,12 @@ async fn prune_keeps_the_delta_base_across_restarts() {
     server.mock(|when, then| {
         when.method(Method::OPTIONS).path("/api/files/save");
         then.status(200)
-            .header("Accept-Post", crate::sdk::DELTA_MEDIA_TYPE);
+            .header("Accept-Post", "application/vnd.filestash.delta.rdiff");
     });
     let delta = server.mock(|when, then| {
         when.method(Method::POST)
             .path("/api/files/cat")
-            .header("content-type", crate::sdk::DELTA_MEDIA_TYPE);
+            .header("content-type", "application/vnd.filestash.delta.rdiff");
         then.status(200)
             .header("last-modified", MTIME)
             .body(r#"{"status":"ok"}"#);

@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use bytes::{Buf, Bytes};
@@ -8,43 +7,11 @@ use reqwest::{Body, Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use url::Url;
 
+use super::{Error, FileInfo, FileType, Permissions, Result};
 use crate::ByteStream;
 
-
 const COOKIE_NAME_SESSION: &str = "auth";
-pub(crate) const DELTA_MEDIA_TYPE: &str = "application/vnd.filestash.delta.rdiff";
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("not authenticated")]
-    NotAuthenticated,
-    #[error("permission denied")]
-    PermissionDenied,
-    #[error("not found")]
-    NotFound,
-    #[error("precondition failed")]
-    PreconditionFailed,
-    #[error("not a Filestash server")]
-    NotFilestash,
-    #[error("api error: {0}")]
-    Api(String),
-    #[error(transparent)]
-    Http(#[from] reqwest::Error),
-    #[error("invalid url: {0}")]
-    Url(#[from] url::ParseError),
-}
-
-impl From<Error> for std::io::Error {
-    fn from(err: Error) -> Self {
-        match err {
-            Error::NotFound => std::io::ErrorKind::NotFound.into(),
-            Error::PermissionDenied => std::io::ErrorKind::PermissionDenied.into(),
-            err => std::io::Error::other(err),
-        }
-    }
-}
-
-pub type Result<T> = std::result::Result<T, Error>;
+const DELTA_MEDIA_TYPE: &str = "application/vnd.filestash.delta.rdiff";
 
 pub enum CatDelta {
     Signature {
@@ -53,36 +20,6 @@ pub enum CatDelta {
         sha256: [u8; 32],
     },
     Full(FileInfo, ByteStream),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileType {
-    File,
-    Directory,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileInfo {
-    pub name: String,
-    pub kind: FileType,
-    pub size: Option<u64>,
-    pub mtime: Option<SystemTime>,
-    pub perms: Permissions,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Permissions {
-    pub read: bool,
-    pub write: bool,
-    pub rename: bool,
-    pub reparent: bool,
-    pub delete: bool,
-}
-
-impl Default for Permissions {
-    fn default() -> Self {
-        Self { read: true, write: true, rename: true, reparent: true, delete: true }
-    }
 }
 
 impl FileInfo {
@@ -108,7 +45,7 @@ impl FileInfo {
 }
 
 #[derive(Clone)]
-pub struct Sdk {
+pub struct Filestash {
     http: reqwest::Client,
     url: Url,
     token: String,
@@ -116,30 +53,9 @@ pub struct Sdk {
     delta: std::sync::Arc<std::sync::OnceLock<bool>>,
 }
 
-pub struct SdkBuilder {
-    url: String,
-    token: String,
-    insecure: bool,
-}
-
-impl SdkBuilder {
-    pub fn url(mut self, url: String) -> Self {
-        self.url = url;
-        self
-    }
-
-    pub fn token(mut self, token: String) -> Self {
-        self.token = token;
-        self
-    }
-
-    pub fn insecure(mut self, insecure: bool) -> Self {
-        self.insecure = insecure;
-        self
-    }
-
-    pub fn build(self) -> Result<Sdk> {
-        let url = Url::parse(self.url.trim_end_matches('/'))?;
+impl Filestash {
+    pub(crate) fn new(url: &str, token: String, insecure: bool) -> Result<Self> {
+        let url = Url::parse(url.trim_end_matches('/'))?;
         let http = reqwest::Client::builder()
             .user_agent(format!(
                 "Filestash/{} ({}; {})",
@@ -147,29 +63,18 @@ impl SdkBuilder {
                 std::env::consts::OS,
                 std::env::consts::ARCH,
             ))
-            .danger_accept_invalid_certs(self.insecure)
+            .danger_accept_invalid_certs(insecure)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(30))
             .build()?;
-        Ok(Sdk {
+        Ok(Self {
             http,
             url,
-            token: self.token,
-            insecure: self.insecure,
+            token,
+            insecure,
             delta: Default::default(),
         })
-    }
-}
-
-impl Sdk {
-    pub fn builder(data: &Path) -> SdkBuilder {
-        let session = crate::config::load(data);
-        SdkBuilder {
-            url: session.url,
-            token: session.token,
-            insecure: session.insecure,
-        }
     }
 
     pub fn insecure(&self) -> bool {
@@ -529,15 +434,6 @@ pub fn assemble_token(cookies: &[(String, String)]) -> String {
     parts.into_iter().map(|(_, value)| value).collect()
 }
 
-pub fn normalize_server(input: &str) -> String {
-    let input = input.trim();
-    let url = match input.contains("://") {
-        true => input.to_owned(),
-        false => format!("https://{input}"),
-    };
-    url.trim_end_matches('/').to_owned()
-}
-
 pub fn login_url(base: &str) -> String {
     let next = Url::parse(&format!("{base}/api/session/token"))
         .map(|u| u.path().to_owned())
@@ -561,10 +457,10 @@ pub struct WatchEvent {
 pub struct WatchStream {
     response: reqwest::Response,
     pending: Bytes,
-    decoder: Decoder,
+    decoder: WatchDecoder,
 }
 
-impl Sdk {
+impl Filestash {
     pub async fn watch(&self, cursor: Option<&str>) -> Result<WatchStream> {
         let mut request = self
             .http_request(Method::GET, self.api(&["api", "files", "watch"]))?
@@ -589,7 +485,7 @@ impl Sdk {
         Ok(WatchStream {
             response,
             pending: Bytes::new(),
-            decoder: Decoder::default(),
+            decoder: WatchDecoder::default(),
         })
     }
 }
@@ -615,23 +511,23 @@ impl WatchStream {
 }
 
 #[derive(Default)]
-struct Frame {
+struct WatchFrame {
     event: String,
     data: String,
     id: Option<String>,
 }
 
 #[derive(Default)]
-struct Decoder {
+struct WatchDecoder {
     line: Vec<u8>,
-    frame: Frame,
+    frame: WatchFrame,
     size: usize,
     skip_lf: bool,
     started: bool,
 }
 
-impl Decoder {
-    fn push(&mut self, byte: u8) -> Result<Option<Frame>> {
+impl WatchDecoder {
+    fn push(&mut self, byte: u8) -> Result<Option<WatchFrame>> {
         if std::mem::take(&mut self.skip_lf) && byte == b'\n' {
             return Ok(None);
         }
@@ -675,5 +571,5 @@ impl Decoder {
 }
 
 #[cfg(test)]
-#[path = "sdk_test.rs"]
+#[path = "filestash_test.rs"]
 mod tests;

@@ -43,7 +43,7 @@ pub fn login(base: &str, insecure: bool) -> Result<Option<String>, String> {
             Some(drop_state),
             0,
         );
-        let uri = CString::new(fdrive_core::sdk::login_url(base)).map_err(|e| e.to_string())?;
+        let uri = CString::new(fdrive_core::remote::login_url(base)).map_err(|e| e.to_string())?;
         (wk.web_view_load_uri)(view, uri.as_ptr());
     }
     dialog.show_all();
@@ -116,7 +116,7 @@ unsafe extern "C" fn on_cookies(manager: *mut c_void, result: *mut c_void, data:
     Rc::decrement_strong_count(data as *const State);
 }
 
-pub use fdrive_core::sdk::assemble_token;
+pub use fdrive_core::remote::assemble_token;
 
 #[derive(Clone, Copy)]
 struct WebKit {

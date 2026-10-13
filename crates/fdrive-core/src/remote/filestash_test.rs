@@ -1,6 +1,7 @@
 use httpmock::prelude::*;
 
-use super::{Error, FileType, Sdk};
+use super::{Error, FileType};
+use crate::remote::Remote;
 
 #[tokio::test]
 async fn http_errors_are_mapped() {
@@ -18,7 +19,7 @@ async fn http_errors_are_mapped() {
         then.status(403);
     });
 
-    let client = Sdk::builder(&std::env::temp_dir())
+    let client = Remote::builder(&std::env::temp_dir())
         .url(server.base_url())
         .token("TOKEN".into())
         .build()
@@ -44,7 +45,7 @@ async fn a_zero_time_means_unknown_mtime() {
         }));
     });
 
-    let client = Sdk::builder(&std::env::temp_dir())
+    let client = Remote::builder(&std::env::temp_dir())
         .url(server.base_url())
         .token("TOKEN".into())
         .build()

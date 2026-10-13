@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use fdrive_core::engine::Observation;
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
-use fdrive_core::sdk::{Error as SdkError, FileInfo, FileType};
+use fdrive_core::remote::{Error as RemoteError, FileInfo, FileType};
 
 use crate::wire;
 
@@ -254,7 +254,7 @@ impl Reconcile<'_> {
             true => self.0.engine.block_on(self.0.engine.fs().ls(path)).err(),
             false => self.0.engine.block_on(self.0.engine.fs().stat(path)).err(),
         };
-        if !matches!(gone, Some(SdkError::NotFound)) {
+        if !matches!(gone, Some(RemoteError::NotFound)) {
             return;
         }
         let removed = self.0.engine.local().suppress(path, || {

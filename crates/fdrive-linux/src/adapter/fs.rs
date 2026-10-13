@@ -6,7 +6,7 @@ use std::time::{Instant, SystemTime};
 
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
-use fdrive_core::sdk::{self, FileInfo, FileType};
+use fdrive_core::remote::{self, FileInfo, FileType};
 
 use super::utils::{ensure_parent, fill_at, remove_path};
 use super::{Adapter, Xattr};
@@ -48,7 +48,7 @@ impl<'a> Fs<'a> {
                     self.0.engine.view().note(dir, &fetched);
                     fetched
                 }
-                Err(err @ (sdk::Error::NotFound | sdk::Error::PermissionDenied)) => return Err(err.into()),
+                Err(err @ (remote::Error::NotFound | remote::Error::PermissionDenied)) => return Err(err.into()),
                 Err(err) => {
                     let meta = self.0.engine.local().meta.lock().unwrap();
                     match meta.get(dir).and_then(|entry| entry.listing.as_ref()) {

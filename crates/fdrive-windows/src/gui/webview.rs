@@ -3,7 +3,7 @@ use std::ffi::c_void;
 use std::path::Path;
 use std::rc::Rc;
 
-use fdrive_core::sdk::assemble_token;
+use fdrive_core::remote::assemble_token;
 
 use crate::utils::wstr;
 use windows::core::{w, GUID, HRESULT, PCWSTR, PWSTR};
@@ -195,7 +195,7 @@ unsafe fn on_controller(state: &Rc<State>, hr: HRESULT, controller: *mut c_void)
     let webview_vt = vt::<WebViewVtbl>(webview);
     let _ = (webview_vt.add_source_changed)(webview, on_source, &mut token);
     com_release(on_source);
-    let url = wstr(fdrive_core::sdk::login_url(&state.base));
+    let url = wstr(fdrive_core::remote::login_url(&state.base));
     let _ = (webview_vt.navigate)(webview, PCWSTR(url.as_ptr()));
 }
 

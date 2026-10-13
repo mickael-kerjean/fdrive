@@ -3,7 +3,7 @@ use httpmock::{Method, MockServer};
 use super::testkit::*;
 use crate::engine::{Engine, Observation};
 use crate::path::RelPath;
-use crate::sdk::Sdk;
+use crate::remote::Remote;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -106,7 +106,7 @@ async fn a_deleted_file_stops_hydrating() {
 
 #[tokio::test]
 async fn a_cached_file_opens_when_the_server_is_unreachable() {
-    let sdk = Sdk::builder(&std::env::temp_dir())
+    let sdk = Remote::builder(&std::env::temp_dir())
         .url("http://127.0.0.1:9".into())
         .build()
         .unwrap();
@@ -208,10 +208,10 @@ async fn a_second_hydrate_travels_as_ranges() {
         when.method(Method::GET)
             .path("/api/files/cat")
             .query_param("path", "/f")
-            .header("accept", crate::sdk::DELTA_MEDIA_TYPE);
+            .header("accept", "application/vnd.filestash.delta.rdiff");
         then.status(200)
             .body(signed(&v2))
-            .header("content-type", crate::sdk::DELTA_MEDIA_TYPE)
+            .header("content-type", "application/vnd.filestash.delta.rdiff")
             .header("last-modified", MTIME2);
     });
     let range = server.mock(|when, then| {
@@ -254,10 +254,10 @@ async fn a_rewritten_file_falls_back_to_the_full_download() {
         when.method(Method::GET)
             .path("/api/files/cat")
             .query_param("path", "/f")
-            .header("accept", crate::sdk::DELTA_MEDIA_TYPE);
+            .header("accept", "application/vnd.filestash.delta.rdiff");
         then.status(200)
             .body(signed(&v2))
-            .header("content-type", crate::sdk::DELTA_MEDIA_TYPE)
+            .header("content-type", "application/vnd.filestash.delta.rdiff")
             .header("last-modified", MTIME2);
     });
     let full2 = server.mock(|when, then| {

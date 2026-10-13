@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use fdrive_core::path::RelPath;
-use fdrive_core::sdk::Sdk;
+use fdrive_core::remote::Remote;
 use fdrive_linux::adapter::Adapter;
 use httpmock::prelude::*;
 use tokio::runtime::Runtime;
@@ -30,7 +30,7 @@ impl Drop for TempDir {
 }
 
 fn adapter(server: &MockServer, data: &TempDir, rt: &Runtime) -> Adapter {
-    let sdk = Sdk::builder(&data.0).url(server.base_url()).token("TOKEN".into()).build().unwrap();
+    let sdk = Remote::builder(&data.0).url(server.base_url()).token("TOKEN".into()).build().unwrap();
     Adapter::new(rt.handle().clone(), Arc::new(sdk), &data.0).unwrap()
 }
 

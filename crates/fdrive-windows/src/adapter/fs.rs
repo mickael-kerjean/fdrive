@@ -3,7 +3,7 @@ use std::io;
 use std::sync::Arc;
 
 use fdrive_core::path::RelPath;
-use fdrive_core::sdk::Error as SdkError;
+use fdrive_core::remote::Error as RemoteError;
 
 use crate::wire;
 
@@ -20,7 +20,7 @@ impl Fs<'_> {
         self.0.populated.lock().unwrap().insert(dir.clone());
         let listing = match self.0.engine.block_on(self.0.engine.fs().ls(dir)) {
             Ok(listing) => listing,
-            Err(SdkError::NotFound) => return Ok(()),
+            Err(RemoteError::NotFound) => return Ok(()),
             Err(err) => return Err(err.into()),
         };
         for entry in &listing {
@@ -130,7 +130,7 @@ impl Fs<'_> {
                     .await
                     .map_err(io::Error::other)?
             }
-            Err(SdkError::NotFound) => Ok(()),
+            Err(RemoteError::NotFound) => Ok(()),
             Err(err) => Err(err.into()),
         };
         result

@@ -3,7 +3,7 @@ use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::path::RelPath;
-use crate::sdk::FileInfo;
+use crate::remote::FileInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Observation {

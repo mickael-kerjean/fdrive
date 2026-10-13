@@ -11,7 +11,7 @@ use crate::path::RelPath;
 use crate::port::LocalStore;
 
 use crate::activity::{Direction, Mode};
-use crate::sdk::{CatDelta, Error as SdkError, FileInfo};
+use crate::remote::{CatDelta, Error as RemoteError, FileInfo};
 
 use super::{Cache, Engine};
 use crate::model::{Fate, Observation};
@@ -193,7 +193,7 @@ impl<T: LocalStore> Engine<T> {
             Some(current) => current,
             None => match self.sdk.stat(&upstream.as_file()).await {
                 Ok(info) => Observation::of(&info),
-                Err(err @ (SdkError::NotFound | SdkError::PermissionDenied)) => {
+                Err(err @ (RemoteError::NotFound | RemoteError::PermissionDenied)) => {
                     return Err(err.into())
                 }
                 Err(err) if abs.is_file() => {

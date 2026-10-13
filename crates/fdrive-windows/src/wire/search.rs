@@ -3,7 +3,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use fdrive_core::sdk::Sdk;
+use fdrive_core::remote::Remote;
 use windows::core::{implement, Error, IUnknown, Interface, Ref, Result, BOOL, GUID, PCWSTR};
 use windows::Win32::Foundation::{E_NOINTERFACE, E_POINTER, HWND};
 use windows::Win32::System::Com::{
@@ -17,7 +17,7 @@ pub struct Registration {
     mta: CO_MTA_USAGE_COOKIE,
 }
 
-pub fn register(root: &Path, sdk: Arc<Sdk>) -> io::Result<Registration> {
+pub fn register(root: &Path, sdk: Arc<Remote>) -> io::Result<Registration> {
     let root = std::path::absolute(root)?;
     let connector = connector();
     let inside = format!("System.ItemPathDisplay:~<\"{}\"", root.display());

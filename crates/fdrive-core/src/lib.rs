@@ -10,7 +10,7 @@ pub mod engine;
 pub mod model;
 pub mod path;
 pub mod port;
-pub mod sdk;
+pub mod remote;
 #[cfg(feature = "testkit")]
 #[path = "../tests/testkit/mod.rs"]
 pub mod testkit;
