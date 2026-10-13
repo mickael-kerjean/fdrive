@@ -53,7 +53,7 @@ struct DisconnectView: View {
         let base = normalizeServer(input: serverURL)
         Task {
             defer { probing = false }
-            guard (try? await probe(url: base, insecure: base.hasPrefix("http://"))) != nil else {
+            guard (try? await probe(url: base)) != nil else {
                 state.connectionError = "\(base) does not look like a Filestash server"
                 return
             }

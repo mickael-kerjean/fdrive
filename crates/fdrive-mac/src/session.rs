@@ -9,7 +9,6 @@ use crate::{runtime, FsError};
 pub struct Session {
     pub url: String,
     pub token: String,
-    pub insecure: bool,
     pub ok: bool,
 }
 
@@ -24,14 +23,14 @@ pub fn login_url(base: String) -> String {
 }
 
 #[uniffi::export(async_runtime = "tokio")]
-pub async fn probe(url: String, insecure: bool) -> Result<String, FsError> {
-    Ok(Sdk::builder(&url).insecure(insecure).probe().await?)
+pub async fn probe(url: String) -> Result<String, FsError> {
+    Ok(Sdk::builder(&url).probe().await?)
 }
 
 #[uniffi::export]
-pub fn logout(url: String, insecure: bool, token: String) -> Result<(), FsError> {
+pub fn logout(url: String, token: String) -> Result<(), FsError> {
     let runtime = runtime()?;
-    let sdk = Sdk::builder(&url).insecure(insecure).token(token)?;
+    let sdk = Sdk::builder(&url).token(token)?;
     Ok(runtime.block_on(sdk.logout())?)
 }
 
@@ -45,12 +44,12 @@ pub fn assemble_token(cookies: HashMap<String, String>) -> String {
 pub fn session_recall(data_dir: String) -> Session {
     let session = fdrive_core::config::load(Path::new(&data_dir));
     let ok = session.ok();
-    Session { url: session.url, token: session.token, insecure: session.insecure, ok }
+    Session { url: session.url, token: session.token, ok }
 }
 
 #[uniffi::export]
-pub fn session_remember(data_dir: String, url: String, token: String, insecure: bool) {
-    fdrive_core::config::remember(Path::new(&data_dir), &url, &token, insecure);
+pub fn session_remember(data_dir: String, url: String, token: String) {
+    fdrive_core::config::remember(Path::new(&data_dir), &url, &token);
 }
 
 #[uniffi::export]

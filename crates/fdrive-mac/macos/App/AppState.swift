@@ -54,7 +54,7 @@ final class AppState: ObservableObject {
             if session.ok && isConnected {
                 let reachable: Bool
                 do {
-                    _ = try await probe(url: session.url, insecure: session.insecure)
+                    _ = try await probe(url: session.url)
                     reachable = true
                 } catch {
                     reachable = false
@@ -112,7 +112,7 @@ final class AppState: ObservableObject {
             let session = RuntimeSessionStore.load()
             RuntimeSessionStore.clear()
             if session.ok {
-                Task.detached { try? logout(url: session.url, insecure: session.insecure, token: session.token) }
+                Task.detached { try? logout(url: session.url, token: session.token) }
             }
             syncStatus = nil
             online = false
