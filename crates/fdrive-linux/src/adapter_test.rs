@@ -5,7 +5,7 @@ fn ls_serves_the_stale_listing_when_the_server_is_unreachable() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let data = std::env::temp_dir().join(format!("fdrive-stale-ls-{}", std::process::id()));
     fs::create_dir_all(&data).unwrap();
-    let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
+    let sdk = Sdk::builder(&data).url("http://127.0.0.1:9".into()).build().unwrap();
     let adapter = Adapter::new(rt.handle().clone(), Arc::new(sdk), &data).unwrap();
 
     let dir = RelPath::new("d");
@@ -47,7 +47,7 @@ fn a_write_lands_on_the_replaced_file_not_the_dead_inode() {
     let data = std::env::temp_dir().join(format!("fdrive-fresh-write-{}", std::process::id()));
     let _ = fs::remove_dir_all(&data);
     fs::create_dir_all(&data).unwrap();
-    let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
+    let sdk = Sdk::builder(&data).url("http://127.0.0.1:9".into()).build().unwrap();
     let adapter = Adapter::new(rt.handle().clone(), Arc::new(sdk), &data).unwrap();
 
     let path = RelPath::new("doc.txt");

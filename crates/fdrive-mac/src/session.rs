@@ -23,14 +23,14 @@ pub fn login_url(base: String) -> String {
 }
 
 #[uniffi::export(async_runtime = "tokio")]
-pub async fn probe(url: String) -> Result<String, FsError> {
-    Ok(Sdk::builder(&url).probe().await?)
+pub async fn probe(data_dir: String, url: String) -> Result<String, FsError> {
+    Ok(Sdk::builder(Path::new(&data_dir)).url(url).build()?.probe().await?)
 }
 
 #[uniffi::export]
-pub fn logout(url: String, token: String) -> Result<(), FsError> {
+pub fn logout(data_dir: String, url: String, token: String) -> Result<(), FsError> {
     let runtime = runtime()?;
-    let sdk = Sdk::builder(&url).token(token)?;
+    let sdk = Sdk::builder(Path::new(&data_dir)).url(url).token(token).build()?;
     Ok(runtime.block_on(sdk.logout())?)
 }
 

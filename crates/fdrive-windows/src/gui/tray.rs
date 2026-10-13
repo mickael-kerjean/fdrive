@@ -49,10 +49,7 @@ impl Tray {
     }
 
     pub fn account(&self, creds: &Credentials) {
-        let mut state = self.state.lock().unwrap();
-        state.url = Some(creds.url.clone());
-        state.user = creds.user.clone();
-        state.storage = creds.storage.clone();
+        self.state.lock().unwrap().url = Some(creds.url.clone());
     }
 
     pub fn on_click(&self, handler: impl Fn() + Send + Sync + 'static) {

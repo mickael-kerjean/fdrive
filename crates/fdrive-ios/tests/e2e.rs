@@ -30,10 +30,9 @@ fn rig_with(server: FakeServer) -> Rig {
     ));
     fs::create_dir_all(&data).unwrap();
     let adapter = Adapter::new(
-        server.url().to_string(),
-        false,
-        "TOKEN".to_string(),
         data.to_string_lossy().into_owned(),
+        server.url().to_string(),
+        "TOKEN".to_string(),
     )
     .unwrap();
     Rig {
@@ -52,10 +51,9 @@ impl Rig {
     fn restart(&mut self) {
         let server = self.server.clone();
         let adapter = Adapter::new(
-            server.url().to_string(),
-            false,
-            "TOKEN".to_string(),
             self.data.to_string_lossy().into_owned(),
+            server.url().to_string(),
+            "TOKEN".to_string(),
         )
         .unwrap();
         self.adapter = adapter;

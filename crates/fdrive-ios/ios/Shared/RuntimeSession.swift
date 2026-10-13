@@ -5,13 +5,13 @@ enum RuntimeSessionStore {
         .containerURL(forSecurityApplicationGroupIdentifier: "group.app.filestash.sync")?
         .appendingPathComponent("data")
 
-    static func save(url: String, token: String, insecure: Bool) {
+    static func save(url: String, token: String) {
         guard let dataDirectory else { return }
-        sessionRemember(dataDir: dataDirectory.path, url: url, token: token, insecure: insecure)
+        sessionRemember(dataDir: dataDirectory.path, url: url, token: token)
     }
 
     static func load() -> Session {
-        guard let dataDirectory else { return Session(url: "", token: "", insecure: false, ok: false) }
+        guard let dataDirectory else { return Session(url: "", token: "", ok: false) }
         return sessionRecall(dataDir: dataDirectory.path)
     }
 

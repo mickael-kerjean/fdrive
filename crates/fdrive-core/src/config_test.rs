@@ -17,12 +17,11 @@ fn tmp() -> PathBuf {
 fn session_round_trip() {
     let data = tmp();
     assert!(!super::load(&data).ok());
-    super::remember(&data, "https://demo.filestash.app", "TOKEN", false);
+    super::remember(&data, "https://demo.filestash.app", "TOKEN");
     let session = super::load(&data);
     assert!(session.ok());
     assert_eq!(session.url, "https://demo.filestash.app");
     assert_eq!(session.token, "TOKEN");
-    assert!(!session.insecure);
     super::forget(&data);
     let session = super::load(&data);
     assert!(!session.ok(), "no usable session after logout");
@@ -48,8 +47,7 @@ fn login_and_logout_leave_the_rest_of_the_config_alone() {
     let data = tmp();
     let config = data.join("fdrive.toml");
     std::fs::write(&config, "[sync]\nignore = [\"node_modules\"]\n").unwrap();
-    super::remember(&data, "https://x", "T", true);
-    assert!(super::load(&data).insecure);
+    super::remember(&data, "https://x", "T");
     super::forget(&data);
     let text = std::fs::read_to_string(&config).unwrap();
     assert!(
@@ -88,7 +86,7 @@ fn ignore_is_configurable_and_an_empty_list_disables_it() {
 fn login_leaves_the_ignore_rules_alone() {
     let data = tmp();
     std::fs::write(data.join("fdrive.toml"), "[sync]\nignore = [\"target\"]\n").unwrap();
-    super::remember(&data, "https://x", "T", false);
+    super::remember(&data, "https://x", "T");
     assert!(super::ignore(&data).matches(&crate::path::RelPath::new("target")));
     assert_eq!(super::load(&data).token, "T");
 }
@@ -96,10 +94,10 @@ fn login_leaves_the_ignore_rules_alone() {
 #[test]
 fn an_unchanged_login_does_not_rewrite_the_file() {
     let data = tmp();
-    super::remember(&data, "https://x", "T", false);
+    super::remember(&data, "https://x", "T");
     let config = data.join("fdrive.toml");
     let annotated = format!("# user note\n{}", std::fs::read_to_string(&config).unwrap());
     std::fs::write(&config, &annotated).unwrap();
-    super::remember(&data, "https://x", "T", false);
+    super::remember(&data, "https://x", "T");
     assert_eq!(std::fs::read_to_string(&config).unwrap(), annotated);
 }

@@ -126,8 +126,10 @@ impl Drive {
 
     pub async fn login(&self, server: &str, token: String) -> Result<(), String> {
         let url = normalize_server(server);
-        let sdk = Sdk::builder(&url)
+        let sdk = Sdk::builder(&self.data)
+            .url(url.clone())
             .token(token.clone())
+            .build()
             .map_err(|err| err.to_string())?;
         sdk.ls("/").await.map_err(|err| format!("token rejected: {err}"))?;
         let previous = self.inner.lock().await.session.take();

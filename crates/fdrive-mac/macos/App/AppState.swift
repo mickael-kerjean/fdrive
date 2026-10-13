@@ -51,10 +51,10 @@ final class AppState: ObservableObject {
     private func monitorConnection() async {
         while !Task.isCancelled {
             let session = RuntimeSessionStore.load()
-            if session.ok && isConnected {
+            if session.ok && isConnected, let dataDirectory = RuntimeSessionStore.dataDirectory {
                 let reachable: Bool
                 do {
-                    _ = try await probe(url: session.url)
+                    _ = try await probe(dataDir: dataDirectory.path, url: session.url)
                     reachable = true
                 } catch {
                     reachable = false
@@ -82,7 +82,7 @@ final class AppState: ObservableObject {
     func connect(serverURL: String, token: String) async {
         connectionError = nil
         do {
-            RuntimeSessionStore.save(url: serverURL, token: token, insecure: serverURL.hasPrefix("http://"))
+            RuntimeSessionStore.save(url: serverURL, token: token)
             try await DomainManager.add()
             syncStatus = .upToDate
             online = true
@@ -111,8 +111,8 @@ final class AppState: ObservableObject {
             try? await SMAppService.mainApp.unregister()
             let session = RuntimeSessionStore.load()
             RuntimeSessionStore.clear()
-            if session.ok {
-                Task.detached { try? logout(url: session.url, token: session.token) }
+            if session.ok, let dataDirectory = RuntimeSessionStore.dataDirectory {
+                Task.detached { try? logout(dataDir: dataDirectory.path, url: session.url, token: session.token) }
             }
             syncStatus = nil
             online = false

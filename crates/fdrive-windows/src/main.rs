@@ -190,18 +190,8 @@ async fn connect(
     data: &Path,
     config: &AppConfig,
 ) -> Result<Session, Box<dyn std::error::Error>> {
-    let builder = Sdk::builder(&creds.url).insecure(creds.insecure);
-    let sdk = if creds.token.is_empty() {
-        builder.login(&creds.user, &creds.password, &creds.storage).await?
-    } else {
-        builder.token(creds.token.clone())?
-    };
-    store::remember(
-        data,
-        &creds.url,
-        sdk.token().unwrap_or_default(),
-        creds.insecure,
-    );
+    let sdk = Sdk::builder(data).url(creds.url.clone()).token(creds.token.clone()).build()?;
+    store::remember(data, &creds.url, &creds.token);
     let sdk = Arc::new(sdk);
     let adapter = Adapter::new(
         sdk.clone(),

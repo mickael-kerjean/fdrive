@@ -30,8 +30,7 @@ impl Drop for TempDir {
 }
 
 fn adapter(server: &MockServer, data: &TempDir, rt: &Runtime) -> Adapter {
-    let mut sdk = Sdk::new(&server.base_url()).unwrap();
-    sdk.set_token("TOKEN".into());
+    let sdk = Sdk::builder(&data.0).url(server.base_url()).token("TOKEN".into()).build().unwrap();
     Adapter::new(rt.handle().clone(), Arc::new(sdk), &data.0).unwrap()
 }
 

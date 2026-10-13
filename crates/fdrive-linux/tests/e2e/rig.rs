@@ -93,8 +93,7 @@ impl Rig {
 }
 
 fn mount(server: &FakeServer, rt: &tokio::runtime::Runtime, mnt: &Path, data: &Path) -> (Arc<Adapter>, fuser::BackgroundSession) {
-    let mut sdk = Sdk::new(server.url()).unwrap();
-    sdk.set_token("TOKEN".into());
+    let sdk = Sdk::builder(data).url(server.url().into()).token("TOKEN".into()).build().unwrap();
     let adapter = Arc::new(Adapter::new(rt.handle().clone(), Arc::new(sdk), data).unwrap());
     let mut config = Config::default();
     config.mount_options = vec![MountOption::FSName("fdrive-e2e".to_string()), MountOption::DefaultPermissions];

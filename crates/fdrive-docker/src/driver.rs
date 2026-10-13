@@ -113,7 +113,7 @@ impl Driver {
         }
         std::fs::create_dir_all(&target)?;
         std::fs::create_dir_all(&data)?;
-        let sdk = Sdk::builder(&volume.server).token(volume.token.clone())?;
+        let sdk = Sdk::builder(&data).url(volume.server.clone()).token(volume.token.clone()).build()?;
         let adapter = Arc::new(Adapter::new(self.rt.clone(), Arc::new(sdk), &data)?);
         let mut config = Config::default();
         config.mount_options = vec![MountOption::FSName("filestash".into()), MountOption::DefaultPermissions];

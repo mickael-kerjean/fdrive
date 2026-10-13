@@ -23,8 +23,8 @@ pub async fn connect(creds: &store::Session, mount: &Path, data: &Path) -> Resul
         }
     }
     std::fs::create_dir_all(mount)?;
-    let sdk = Sdk::builder(&creds.url).insecure(creds.insecure).token(creds.token.clone())?;
-    store::remember(data, &creds.url, sdk.token().unwrap_or_default(), creds.insecure);
+    let sdk = Sdk::builder(data).url(creds.url.clone()).token(creds.token.clone()).build()?;
+    store::remember(data, &creds.url, &creds.token);
     let adapter = Arc::new(Adapter::new(tokio::runtime::Handle::current(), Arc::new(sdk), data)?);
     let mount_config = {
         let mut c = Config::default();

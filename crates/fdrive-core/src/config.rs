@@ -14,10 +14,10 @@ struct ConfigFile {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Session {
     pub url: String,
     pub token: String,
-    #[serde(default)]
     pub insecure: bool,
 }
 

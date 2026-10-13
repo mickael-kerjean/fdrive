@@ -14,15 +14,7 @@ struct Args {
     #[arg(long, env = "FILESTASH_TOKEN", hide_env_values = true)]
     token: Option<String>,
     #[arg(long)]
-    user: Option<String>,
-    #[arg(long, env = "FILESTASH_PASSWORD", hide_env_values = true)]
-    password: Option<String>,
-    #[arg(long)]
-    storage: Option<String>,
-    #[arg(long)]
     config: Option<PathBuf>,
-    #[arg(long)]
-    insecure: bool,
     #[arg(long)]
     unregister: bool,
 }
@@ -64,36 +56,20 @@ pub fn init() -> Setup {
     let config_path = args.config.unwrap_or_else(|| data.join("fdrive.toml"));
     let config = AppConfig::load(&config_path).unwrap_or_else(|err| fail(&err.to_string()));
 
-    if args.token.is_some() && args.user.is_some() {
-        fail("--token and --user cannot be combined");
-    }
-    if args.server.is_none() && (args.token.is_some() || args.user.is_some()) {
-        fail("--token and --user need --server");
-    }
-    if args.user.is_some() && args.password.as_deref().unwrap_or("").is_empty() {
-        fail("--user needs --password (or FILESTASH_PASSWORD)");
+    if args.server.is_none() && args.token.is_some() {
+        fail("--token needs --server");
     }
     let stored = fdrive_core::config::load(&data);
     let server = args.server.as_deref().map(normalize_server).filter(|url| {
         !config.features.server_locked || stored.url.is_empty() || *url == stored.url
     });
-    let boot = match (&server, args.token, &args.user) {
-        (Some(url), Some(token), _) => Boot::Fresh(Credentials {
+    let boot = match (&server, args.token) {
+        (Some(url), Some(token)) => Boot::Fresh(Credentials {
             url: url.clone(),
             token,
-            insecure: args.insecure,
-            ..Default::default()
         }),
-        (Some(url), None, Some(user)) => Boot::Fresh(Credentials {
-            url: url.clone(),
-            user: user.clone(),
-            password: args.password.unwrap_or_default(),
-            storage: args.storage.unwrap_or_default(),
-            insecure: args.insecure,
-            ..Default::default()
-        }),
-        (Some(url), None, None) => Boot::Prompt(url.clone()),
-        (None, ..) => match stored.ok() {
+        (Some(url), None) => Boot::Prompt(url.clone()),
+        (None, _) => match stored.ok() {
             true => Boot::Restored(Credentials::from(stored)),
             false => Boot::Idle(Some(stored.url)),
         },

@@ -24,7 +24,7 @@ final class AppState: ObservableObject {
 
     func connect(serverURL: String, token: String) async {
         connectionError = nil
-        RuntimeSessionStore.save(url: serverURL, token: token, insecure: serverURL.hasPrefix("http://"))
+        RuntimeSessionStore.save(url: serverURL, token: token)
         // Domain registration is best-effort; the session stands on its own.
         try? await DomainManager.add()
         isConnected = true
@@ -34,8 +34,8 @@ final class AppState: ObservableObject {
         try? await DomainManager.remove()
         let session = RuntimeSessionStore.load()
         RuntimeSessionStore.clear()
-        if session.ok {
-            Task.detached { try? logout(url: session.url, insecure: session.insecure, token: session.token) }
+        if session.ok, let dataDirectory = RuntimeSessionStore.dataDirectory {
+            Task.detached { try? logout(dataDir: dataDirectory.path, url: session.url, token: session.token) }
         }
         isConnected = false
     }

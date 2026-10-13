@@ -64,10 +64,6 @@ impl Boot {
 pub struct Credentials {
     pub url: String,
     pub token: String,
-    pub user: String,
-    pub password: String,
-    pub storage: String,
-    pub insecure: bool,
 }
 
 impl Credentials {
@@ -76,11 +72,7 @@ impl Credentials {
             .url
             .split_once("://")
             .map_or(self.url.as_str(), |(_, rest)| rest);
-        let host = rest.split(['/', '?']).next().unwrap_or(rest);
-        match self.user.is_empty() {
-            true => host.to_string(),
-            false => format!("{}@{host}/{}", self.user, self.storage),
-        }
+        rest.split(['/', '?']).next().unwrap_or(rest).to_string()
     }
 }
 
@@ -89,8 +81,6 @@ impl From<fdrive_core::config::Session> for Credentials {
         Self {
             url: session.url,
             token: session.token,
-            insecure: session.insecure,
-            ..Default::default()
         }
     }
 }
@@ -138,8 +128,6 @@ impl Status {
 pub struct TrayState {
     pub status: Status,
     pub url: Option<String>,
-    pub user: String,
-    pub storage: String,
     pub rates: String,
     pub server_locked: bool,
     pub on_click: Option<Arc<dyn Fn() + Send + Sync>>,

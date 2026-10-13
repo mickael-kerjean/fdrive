@@ -14,8 +14,6 @@ struct Args {
     mount: Option<PathBuf>,
     #[arg(long)]
     data: Option<PathBuf>,
-    #[arg(long)]
-    insecure: bool,
 }
 
 pub struct Setup {
@@ -42,7 +40,6 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
         (Some(url), Some(token)) => Boot::Fresh(Credentials {
             url: url.clone(),
             token,
-            insecure: args.insecure,
         }),
         (Some(_), None) => Boot::Prompt,
         (None, _) => {
@@ -59,7 +56,6 @@ pub fn init() -> Result<Setup, Box<dyn std::error::Error>> {
             .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join("Filestash")),
         prefill: Credentials {
             url: server.unwrap_or_default(),
-            insecure: args.insecure,
             ..Default::default()
         },
         data,

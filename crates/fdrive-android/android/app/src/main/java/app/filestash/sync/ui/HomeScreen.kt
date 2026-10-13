@@ -225,9 +225,7 @@ private fun StatusCircleCore(fill: Color, glyph: Color, onClick: () -> Unit) {
 
 private fun accountLabel(context: Context): String? {
     val creds = Native.init(context).load() ?: return null
-    val host = creds.url.substringAfter("://").substringBefore('/')
-    val who = creds.user.ifEmpty { null }
-    return listOfNotNull(who, "$host/${creds.storage}".trimEnd('/')).joinToString(" @ ")
+    return creds.url.substringAfter("://").substringBefore('/')
 }
 
 private fun openFileManager(context: Context) {

@@ -28,57 +28,11 @@ impl Drop for TempDir {
 
 fn adapter(server: &MockServer, data: &TempDir) -> Arc<Adapter> {
     Adapter::new(
-        server.base_url(),
-        false,
-        "TOKEN".into(),
         data.0.to_str().unwrap().into(),
+        server.base_url(),
+        "TOKEN".into(),
     )
     .unwrap()
-}
-
-#[test]
-fn login_returns_reassembled_token() {
-    let server = MockServer::start();
-    let mock = server.mock(|when, then| {
-        when.method(POST)
-            .path("/api/session/auth/")
-            .query_param("label", "my-storage")
-            .body_contains("user=alice")
-            .body_contains("password=secret");
-        then.status(302)
-            .header("Set-Cookie", "auth=part1; Path=/; HttpOnly")
-            .header("Set-Cookie", "auth1=part2; Path=/; HttpOnly");
-    });
-
-    let token = fdrive_android::login(
-        server.base_url(),
-        false,
-        "alice".into(),
-        "secret".into(),
-        "my-storage".into(),
-    )
-    .unwrap();
-    mock.assert();
-    assert_eq!(token, "part1part2");
-}
-
-#[test]
-fn login_rejects_bad_credentials() {
-    let server = MockServer::start();
-    server.mock(|when, then| {
-        when.method(POST).path("/api/session/auth/");
-        then.status(403);
-    });
-
-    let err = fdrive_android::login(
-        server.base_url(),
-        false,
-        "alice".into(),
-        "wrong".into(),
-        "s".into(),
-    )
-    .unwrap_err();
-    assert!(matches!(err, FsError::InvalidCredentials));
 }
 
 #[test]
@@ -231,21 +185,11 @@ fn errors_are_mapped() {
 #[ignore]
 fn against_real_server() {
     let env = |name: &str| std::env::var(name).expect(name);
-    let token = fdrive_android::login(
-        env("FILESTASH_URL"),
-        false,
-        env("FILESTASH_USER"),
-        env("FILESTASH_PASSWORD"),
-        env("FILESTASH_STORAGE"),
-    )
-    .unwrap();
-    assert!(!token.is_empty());
     let data = TempDir::new();
     let adapter = Adapter::new(
-        env("FILESTASH_URL"),
-        false,
-        token,
         data.0.to_str().unwrap().into(),
+        env("FILESTASH_URL"),
+        env("FILESTASH_TOKEN"),
     )
     .unwrap();
     let entries = adapter.ls("/".into()).unwrap();

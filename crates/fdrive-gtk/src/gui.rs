@@ -36,7 +36,6 @@ pub enum Boot {
 pub struct Credentials {
     pub url: String,
     pub token: String,
-    pub insecure: bool,
 }
 
 impl From<fdrive_core::config::Session> for Credentials {
@@ -44,7 +43,6 @@ impl From<fdrive_core::config::Session> for Credentials {
         Self {
             url: session.url,
             token: session.token,
-            insecure: session.insecure,
         }
     }
 }

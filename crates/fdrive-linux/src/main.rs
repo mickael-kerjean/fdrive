@@ -49,7 +49,12 @@ async fn main() {
             }
             Cmd::LoginUrl { server } => {
                 let url = normalize_server(&server);
-                Sdk::builder(&url).probe().await.map_err(|err| format!("{url}: {err}"))?;
+                Sdk::builder(&fdrive_linux::session::default_data())
+                    .url(url.clone())
+                    .build()?
+                    .probe()
+                    .await
+                    .map_err(|err| format!("{url}: {err}"))?;
                 println!("{}", login_url(&url));
                 Ok(())
             }
