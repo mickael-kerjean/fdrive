@@ -33,7 +33,7 @@ pub fn load(data: &Path) -> Session {
         .unwrap_or_default()
 }
 
-pub fn remember(data: &Path, url: &str, token: &str, insecure: bool) {
+pub fn remember(data: &Path, url: &str, token: &str) {
     if url.is_empty() || token.is_empty() {
         return;
     }
@@ -42,7 +42,7 @@ pub fn remember(data: &Path, url: &str, token: &str, insecure: bool) {
         Some(Session {
             url: url.to_owned(),
             token: token.to_owned(),
-            insecure,
+            ..load(data)
         }),
     );
 }
