@@ -6,10 +6,6 @@ import androidx.security.crypto.MasterKey
 
 data class Credentials(
     val url: String,
-    val insecure: Boolean,
-    val user: String,
-    val password: String,
-    val storage: String,
     val token: String,
 )
 
@@ -26,10 +22,6 @@ class CredentialStore(context: Context) {
         val url = prefs.getString("url", null) ?: return null
         return Credentials(
             url = url,
-            insecure = prefs.getBoolean("insecure", false),
-            user = prefs.getString("user", "") ?: "",
-            password = prefs.getString("password", "") ?: "",
-            storage = prefs.getString("storage", "") ?: "",
             token = prefs.getString("token", "") ?: "",
         )
     }
@@ -37,16 +29,8 @@ class CredentialStore(context: Context) {
     fun save(credentials: Credentials) {
         prefs.edit()
             .putString("url", credentials.url)
-            .putBoolean("insecure", credentials.insecure)
-            .putString("user", credentials.user)
-            .putString("password", credentials.password)
-            .putString("storage", credentials.storage)
             .putString("token", credentials.token)
             .apply()
-    }
-
-    fun saveToken(token: String) {
-        prefs.edit().putString("token", token).apply()
     }
 
     fun clear() {

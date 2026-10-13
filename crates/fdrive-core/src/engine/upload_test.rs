@@ -224,7 +224,10 @@ async fn a_stale_save_landing_on_a_file_turned_directory_uploads_nothing() {
 
 #[tokio::test]
 async fn a_dead_server_leaves_no_mark_anywhere() {
-    let sdk = Sdk::new("http://127.0.0.1:9").unwrap();
+    let sdk = Sdk::builder(&std::env::temp_dir())
+        .url("http://127.0.0.1:9".into())
+        .build()
+        .unwrap();
     let rt = tokio::runtime::Handle::current();
     let engine = Engine::start(rt, Arc::new(sdk), TempTree::new());
     let path = RelPath::new("doc.txt");

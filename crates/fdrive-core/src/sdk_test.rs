@@ -3,24 +3,6 @@ use httpmock::prelude::*;
 use super::{Error, FileType, Sdk};
 
 #[tokio::test]
-async fn authenticate_reassembles_split_cookies() {
-    let server = MockServer::start();
-    server.mock(|when, then| {
-        when.method(POST).path("/api/session/auth/");
-        then.status(302)
-            .header("Set-Cookie", "auth=part1; Path=/; HttpOnly")
-            .header("Set-Cookie", "auth1=part2; Path=/; HttpOnly");
-    });
-
-    let mut client = Sdk::new(&server.base_url()).unwrap();
-    client
-        .authenticate("alice", "secret", "my-storage")
-        .await
-        .unwrap();
-    assert_eq!(client.token(), Some("part1part2"));
-}
-
-#[tokio::test]
 async fn http_errors_are_mapped() {
     let server = MockServer::start();
     server.mock(|when, then| {
@@ -36,8 +18,11 @@ async fn http_errors_are_mapped() {
         then.status(403);
     });
 
-    let mut client = Sdk::new(&server.base_url()).unwrap();
-    client.set_token("TOKEN".into());
+    let client = Sdk::builder(&std::env::temp_dir())
+        .url(server.base_url())
+        .token("TOKEN".into())
+        .build()
+        .unwrap();
     assert!(matches!(
         client.ls("/gone/").await.unwrap_err(),
         Error::NotFound
@@ -59,8 +44,11 @@ async fn a_zero_time_means_unknown_mtime() {
         }));
     });
 
-    let mut client = Sdk::new(&server.base_url()).unwrap();
-    client.set_token("TOKEN".into());
+    let client = Sdk::builder(&std::env::temp_dir())
+        .url(server.base_url())
+        .token("TOKEN".into())
+        .build()
+        .unwrap();
     let files = client.ls("/").await.unwrap();
     assert_eq!(files[0].kind, FileType::Directory);
     assert_eq!(files[0].mtime, None);

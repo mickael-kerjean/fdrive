@@ -19,10 +19,9 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension, 
         let session = RuntimeSessionStore.load()
         if session.ok, let dataDirectory = RuntimeSessionStore.dataDirectory {
             adapter = try? Adapter(
+                dataDir: dataDirectory.path,
                 url: session.url,
-                insecure: session.insecure,
-                token: session.token,
-                dataDir: dataDirectory.path
+                token: session.token
             )
         } else {
             adapter = nil
@@ -256,7 +255,7 @@ private func replace(at localPath: String, with contents: URL) throws {
 func mapToProviderError(_ error: Error) -> Error {
     guard let error = error as? FsError else { return error }
     return switch error {
-    case .NotAuthenticated, .PermissionDenied, .InvalidCredentials:
+    case .NotAuthenticated, .PermissionDenied:
         NSFileProviderError(.notAuthenticated)
     case .NotFound:
         NSFileProviderError(.noSuchItem)

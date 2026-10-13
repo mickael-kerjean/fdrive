@@ -1,8 +1,9 @@
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use bytes::{Buf, Bytes};
 use futures_util::TryStreamExt;
-use reqwest::header::{HeaderMap, ACCEPT, AUTHORIZATION, CONTENT_TYPE, RANGE, SET_COOKIE};
+use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, RANGE};
 use reqwest::{Body, Method, RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use url::Url;
@@ -15,8 +16,6 @@ pub(crate) const DELTA_MEDIA_TYPE: &str = "application/vnd.filestash.delta.rdiff
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("invalid credentials")]
-    InvalidCredentials,
     #[error("not authenticated")]
     NotAuthenticated,
     #[error("permission denied")]
@@ -110,62 +109,37 @@ impl FileInfo {
 
 #[derive(Clone)]
 pub struct Sdk {
-    url: Url,
     http: reqwest::Client,
-    token: Option<String>,
+    url: Url,
+    token: String,
+    insecure: bool,
     delta: std::sync::Arc<std::sync::OnceLock<bool>>,
 }
 
 pub struct SdkBuilder {
     url: String,
+    token: String,
     insecure: bool,
 }
 
 impl SdkBuilder {
+    pub fn url(mut self, url: String) -> Self {
+        self.url = url;
+        self
+    }
+
+    pub fn token(mut self, token: String) -> Self {
+        self.token = token;
+        self
+    }
+
     pub fn insecure(mut self, insecure: bool) -> Self {
         self.insecure = insecure;
         self
     }
 
-    pub fn token(self, token: String) -> Result<Sdk> {
-        let mut sdk = Sdk::with_options(&self.url, self.insecure)?;
-        sdk.set_token(token);
-        Ok(sdk)
-    }
-
-    pub async fn probe(&self) -> Result<String> {
-        Sdk::with_options(&self.url, self.insecure)?.probe().await
-    }
-
-    pub fn probe_blocking(&self) -> Result<String> {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|err| Error::Api(err.to_string()))?
-            .block_on(self.probe())
-    }
-
-    pub async fn login(self, user: &str, password: &str, storage: &str) -> Result<Sdk> {
-        let mut sdk = Sdk::with_options(&self.url, self.insecure)?;
-        sdk.authenticate(user, password, storage).await?;
-        Ok(sdk)
-    }
-}
-
-impl Sdk {
-    pub fn builder(url: &str) -> SdkBuilder {
-        SdkBuilder {
-            url: url.to_string(),
-            insecure: false,
-        }
-    }
-
-    pub fn new(url: &str) -> Result<Self> {
-        Self::with_options(url, false)
-    }
-
-    fn with_options(url: &str, insecure: bool) -> Result<Self> {
-        let url = Url::parse(url.trim_end_matches('/'))?;
+    pub fn build(self) -> Result<Sdk> {
+        let url = Url::parse(self.url.trim_end_matches('/'))?;
         let http = reqwest::Client::builder()
             .user_agent(format!(
                 "Filestash/{} ({}; {})",
@@ -173,44 +147,58 @@ impl Sdk {
                 std::env::consts::OS,
                 std::env::consts::ARCH,
             ))
-            .danger_accept_invalid_certs(insecure)
+            .danger_accept_invalid_certs(self.insecure)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(30))
             .build()?;
-        Ok(Self {
-            url,
+        Ok(Sdk {
             http,
-            token: None,
+            url,
+            token: self.token,
+            insecure: self.insecure,
             delta: Default::default(),
         })
     }
+}
 
-    pub fn token(&self) -> Option<&str> {
-        self.token.as_deref()
+impl Sdk {
+    pub fn builder(data: &Path) -> SdkBuilder {
+        let session = crate::config::load(data);
+        SdkBuilder {
+            url: session.url,
+            token: session.token,
+            insecure: session.insecure,
+        }
     }
 
-    pub fn set_token(&mut self, token: String) {
-        self.token = Some(token);
+    pub fn insecure(&self) -> bool {
+        self.insecure
     }
 
-    pub async fn authenticate(&mut self, user: &str, password: &str, storage: &str) -> Result<()> {
-        let mut url = self.api(&["api", "session", "auth", ""]);
-        url.query_pairs_mut().append_pair("label", storage);
+    pub async fn probe(&self) -> Result<String> {
         let resp = self
-            .http_request(Method::POST, url)?
-            .form(&[("user", user), ("password", password)])
+            .http_request(Method::GET, self.api(&["about"]))?
             .send()
             .await?;
-        if resp.status().as_u16() >= 400 {
-            return Err(Error::InvalidCredentials);
-        }
-        let token = extract_token(resp.headers());
-        if token.is_empty() {
-            return Err(Error::InvalidCredentials);
-        }
-        self.token = Some(token);
-        Ok(())
+        resp.headers()
+            .get("X-Powered-By")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Filestash/"))
+            .map(|version| {
+                version
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or(version)
+                    .to_string()
+            })
+            .ok_or(Error::NotFilestash)
+    }
+
+    pub async fn logout(&self) -> Result<()> {
+        self.request(Method::DELETE, &["api", "session"], &[])
+            .await
+            .map(drop)
     }
 
     pub async fn ls(&self, path: &str) -> Result<Vec<FileInfo>> {
@@ -297,31 +285,6 @@ impl Sdk {
             return Err(Error::Api(format!("range ignored: {}", resp.status())));
         }
         Ok(resp.bytes().await?.to_vec())
-    }
-
-    pub async fn probe(&self) -> Result<String> {
-        let resp = self
-            .http_request(Method::GET, self.api(&["about"]))?
-            .send()
-            .await?;
-        resp.headers()
-            .get("X-Powered-By")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Filestash/"))
-            .map(|version| {
-                version
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or(version)
-                    .to_string()
-            })
-            .ok_or(Error::NotFilestash)
-    }
-
-    pub async fn logout(&self) -> Result<()> {
-        self.request(Method::DELETE, &["api", "session"], &[])
-            .await
-            .map(drop)
     }
 
     pub async fn thumbnail(&self, path: &str) -> Result<Vec<u8>> {
@@ -437,8 +400,10 @@ impl Sdk {
     }
 
     fn bearer(&self) -> Result<String> {
-        let token = self.token.as_deref().ok_or(Error::NotAuthenticated)?;
-        Ok(format!("Bearer {token}"))
+        if self.token.is_empty() {
+            return Err(Error::NotAuthenticated);
+        }
+        Ok(format!("Bearer {}", self.token))
     }
 
     fn http_request(&self, method: Method, url: Url) -> Result<RequestBuilder> {
@@ -578,28 +543,6 @@ pub fn login_url(base: &str) -> String {
         .map(|u| u.path().to_owned())
         .unwrap_or_else(|_| "/api/session/token".to_owned());
     format!("{base}/login?next={next}")
-}
-
-fn extract_token(headers: &HeaderMap) -> String {
-    let cookies: Vec<(&str, &str)> = headers
-        .get_all(SET_COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .filter_map(|v| v.split(';').next()?.trim().split_once('='))
-        .collect();
-    let mut token = String::new();
-    for index in 0.. {
-        let name = if index == 0 {
-            COOKIE_NAME_SESSION.to_string()
-        } else {
-            format!("{COOKIE_NAME_SESSION}{index}")
-        };
-        match cookies.iter().find(|(n, _)| *n == name) {
-            Some((_, value)) => token.push_str(value),
-            None => break,
-        }
-    }
-    token
 }
 
 #[derive(Debug, Deserialize)]

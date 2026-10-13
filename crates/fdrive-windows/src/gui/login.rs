@@ -33,22 +33,32 @@ pub(super) fn prompt_login() {
         },
     };
     let url = fdrive_core::sdk::normalize_server(&raw);
-    if let Err(err) = fdrive_core::sdk::Sdk::builder(&url)
-        .insecure(false)
-        .probe_blocking()
-    {
-        alert(&format!(
-            "{url} does not look like a Filestash server.\n\n{err}"
-        ));
-        return;
-    }
     let data = ctx(|ctx| ctx.data.clone());
-    let token = match super::webview::login(&url, false, &data) {
+    let probe = fdrive_core::sdk::Sdk::builder(&data)
+        .url(url.clone())
+        .build()
+        .map_err(|err| err.to_string())
+        .and_then(|sdk| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|err| err.to_string())?;
+            rt.block_on(sdk.probe()).map_err(|err| err.to_string())?;
+            Ok(sdk)
+        });
+    let sdk = match probe {
+        Ok(sdk) => sdk,
+        Err(err) => {
+            alert(&format!("{url} does not look like a Filestash server.\n\n{err}"));
+            return;
+        }
+    };
+    let token = match super::webview::login(&url, sdk.insecure(), &data) {
         Ok(Some(token)) => token,
         Ok(None) => return,
         Err(err) => {
             alert(&format!(
-                "{err}\n\nInstall the WebView2 runtime, or use --token / --user from the command line."
+                "{err}\n\nInstall the WebView2 runtime, or use --token from the command line."
             ));
             return;
         }
@@ -56,7 +66,6 @@ pub(super) fn prompt_login() {
     send(super::TrayEvent::Login(Credentials {
         url,
         token,
-        ..Default::default()
     }));
 }
 

@@ -6,7 +6,6 @@ import android.webkit.CookieManager
 import app.filestash.core.Adapter
 import app.filestash.core.FsException
 import app.filestash.core.RemoteObserver
-import app.filestash.core.login as coreLogin
 import java.io.File
 
 object Native {
@@ -23,31 +22,18 @@ object Native {
         val store = store ?: CredentialStore(context.applicationContext).also { store = it }
         if (client == null) {
             store.load()?.let { creds ->
-                client = connect(context, creds.url, creds.insecure, creds.token)
+                client = connect(context, creds.url, creds.token)
             }
         }
         return store
     }
 
     @Synchronized
-    fun login(context: Context, credentials: Credentials) {
-        val store = init(context)
-        val token = coreLogin(
-            credentials.url, credentials.insecure,
-            credentials.user, credentials.password, credentials.storage,
-        )
-        store.save(credentials.copy(token = token))
-        client?.close()
-        client = connect(context, credentials.url, credentials.insecure, token)
-        notifyRootsChanged(context)
-    }
-
-    @Synchronized
     fun session(context: Context, url: String, token: String) {
         val store = init(context)
-        store.save(Credentials(url, false, "", "", "", token))
+        store.save(Credentials(url, token))
         client?.close()
-        client = connect(context, url, false, token)
+        client = connect(context, url, token)
         notifyRootsChanged(context)
     }
 
@@ -74,30 +60,13 @@ object Native {
     }
 
     fun <T> withReauth(context: Context, block: (Adapter) -> T): T {
-        val store = init(context)
-        val client = client ?: throw FsException.NotAuthenticated()
-        return try {
-            block(client)
-        } catch (e: FsException) {
-            if (e !is FsException.NotAuthenticated && e !is FsException.PermissionDenied) throw e
-            val creds = store.load() ?: throw e
-            if (creds.password.isEmpty()) throw e
-            relogin(context, creds)
-            block(Native.client ?: throw e)
-        }
+        init(context)
+        return block(client ?: throw FsException.NotAuthenticated())
     }
 
-    @Synchronized
-    private fun relogin(context: Context, creds: Credentials) {
-        val token = coreLogin(creds.url, creds.insecure, creds.user, creds.password, creds.storage)
-        store?.saveToken(token)
-        client?.close()
-        client = connect(context, creds.url, creds.insecure, token)
-    }
-
-    private fun connect(context: Context, url: String, insecure: Boolean, token: String): Adapter {
+    private fun connect(context: Context, url: String, token: String): Adapter {
         val resolver = context.applicationContext.contentResolver
-        return Adapter(url, insecure, token, dataDir(context)).also {
+        return Adapter(dataDir(context), url, token).also {
             it.startWatch(object : RemoteObserver {
                 override fun changed(directories: List<String>) {
                     for (dir in directories) {

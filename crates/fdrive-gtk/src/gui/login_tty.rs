@@ -1,7 +1,7 @@
 use std::io::{BufRead, Write};
 
 use fdrive_core::sdk::Sdk;
-use super::{normalize_server, Credentials};
+use super::{default_data, normalize_server, Credentials};
 
 pub async fn login_tty(prefill: &Credentials) -> Option<Credentials> {
     let color = std::env::var_os("NO_COLOR").is_none() && std::env::var("TERM").map_or(true, |t| t != "dumb");
@@ -23,7 +23,11 @@ pub async fn login_tty(prefill: &Credentials) -> Option<Credentials> {
                 _ => return None,
             };
         }
-        match Sdk::builder(&url).insecure(prefill.insecure).probe().await {
+        let probe = match Sdk::builder(&default_data()).url(url.clone()).build() {
+            Ok(sdk) => sdk.probe().await,
+            Err(err) => Err(err),
+        };
+        match probe {
             Ok(version) => break version,
             Err(err) => {
                 let _ = say(&format!(" {} {url} is not a Filestash server: {err}\n\n", paint("31", "✗")));
@@ -42,7 +46,7 @@ pub async fn login_tty(prefill: &Credentials) -> Option<Credentials> {
             Ok(token) if !token.is_empty() => token,
             _ => return None,
         };
-        let sdk = Sdk::builder(&url).insecure(prefill.insecure).token(token.clone()).ok()?;
+        let sdk = Sdk::builder(&default_data()).url(url.clone()).token(token.clone()).build().ok()?;
         match sdk.ls("/").await {
             Ok(_) => break token,
             Err(err) => {
@@ -54,7 +58,6 @@ pub async fn login_tty(prefill: &Credentials) -> Option<Credentials> {
     Some(Credentials {
         url,
         token,
-        insecure: prefill.insecure,
     })
 }
 

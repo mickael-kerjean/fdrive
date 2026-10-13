@@ -64,8 +64,11 @@ impl LocalStore for Platform {
 }
 
 fn connect(server: &FakeServer, platform: Platform) -> Arc<Engine<Platform>> {
-    let mut sdk = Sdk::new(server.url()).unwrap();
-    sdk.set_token("TOKEN".into());
+    let sdk = Sdk::builder(&std::env::temp_dir())
+        .url(server.url().into())
+        .token("TOKEN".into())
+        .build()
+        .unwrap();
     Engine::start(tokio::runtime::Handle::current(), Arc::new(sdk), platform)
 }
 

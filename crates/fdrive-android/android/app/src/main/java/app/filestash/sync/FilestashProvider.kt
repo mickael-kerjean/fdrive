@@ -42,14 +42,12 @@ class FilestashProvider : DocumentsProvider() {
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
         val cursor = MatrixCursor(projection ?: ROOT_PROJECTION)
-        val store = Native.init(context!!)
+        Native.init(context!!)
         if (Native.client == null) return cursor
-        val storage = store.load()?.storage.orEmpty()
         cursor.newRow()
             .add(Root.COLUMN_ROOT_ID, Native.ROOT_ID)
             .add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
             .add(Root.COLUMN_TITLE, "Filestash")
-            .add(Root.COLUMN_SUMMARY, storage.ifEmpty { null })
             .add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_CREATE or Root.FLAG_SUPPORTS_IS_CHILD)
             .add(Root.COLUMN_DOCUMENT_ID, "/")
         return cursor

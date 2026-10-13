@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -99,8 +99,8 @@ pub struct Adapter {
 #[uniffi::export(async_runtime = "tokio")]
 impl Adapter {
     #[uniffi::constructor]
-    pub fn new(url: String, insecure: bool, token: String, data_dir: String) -> Result<Arc<Self>, FsError> {
-        let sdk = Sdk::builder(&url).insecure(insecure).token(token)?;
+    pub fn new(data_dir: String, url: String, token: String) -> Result<Arc<Self>, FsError> {
+        let sdk = Sdk::builder(Path::new(&data_dir)).url(url).token(token).build()?;
         let runtime = runtime()?;
         let data_dir = PathBuf::from(data_dir);
         let cache_dir = data_dir.join("cache");

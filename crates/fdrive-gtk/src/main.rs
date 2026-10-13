@@ -97,7 +97,7 @@ async fn connect(
     let creds = store::Session {
         url: creds.url.clone(),
         token: creds.token.clone(),
-        insecure: creds.insecure,
+        ..Default::default()
     };
     match session::connect(&creds, mount, data).await {
         Ok(inner) => {

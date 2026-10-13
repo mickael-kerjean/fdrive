@@ -10,8 +10,6 @@ uniffi::setup_scaffolding!();
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FsError {
-    #[error("invalid credentials")]
-    InvalidCredentials,
     #[error("not authenticated")]
     NotAuthenticated,
     #[error("permission denied")]
@@ -27,7 +25,6 @@ pub enum FsError {
 impl From<sdk::Error> for FsError {
     fn from(error: sdk::Error) -> Self {
         match error {
-            sdk::Error::InvalidCredentials => Self::InvalidCredentials,
             sdk::Error::NotAuthenticated => Self::NotAuthenticated,
             sdk::Error::PermissionDenied => Self::PermissionDenied,
             sdk::Error::NotFound => Self::NotFound,

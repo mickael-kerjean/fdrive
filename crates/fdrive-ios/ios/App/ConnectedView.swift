@@ -52,10 +52,10 @@ struct ConnectedView: View {
         .tint(.fsAccent)
         .task(id: checkNow) {
             let session = RuntimeSessionStore.load()
-            guard session.ok else { return }
+            guard session.ok, let dataDirectory = RuntimeSessionStore.dataDirectory else { return }
             while !Task.isCancelled {
                 let up = await Task.detached {
-                    ping(url: session.url, insecure: session.insecure, token: session.token)
+                    ping(dataDir: dataDirectory.path, url: session.url, token: session.token)
                 }.value
                 await MainActor.run { connected = up }
                 try? await Task.sleep(for: .seconds(10))

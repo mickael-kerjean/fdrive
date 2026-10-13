@@ -9,15 +9,7 @@ use crate::{runtime, FsError};
 pub struct Session {
     pub url: String,
     pub token: String,
-    pub insecure: bool,
     pub ok: bool,
-}
-
-#[uniffi::export]
-pub fn login(url: String, insecure: bool, user: String, password: String, storage: String) -> Result<String, FsError> {
-    let runtime = runtime()?;
-    let sdk = runtime.block_on(Sdk::builder(&url).insecure(insecure).login(&user, &password, &storage))?;
-    Ok(sdk.token().unwrap_or_default().to_string())
 }
 
 #[uniffi::export]
@@ -31,21 +23,21 @@ pub fn login_url(base: String) -> String {
 }
 
 #[uniffi::export(async_runtime = "tokio")]
-pub async fn probe(url: String, insecure: bool) -> Result<String, FsError> {
-    Ok(Sdk::builder(&url).insecure(insecure).probe().await?)
+pub async fn probe(data_dir: String, url: String) -> Result<String, FsError> {
+    Ok(Sdk::builder(Path::new(&data_dir)).url(url).build()?.probe().await?)
 }
 
 #[uniffi::export]
-pub fn logout(url: String, insecure: bool, token: String) -> Result<(), FsError> {
+pub fn logout(data_dir: String, url: String, token: String) -> Result<(), FsError> {
     let runtime = runtime()?;
-    let sdk = Sdk::builder(&url).insecure(insecure).token(token)?;
+    let sdk = Sdk::builder(Path::new(&data_dir)).url(url).token(token).build()?;
     Ok(runtime.block_on(sdk.logout())?)
 }
 
 #[uniffi::export]
-pub fn ping(url: String, insecure: bool, token: String) -> bool {
+pub fn ping(data_dir: String, url: String, token: String) -> bool {
     let Ok(runtime) = runtime() else { return false };
-    let Ok(sdk) = Sdk::builder(&url).insecure(insecure).token(token) else {
+    let Ok(sdk) = Sdk::builder(Path::new(&data_dir)).url(url).token(token).build() else {
         return false;
     };
     runtime.block_on(sdk.ls("/")).is_ok()
@@ -61,12 +53,12 @@ pub fn assemble_token(cookies: HashMap<String, String>) -> String {
 pub fn session_recall(data_dir: String) -> Session {
     let session = fdrive_core::config::load(Path::new(&data_dir));
     let ok = session.ok();
-    Session { url: session.url, token: session.token, insecure: session.insecure, ok }
+    Session { url: session.url, token: session.token, ok }
 }
 
 #[uniffi::export]
-pub fn session_remember(data_dir: String, url: String, token: String, insecure: bool) {
-    fdrive_core::config::remember(Path::new(&data_dir), &url, &token, insecure);
+pub fn session_remember(data_dir: String, url: String, token: String) {
+    fdrive_core::config::remember(Path::new(&data_dir), &url, &token);
 }
 
 #[uniffi::export]

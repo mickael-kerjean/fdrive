@@ -138,10 +138,10 @@ pub trait RemoteObserver: Send + Sync {
 #[uniffi::export(async_runtime = "tokio")]
 impl Adapter {
     #[uniffi::constructor]
-    pub fn new(url: String, insecure: bool, token: String, data_dir: String) -> Result<Arc<Self>, FsError> {
-        let sdk = Sdk::builder(&url).insecure(insecure).token(token)?;
+    pub fn new(data_dir: String, url: String, token: String) -> Result<Arc<Self>, FsError> {
         let runtime = runtime()?;
         let data_dir = PathBuf::from(data_dir);
+        let sdk = Sdk::builder(&data_dir).url(url).token(token).build()?;
         let cache_dir = data_dir.join("cache");
         fs::create_dir_all(&cache_dir)?;
         crate::log::init();

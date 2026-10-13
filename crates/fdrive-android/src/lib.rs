@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -17,8 +17,6 @@ uniffi::setup_scaffolding!();
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FsError {
-    #[error("invalid credentials")]
-    InvalidCredentials,
     #[error("not authenticated")]
     NotAuthenticated,
     #[error("permission denied")]
@@ -34,7 +32,6 @@ pub enum FsError {
 impl From<sdk::Error> for FsError {
     fn from(err: sdk::Error) -> Self {
         match err {
-            sdk::Error::InvalidCredentials => Self::InvalidCredentials,
             sdk::Error::NotAuthenticated => Self::NotAuthenticated,
             sdk::Error::PermissionDenied => Self::PermissionDenied,
             sdk::Error::NotFound => Self::NotFound,
@@ -89,23 +86,6 @@ impl From<sdk::FileInfo> for Entry {
                 .map(|d| d.as_millis() as i64),
         }
     }
-}
-
-#[uniffi::export]
-pub fn login(
-    url: String,
-    insecure: bool,
-    user: String,
-    password: String,
-    storage: String,
-) -> Result<String, FsError> {
-    let rt = runtime()?;
-    let sdk = rt.block_on(
-        Sdk::builder(&url)
-            .insecure(insecure)
-            .login(&user, &password, &storage),
-    )?;
-    Ok(sdk.token().unwrap_or_default().to_string())
 }
 
 #[uniffi::export]
@@ -166,13 +146,8 @@ pub struct Adapter {
 #[uniffi::export]
 impl Adapter {
     #[uniffi::constructor]
-    pub fn new(
-        url: String,
-        insecure: bool,
-        token: String,
-        data_dir: String,
-    ) -> Result<Arc<Self>, FsError> {
-        let sdk = Sdk::builder(&url).insecure(insecure).token(token)?;
+    pub fn new(data_dir: String, url: String, token: String) -> Result<Arc<Self>, FsError> {
+        let sdk = Sdk::builder(Path::new(&data_dir)).url(url).token(token).build()?;
         let rt = runtime()?;
         let data = PathBuf::from(data_dir);
         let cache_dir = data.join("cache");

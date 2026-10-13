@@ -53,7 +53,8 @@ struct DisconnectView: View {
         let base = normalizeServer(input: serverURL)
         Task {
             defer { probing = false }
-            guard (try? await probe(url: base)) != nil else {
+            guard let dataDirectory = RuntimeSessionStore.dataDirectory,
+                  (try? await probe(dataDir: dataDirectory.path, url: base)) != nil else {
                 state.connectionError = "\(base) does not look like a Filestash server"
                 return
             }
