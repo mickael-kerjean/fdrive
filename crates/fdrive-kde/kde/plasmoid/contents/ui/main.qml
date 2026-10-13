@@ -52,6 +52,7 @@ PlasmoidItem {
   function openLogin(host) {
     host = host.trim()
     if (host === "" || busy) return
+    if (host.startsWith("sftp://")) return login(host, "n/a")
     actionStatus = "Checking " + host + "…"
     clearStatus.stop()
     busy = true

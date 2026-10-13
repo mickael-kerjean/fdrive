@@ -54,6 +54,12 @@ pub fn login_webkit(prefill: Credentials) -> Option<Credentials> {
             return None;
         }
     };
+    if url.starts_with("sftp://") {
+        return Some(Credentials {
+            url,
+            token: "n/a".into(),
+        });
+    }
     match super::webview::login(&url, sdk.insecure()) {
         Ok(Some(token)) => Some(Credentials {
             url,

@@ -28,6 +28,7 @@ Item {
   }
 
   function openLogin(host) {
+    if (host.trim().startsWith("sftp://")) return login(host, "n/a")
     root.actionStatus = "Checking " + host.trim() + "…"
     run(["fdrive", "login-url", host.trim()], "", function(ok, out, err) {
       if (!ok) {
