@@ -1,14 +1,12 @@
-## What is this?
+# What is this?
 
-Dropbox democratised the idea of a folder that syncs across your devices. Fdrive not only matches that promise, but also extends it beyond humans to agents, without creating yet another data silo and by staying interoperable with the storage you already have, from S3 and SFTP to SMB, NFS, the [infamous FTP](https://github.com/mickael-kerjean/filestash#why) and virtually anything.
+Fdrive takes Dropbox's big idea of "a folder that syncs across your devices" and addresses its [infamous qualms](https://github.com/mickael-kerjean/filestash#why). Rather than creating yet another data silo, it works with the storage you already have and gives it the Dropbox++ treatment with better tooling, for both:
 
-## Who is it for? Why?
+1. Humans: who want the Dropbox experience on the storage they already have and across all their devices, without creating a new data island and while staying interoperable.
 
-1. Humans: you want the Dropbox experience while staying in control of your data and you want something that does not create its own island but is interoperable
+2. [Agents](https://www.filestash.app/docs/guide/agents.html): as Nvidia's CEO says: *“when you deployed an agent ... the first thing you do is you take away all of its rights ... then you provision, you give it access to files...”*. Fdrive, along with its [control plane](https://github.com/mickael-kerjean/filestash), is that provisioning tool: your agent only gets access to what it needs, with clear permission boundaries, and an audit trail shows what it tried to do, what was allowed and what was blocked.
 
-2. [Agents](https://www.filestash.app/docs/guide/agents.html): as the CEO of Nvidia say: « when you deployed an agent ... the first thing you do is you take away all of its rights ... then you provision, you give it access to files ...». Fdrive along with [Filestash](https://github.com/mickael-kerjean/filestash) is that provisioning tool that will make sure your agent only have access to what it needs, you set clear permission boundaries, with audit trail showing what the agent tried to do, what was allowed, and what was blocked
-
-## What it looks like?
+It looks native, because it is:
 
 <p align="center">
     <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-mac.png?v=20260831" alt="mac screenshot" />
@@ -80,9 +78,9 @@ EOF
 - Iphone: apple store (coming soon)
 - Android: <a href="https://downloads.filestash.app/latest/fdrive-android.apk">apk</a>, play store (coming soon)
 
-## Architecture
+## Architecture & Goals
 
-We use the hexagonal architecture / ports and adapters pattern. The core owns all policy, everything that decides *what moves where* lives there, once. Each platform adapts its own UI and filesystem technology to it.
+The whole project is structured around the ports and adapters pattern. The core is the sync engine at the center of everything, and each platform adapts it to its own UI and filesystem technology.
 
 | crate | technology |
 |---|---|
@@ -95,6 +93,13 @@ We use the hexagonal architecture / ports and adapters pattern. The core owns al
 | `fdrive-android` | Storage Access Framework, Kotlin |
 | `fdrive-docker` | Docker volume plugin API, FUSE |
 | `fdrive-omarchy` | QML, FUSE |
+
+> *“Perfection is achieved, not when there is nothing more to add, but when there is nothing left to take away.”*
+> &mdash; Antoine de Saint-Exupéry
+
+The idea at the foundation of our approach is that a beautiful set of primitives exists, a universal truth for a sync engine that works everywhere. Sounds trivial? If you've ever had to look at CfAPI, FileProvider, FUSE and the Storage Access Framework side by side, you know it's chaos riddled with [platform quirks](https://news.ycombinator.com/item?id=50030050): Windows, macOS, Linux and Android each have very different ideas of the problem space.
+
+Bringing beauty out of it is the quest, and there is still a lot left to take away. The end goal is a core small enough to be formally verified. We will get there eventually, and in the meantime, we hope it's a fun ride.
 
 ## Features
 
