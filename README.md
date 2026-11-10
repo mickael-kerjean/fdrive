@@ -39,8 +39,8 @@ It looks native, because it is:
 </p>
 
 <p align="center">
-    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-iphone.png" alt="mac screenshot" />
-    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-ios">Iphone</a></em>
+    <img src="https://downloads.filestash.app/img/app-filestash-www-img-screenshots-fdrive-iphone.png" alt="iphone screenshot" />
+    <em><a href="https://github.com/mickael-kerjean/fdrive/tree/master/crates/fdrive-ios">iPhone</a></em>
 </p>
 
 <p align="center">
@@ -75,7 +75,7 @@ EOF
 - Mac: <a href="https://downloads.filestash.app/latest/Filestash.dmg">silicon</a>
 - Linux GTK: <a href="https://downloads.filestash.app/latest/fdrive-linux-gtk-x86_64.bin">amd64</a>
 - Linux CLI: <a href="https://downloads.filestash.app/latest/fdrive-linux-x86_64.bin">amd64</a>
-- Iphone: apple store (coming soon)
+- iPhone: apple store (coming soon)
 - Android: <a href="https://downloads.filestash.app/latest/fdrive-android.apk">apk</a>, play store (coming soon)
 
 ## Architecture & Goals
@@ -93,6 +93,8 @@ The whole project is structured around the ports and adapters pattern. The core 
 | `fdrive-android` | Storage Access Framework, Kotlin |
 | `fdrive-docker` | Docker volume plugin API, FUSE |
 | `fdrive-omarchy` | QML, FUSE |
+| `fdrive-kde` | QML, FUSE |
+| `fdrive-gnome` | GNOME Shell extension, FUSE |
 
 > *“Perfection is achieved, not when there is nothing more to add, but when there is nothing left to take away.”*
 > &mdash; Antoine de Saint-Exupéry
