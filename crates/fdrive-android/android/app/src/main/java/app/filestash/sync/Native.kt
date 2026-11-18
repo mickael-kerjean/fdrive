@@ -9,7 +9,7 @@ import app.filestash.core.RemoteObserver
 import java.io.File
 
 object Native {
-    const val AUTHORITY = "app.filestash.sync.documents"
+    const val AUTHORITY = "app.filestash.android.documents"
     const val ROOT_ID = "filestash"
 
     @Volatile

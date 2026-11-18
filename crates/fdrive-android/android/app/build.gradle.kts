@@ -18,7 +18,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "app.filestash.sync"
+        applicationId = "app.filestash.android"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
