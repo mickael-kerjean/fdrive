@@ -30,7 +30,7 @@ pipeline {
                         sh "apt-get update && apt-get install -y openjdk-21-jdk-headless unzip"
                         sh "mkdir -p /opt/android-sdk/cmdline-tools && curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/tools.zip && unzip -q /tmp/tools.zip -d /opt/android-sdk/cmdline-tools && mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest"
                         sh "yes | /opt/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null"
-                        sh "/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018'"
+                        sh "/opt/android-sdk/cmdline-tools/latest/bin/sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018'"
                         sh "rustup target add aarch64-linux-android x86_64-linux-android && cargo install cargo-ndk"
                         sh "cd crates/fdrive-android/android && ANDROID_HOME=/opt/android-sdk ./gradlew assembleDebug"
                     }

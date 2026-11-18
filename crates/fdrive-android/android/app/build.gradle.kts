@@ -15,14 +15,29 @@ val sdkDir: String? = System.getenv("ANDROID_HOME")
 
 android {
     namespace = "app.filestash.sync"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "app.filestash.android"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = findProperty("uploadStoreFile")?.let { file(it) }
+            storePassword = findProperty("uploadStorePassword") as String?
+            keyAlias = findProperty("uploadKeyAlias") as String?
+            keyPassword = findProperty("uploadKeyPassword") as String?
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     compileOptions {
