@@ -54,6 +54,7 @@ struct DisconnectView: View {
             .controlSize(.large)
             .disabled(serverURL.isEmpty || probing)
         }
+        .frame(maxWidth: 400)
         .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemGroupedBackground).ignoresSafeArea())

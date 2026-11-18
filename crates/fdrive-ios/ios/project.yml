@@ -34,6 +34,13 @@ targets:
         CFBundleDisplayName: Filestash
         UILaunchScreen: {}
         NSFileProviderDomainUsageDescription: Show your Filestash files in the Files app.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     entitlements:
       path: App/Filestash.entitlements
       properties:

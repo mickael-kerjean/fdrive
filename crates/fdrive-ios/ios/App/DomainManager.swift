@@ -19,6 +19,11 @@ enum DomainManager {
         try await NSFileProviderManager.remove(domain)
     }
 
+    static func isEnabled() async -> Bool {
+        let registered = try? await NSFileProviderManager.domains().first { $0.identifier == domain.identifier }
+        return registered?.userEnabled ?? true
+    }
+
     @MainActor
     static func open() async {
         guard let manager = NSFileProviderManager(for: domain),

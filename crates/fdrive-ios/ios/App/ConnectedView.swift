@@ -5,38 +5,63 @@ struct ConnectedView: View {
     @EnvironmentObject var state: AppState
     @State private var connected: Bool?
     @State private var checkNow = 0
+    @State private var locationEnabled = true
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 Spacer()
 
-                StatusCircle(connected: connected) { checkNow += 1 }
+                if locationEnabled {
+                    StatusCircle(connected: connected) { checkNow += 1 }
 
-                Text(label)
-                    .font(.title3.weight(.semibold))
-                    .padding(.top, 20)
+                    Text(label)
+                        .font(.title3.weight(.semibold))
+                        .padding(.top, 20)
 
-                if !host.isEmpty {
-                    Text(host)
-                        .font(.footnote)
+                    if !host.isEmpty {
+                        Text(host)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 4)
+                    }
+                } else {
+                    Image(systemName: "folder.badge.gearshape")
+                        .font(.system(size: 56))
+                        .foregroundStyle(Color.fsAccent)
+
+                    Text("Turn on Filestash in Files")
+                        .font(.title3.weight(.semibold))
+                        .padding(.top, 20)
+
+                    Text(UIDevice.current.userInterfaceIdiom == .pad
+                         ? "Open the Files app and tap Filestash in the sidebar under Locations, then Turn On. If it isn't listed, tap ⋯ then Edit and switch it on."
+                         : "Open the Files app and tap Filestash under Locations in the Browse tab, then Turn On. If it isn't listed, tap ⋯ then Edit and switch it on.")
                         .foregroundStyle(.secondary)
-                        .padding(.top, 4)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 8)
                 }
 
                 Spacer()
 
                 Button {
-                    Task { await DomainManager.open() }
+                    if locationEnabled {
+                        Task { await DomainManager.open() }
+                    } else {
+                        UIApplication.shared.open(URL(string: "shareddocuments://")!)
+                    }
                 } label: {
-                    Text("Browse")
+                    Text(locationEnabled ? "Browse" : "Open Files")
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
             }
+            .frame(maxWidth: 400)
             .padding(24)
+            .frame(maxWidth: .infinity)
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -50,10 +75,14 @@ struct ConnectedView: View {
             }
         }
         .tint(.fsAccent)
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { checkNow += 1 }
+        }
         .task(id: checkNow) {
             let session = RuntimeSessionStore.load()
             guard session.ok, let dataDirectory = RuntimeSessionStore.dataDirectory else { return }
             while !Task.isCancelled {
+                locationEnabled = await DomainManager.isEnabled()
                 let up = await Task.detached {
                     ping(dataDir: dataDirectory.path, url: session.url, token: session.token)
                 }.value
