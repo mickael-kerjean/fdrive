@@ -196,7 +196,7 @@ private fun Preview(uri: Uri) {
 }
 
 @Composable
-private fun FolderPicker(start: String, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
+fun FolderPicker(start: String, onSelect: (String) -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     var dir by remember { mutableStateOf(start) }
     var dirs by remember { mutableStateOf<List<String>?>(null) }

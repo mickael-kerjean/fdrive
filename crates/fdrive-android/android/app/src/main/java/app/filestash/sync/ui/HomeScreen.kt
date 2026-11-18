@@ -16,18 +16,25 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,15 +45,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.filestash.sync.Native
+import app.filestash.sync.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -59,6 +71,21 @@ fun HomeScreen(onLoggedOut: () -> Unit) {
     var connected by remember { mutableStateOf<Boolean?>(null) }
     var checkNow by remember { mutableIntStateOf(0) }
     val account = remember { accountLabel(context) }
+    var offline by remember { mutableStateOf(false) }
+    var meter by remember { mutableStateOf(emptyList<Float>()) }
+    var speed by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            withContext(Dispatchers.IO) {
+                runCatching { Native.withReauth(context) { it.meter() to it.speed() } }.getOrNull()
+            }?.let { (bars, rate) ->
+                meter = bars.map { it.toFloat() }
+                speed = rate
+            }
+            delay(1_000)
+        }
+    }
 
     LaunchedEffect(checkNow) {
         while (true) {
@@ -77,7 +104,7 @@ fun HomeScreen(onLoggedOut: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(modifier = Modifier.weight(1f))
-            StatusCircle(connected) { checkNow++ }
+            StatusCircle(connected, meter, speed) { if (connected == true) offline = true else checkNow++ }
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 when (connected) {
@@ -115,6 +142,71 @@ fun HomeScreen(onLoggedOut: () -> Unit) {
         ) {
             LogoutIcon(MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+    if (offline) {
+        PinsDialog { offline = false }
+    }
+}
+
+@Composable
+private fun PinsDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var pins by remember { mutableStateOf(Native.withReauth(context) { it.pins() }) }
+    var picking by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pins") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                if (pins.isEmpty()) {
+                    Icon(
+                        painterResource(R.drawable.ic_pin_off),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier
+                            .padding(32.dp)
+                            .size(40.dp)
+                            .align(Alignment.CenterHorizontally),
+                    )
+                }
+                pins.forEach { path ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            path.trimEnd('/').substringAfterLast('/'),
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { pins = Native.withReauth(context) { it.unpin(path); it.pins() } }) {
+                            Text("✕", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { picking = true }) { Text("Add") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+    if (picking) {
+        FolderPicker(
+            start = "/",
+            onSelect = { dir ->
+                picking = false
+                pins = Native.withReauth(context) { it.pin(dir); it.pins() }
+            },
+            onDismiss = { picking = false },
+        )
     }
 }
 
@@ -156,7 +248,7 @@ private fun LogoutIcon(tint: Color) {
 }
 
 @Composable
-private fun StatusCircle(connected: Boolean?, onClick: () -> Unit) {
+private fun StatusCircle(connected: Boolean?, meter: List<Float>, speed: String, onClick: () -> Unit) {
     val fill = when (connected) {
         true -> ConnectedGreen
         false -> MaterialTheme.colorScheme.error
@@ -189,36 +281,53 @@ private fun StatusCircle(connected: Boolean?, onClick: () -> Unit) {
                 .clip(CircleShape)
                 .background(fill.copy(alpha = 0.22f + 0.12f * glow)),
         )
-        StatusCircleCore(fill, glyph, onClick)
+        StatusCircleCore(fill, glyph, meter, speed, onClick)
     }
 }
 
 @Composable
-private fun StatusCircleCore(fill: Color, glyph: Color, onClick: () -> Unit) {
+private fun StatusCircleCore(fill: Color, glyph: Color, meter: List<Float>, speed: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(124.dp)
             .clip(CircleShape)
             .background(fill)
+            .drawBehind {
+                val bars = meter.takeLast(24)
+                val max = bars.maxOrNull()?.takeIf { it > 0f } ?: return@drawBehind
+                val step = size.width / 24
+                bars.forEachIndexed { i, value ->
+                    val height = size.height * value / max
+                    drawRect(
+                        color = glyph.copy(alpha = 0.12f),
+                        topLeft = Offset(size.width - (bars.size - i) * step, size.height - height),
+                        size = Size(step * 0.8f, height),
+                    )
+                }
+            }
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(48.dp)) {
-            val stroke = Stroke(width = size.width / 9, cap = StrokeCap.Round)
-            drawArc(
-                color = glyph,
-                startAngle = -60f,
-                sweepAngle = 300f,
-                useCenter = false,
-                style = stroke,
-            )
-            drawLine(
-                color = glyph,
-                start = Offset(size.width / 2, -size.height / 12),
-                end = Offset(size.width / 2, size.height / 2.4f),
-                strokeWidth = stroke.width,
-                cap = StrokeCap.Round,
-            )
+        if (speed.isNotEmpty()) {
+            Text(speed, style = MaterialTheme.typography.titleMedium, color = glyph)
+        } else {
+            Canvas(modifier = Modifier.size(48.dp)) {
+                val stroke = Stroke(width = size.width / 9, cap = StrokeCap.Round)
+                drawArc(
+                    color = glyph,
+                    startAngle = -60f,
+                    sweepAngle = 300f,
+                    useCenter = false,
+                    style = stroke,
+                )
+                drawLine(
+                    color = glyph,
+                    start = Offset(size.width / 2, -size.height / 12),
+                    end = Offset(size.width / 2, size.height / 2.4f),
+                    strokeWidth = stroke.width,
+                    cap = StrokeCap.Round,
+                )
+            }
         }
     }
 }

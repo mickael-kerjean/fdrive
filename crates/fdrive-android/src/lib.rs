@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use fdrive_core::activity;
 use fdrive_core::engine::{Engine, Observation, Watch};
 use fdrive_core::path::RelPath;
 use fdrive_core::port::LocalStore;
@@ -284,6 +285,37 @@ impl Adapter {
     pub fn flush(&self, timeout_ms: u64) {
         self.rt
             .block_on(self.engine.system().flush(Duration::from_millis(timeout_ms)));
+    }
+
+    pub fn pin(&self, path: String) {
+        self.engine.cache().pin(&rel(&path));
+    }
+
+    pub fn unpin(&self, path: String) {
+        self.engine.cache().unpin(&rel(&path));
+    }
+
+    pub fn pins(&self) -> Vec<String> {
+        self.engine.cache().pins().iter().map(RelPath::as_dir).collect()
+    }
+
+    pub fn meter(&self) -> Vec<u64> {
+        self.engine
+            .status()
+            .activity()
+            .snapshot()
+            .meter
+            .iter()
+            .map(|(up, down)| up + down)
+            .collect()
+    }
+
+    pub fn speed(&self) -> String {
+        let (up, down) = activity::mean_rate(&self.engine.status().activity().snapshot());
+        match up + down {
+            0 => String::new(),
+            rate => format!("{}/s", activity::fmt_compact(rate)),
+        }
     }
 }
 

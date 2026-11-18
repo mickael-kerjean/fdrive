@@ -136,6 +136,10 @@ impl<'a, T: LocalStore> Cache<'a, T> {
             .collect()
     }
 
+    pub fn pins(&self) -> Vec<RelPath> {
+        self.0.ledger().pins.iter().cloned().collect()
+    }
+
     pub fn pinned(&self, path: &RelPath) -> bool {
         self.0
             .ledger()
