@@ -329,17 +329,35 @@ impl Adapter {
         };
         let listing = match cached {
             Some(listing) => listing,
-            None => {
-                let fetched = self.rt.block_on(self.engine.fs().ls(dir))?;
-                self.engine.view().note(dir, &fetched);
-                self.engine
-                    .local()
-                    .meta
-                    .lock()
-                    .unwrap()
-                    .insert(dir.clone(), (Instant::now(), fetched.clone()));
-                fetched
-            }
+            None => match self.rt.block_on(self.engine.fs().ls(dir)) {
+                Ok(fetched) => {
+                    self.engine.view().note(dir, &fetched);
+                    self.engine
+                        .local()
+                        .meta
+                        .lock()
+                        .unwrap()
+                        .insert(dir.clone(), (Instant::now(), fetched.clone()));
+                    fetched
+                }
+                Err(err @ (remote::Error::NotFound | remote::Error::PermissionDenied)) => {
+                    return Err(err.into())
+                }
+                Err(err) => {
+                    let meta = self.engine.local().meta.lock().unwrap();
+                    match meta.get(dir) {
+                        Some((_, listing)) => {
+                            log::debug!("ls {dir} unreachable, serving stale: {err}");
+                            listing.clone()
+                        }
+                        None => {
+                            drop(meta);
+                            log::debug!("ls {dir} unreachable, serving the ledger: {err}");
+                            self.engine.view().remembered(dir)
+                        }
+                    }
+                }
+            },
         };
         Ok(self.engine.view().merge(dir, listing))
     }
