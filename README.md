@@ -76,7 +76,7 @@ EOF
 - Linux GTK: <a href="https://downloads.filestash.app/latest/fdrive-linux-gtk-x86_64.bin">amd64</a>
 - Linux CLI: <a href="https://downloads.filestash.app/latest/fdrive-linux-x86_64.bin">amd64</a>
 - iPhone: <a href="https://apps.apple.com/app/id6835720644">apple store</a>
-- Android: <a href="https://downloads.filestash.app/latest/fdrive-android.apk">apk</a>, play store (coming soon)
+- Android: <a href="https://downloads.filestash.app/latest/fdrive-android.apk">apk</a>, <a href="https://play.google.com/store/apps/details?id=app.filestash.android">play store</a>
 
 ## Architecture & Goals
 
