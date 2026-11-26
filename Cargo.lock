@@ -3773,6 +3773,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "search-windows"
+version = "0.1.0"
+dependencies = [
+ "embed-resource",
+ "fdrive-core",
+ "tokio",
+ "url",
+ "windows",
+]
+
+[[package]]
 name = "sec1"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

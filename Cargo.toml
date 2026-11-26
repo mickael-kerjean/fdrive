@@ -8,6 +8,7 @@ members = [
     "crates/fdrive-linux",
     "crates/fdrive-mac",
     "crates/fdrive-windows",
+    "crates/search-windows",
 ]
 default-members = [
     "crates/fdrive-android",
