@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use fdrive_core::remote::{FileType, Remote};
 
 struct Hit {
-    label: String,
+    path: String,
+    size: Option<u64>,
+    modified: Option<std::time::SystemTime>,
     url: String,
 }
 
@@ -33,7 +35,9 @@ fn run() -> Result<(), String> {
         Ok(files
             .iter()
             .map(|(path, info)| Hit {
-                label: path.clone(),
+                path: path.clone(),
+                size: info.size.filter(|_| info.kind == FileType::File),
+                modified: info.mtime,
                 url: link(&base, path, info.kind == FileType::Directory),
             })
             .collect())

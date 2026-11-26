@@ -3,12 +3,12 @@ use std::path::Path;
 const RC: &str = r#"1 24 "app.manifest"
 
 100 DIALOGEX 0, 0, 320, 200
-STYLE 0x80CA08C0
+STYLE 0x80CF0840
 CAPTION "Filestash Search"
 FONT 9, "Segoe UI"
 BEGIN
     EDITTEXT 101, 7, 7, 306, 14, 0x0080
-    LISTBOX 102, 7, 26, 306, 167, 0x00210100
+    LISTBOX 102, 7, 26, 306, 167, 0x00210180
 END
 "#;
 

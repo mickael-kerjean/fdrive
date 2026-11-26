@@ -34,7 +34,8 @@ impl State<'_> {
         match dialog.busy(&format!("Searching \"{term}\"..."), || (self.search)(&term)) {
             Ok(hits) => {
                 dialog.title(&format!("Filestash Search: {} results", hits.len()));
-                dialog.show(hits.iter().map(|hit| hit.label.as_str()));
+                let labels: Vec<String> = hits.iter().map(label).collect();
+                dialog.show(labels.iter().map(String::as_str));
                 self.hits = hits;
             }
             Err(err) => {
@@ -49,5 +50,23 @@ impl State<'_> {
         if let Some(hit) = dialog.selected().and_then(|index| self.hits.get(index)) {
             dialog.open(&hit.url);
         }
+    }
+}
+
+fn label(hit: &Hit) -> String {
+    let date = hit.modified.map(win32::local_time).unwrap_or_default();
+    format!("{date}\t{}\t{}", hit.size.map(size).unwrap_or_default(), hit.path)
+}
+
+fn size(bytes: u64) -> String {
+    let units = ["B", "KB", "MB", "GB", "TB"];
+    let (mut value, mut unit) = (bytes as f64, 0);
+    while value >= 1024.0 && unit < units.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    match unit {
+        0 => format!("{bytes} B"),
+        _ => format!("{value:.1} {}", units[unit]),
     }
 }
