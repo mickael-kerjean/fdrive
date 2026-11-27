@@ -25,6 +25,7 @@ pipeline {
                         sh "apt-get update && apt-get install -y gcc-mingw-w64-x86-64"
                         sh "rustup target add x86_64-pc-windows-gnu"
                         sh "cargo build --release --target x86_64-pc-windows-gnu -p fdrive-windows"
+                        sh "cargo build --release --target x86_64-pc-windows-gnu -p search-windows"
                     }
                     docker.image("rust:1-trixie").inside("--user=root") {
                         sh "apt-get update && apt-get install -y openjdk-21-jdk-headless unzip"
@@ -46,6 +47,7 @@ pipeline {
                             sh 'scp -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no target/release/fdrive-gtk "$SSH_USER@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/latest/fdrive-linux-gtk-x86_64.bin"'
                             sh 'scp -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no target/release/fdrive "$SSH_USER@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/latest/fdrive-linux-x86_64.bin"'
                             sh 'scp -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no target/x86_64-pc-windows-gnu/release/fdrive-windows.exe "$SSH_USER@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/latest/fdrive-windows-x86_64.exe"'
+                            sh 'scp -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no target/x86_64-pc-windows-gnu/release/search-windows.exe "$SSH_USER@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/latest/search-windows-x86_64.exe"'
                             sh 'scp -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no crates/fdrive-android/android/app/build/outputs/apk/debug/app-debug.apk "$SSH_USER@hal.filestash.app:/mnt/me-kerjean-pages/projects/filestash/downloads/latest/fdrive-android.apk"'
                         }
                     }
