@@ -1,3 +1,12 @@
+## Release
+
+- Windows: <a href="https://downloads.filestash.app/latest/fdrive-windows-x86_64.exe">exe</a>
+- Mac: <a href="https://downloads.filestash.app/latest/Filestash.dmg">silicon</a>
+- Linux GTK: <a href="https://downloads.filestash.app/latest/fdrive-linux-gtk-x86_64.bin">amd64</a>
+- Linux CLI: <a href="https://downloads.filestash.app/latest/fdrive-linux-x86_64.bin">amd64</a>
+- iPhone: <a href="https://apps.apple.com/app/id6835720644">apple store</a>
+- Android: <a href="https://downloads.filestash.app/latest/fdrive-android.apk">apk</a>, <a href="https://play.google.com/store/apps/details?id=app.filestash.android">play store</a>
+
 # What is this?
 
 Fdrive takes Dropbox's big idea of "a folder that syncs across your devices" and addresses its [infamous qualms](https://github.com/mickael-kerjean/filestash#why). Rather than creating yet another data silo, it works with the storage you already have and gives it the Dropbox++ treatment with better tooling, for both:
@@ -68,15 +77,6 @@ volumes:
       token: ${FILESTASH_TOKEN}
 EOF
 ```
-
-## Release
-
-- Windows: <a href="https://downloads.filestash.app/latest/fdrive-windows-x86_64.exe">exe</a>
-- Mac: <a href="https://downloads.filestash.app/latest/Filestash.dmg">silicon</a>
-- Linux GTK: <a href="https://downloads.filestash.app/latest/fdrive-linux-gtk-x86_64.bin">amd64</a>
-- Linux CLI: <a href="https://downloads.filestash.app/latest/fdrive-linux-x86_64.bin">amd64</a>
-- iPhone: <a href="https://apps.apple.com/app/id6835720644">apple store</a>
-- Android: <a href="https://downloads.filestash.app/latest/fdrive-android.apk">apk</a>, <a href="https://play.google.com/store/apps/details?id=app.filestash.android">play store</a>
 
 ## Architecture & Goals
 
