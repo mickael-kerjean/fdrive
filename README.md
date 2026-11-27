@@ -1,12 +1,3 @@
-## Release
-
-- Windows: <a href="https://downloads.filestash.app/latest/fdrive-windows-x86_64.exe">exe</a>
-- Mac: <a href="https://downloads.filestash.app/latest/Filestash.dmg">silicon</a>
-- Linux GTK: <a href="https://downloads.filestash.app/latest/fdrive-linux-gtk-x86_64.bin">amd64</a>
-- Linux CLI: <a href="https://downloads.filestash.app/latest/fdrive-linux-x86_64.bin">amd64</a>
-- iPhone: <a href="https://apps.apple.com/app/id6835720644">apple store</a>
-- Android: <a href="https://downloads.filestash.app/latest/fdrive-android.apk">apk</a>, <a href="https://play.google.com/store/apps/details?id=app.filestash.android">play store</a>
-
 # What is this?
 
 Fdrive takes Dropbox's big idea of "a folder that syncs across your devices" and addresses its [infamous qualms](https://github.com/mickael-kerjean/filestash#why). Rather than creating yet another data silo, it works with the storage you already have and gives it the Dropbox++ treatment with better tooling, for both:
@@ -14,6 +5,8 @@ Fdrive takes Dropbox's big idea of "a folder that syncs across your devices" and
 1. Humans: who want the Dropbox experience on the storage they already have and across all their devices, without creating a new data island and while staying interoperable.
 
 2. [Agents](https://www.filestash.app/docs/guide/agents.html): as Nvidia's CEO says: *“when you deployed an agent ... the first thing you do is you take away all of its rights ... then you provision, you give it access to files...”*. Fdrive, along with its [control plane](https://github.com/mickael-kerjean/filestash), is that provisioning tool: your agent only gets access to what it needs, with clear permission boundaries, and an audit trail shows what it tried to do, what was allowed and what was blocked.
+
+You can download it from <a href="https://play.google.com/store/apps/details?id=app.filestash.android">Google Play</a>, the <a href="https://apps.apple.com/app/id6835720644">Apple Store</a>, <a href="https://downloads.filestash.app/latest/fdrive-windows-x86_64.exe">Windows</a>, <a href="https://downloads.filestash.app/latest/Filestash.dmg">Mac</a>, <a href="https://downloads.filestash.app/latest/fdrive-linux-gtk-x86_64.bin">Linux</a>, ...
 
 It looks native, because it is:
 
